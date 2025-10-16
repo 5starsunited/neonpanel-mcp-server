@@ -1,0 +1,174 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NeonPanel MCP Server",
+    "version": "1.0.0",
+    "description": "MCP Server for NeonPanel inventory, finance, and analytics data"
+  },
+  "servers": [
+    {
+      "url": "https://mcp.neonpanel.com",
+      "description": "Production MCP Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "neonpanel_oauth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://my.neonpanel.com/oauth2/authorize",
+            "tokenUrl": "https://my.neonpanel.com/oauth2/token",
+            "scopes": {
+              "read:inventory": "Read inventory data",
+              "read:analytics": "Read analytics data",
+              "read:companies": "Read company information",
+              "read:reports": "Read reports",
+              "read:warehouses": "Read warehouse data",
+              "read:revenue": "Read revenue data",
+              "read:cogs": "Read cost of goods sold",
+              "read:landed-cost": "Read landed cost data",
+              "write:import": "Import data"
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "neonpanel_oauth": [
+        "read:inventory",
+        "read:analytics",
+        "read:companies",
+        "read:reports"
+      ]
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Check if the MCP server is running",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "service": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp/capabilities": {
+      "get": {
+        "summary": "Get MCP capabilities",
+        "description": "Retrieve available MCP tools and capabilities",
+        "operationId": "getCapabilities",
+        "responses": {
+          "200": {
+            "description": "List of available capabilities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies": {
+      "get": {
+        "summary": "List companies",
+        "description": "Get list of companies from NeonPanel",
+        "operationId": "listCompanies",
+        "security": [
+          {
+            "neonpanel_oauth": [
+              "read:companies"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of companies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - OAuth token required"
+          }
+        }
+      }
+    },
+    "/api/inventory": {
+      "get": {
+        "summary": "Get inventory data",
+        "description": "Retrieve inventory information from NeonPanel",
+        "operationId": "getInventory",
+        "security": [
+          {
+            "neonpanel_oauth": [
+              "read:inventory"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventory data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - OAuth token required"
+          }
+        }
+      }
+    }
+  }
+}

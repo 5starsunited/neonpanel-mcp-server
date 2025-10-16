@@ -1,0 +1,280 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NeonPanel MCP Server",
+    "version": "1.0.0",
+    "description": "MCP Server for NeonPanel inventory, finance, and analytics data.\n\n## Authentication Setup\n\nThis API uses OAuth 2.0 with **Dynamic Client Registration (RFC 7591)** support.\n\n### Dynamic Client Registration:\n\nChatGPT can register automatically by calling:\n- **Registration endpoint:** https://my.neonpanel.com/oauth2/register\n- **Authorization endpoint:** https://my.neonpanel.com/oauth2/authorize\n- **Token endpoint:** https://my.neonpanel.com/oauth2/token\n\n### Security Model:\n\n- Dynamic registration returns a client_id and client_secret\n- The client_id is **shared** across registrations (backend uses pre-registered credentials)\n- Each user authenticates with **their own NeonPanel credentials**\n- Each user receives a **unique token** with permissions specific to their account\n- PKCE (Proof Key for Code Exchange) prevents authorization code interception\n\n### User Data Isolation:\n\nWhen a user authorizes:\n1. They log in with their NeonPanel username/password\n2. NeonPanel issues a JWT token containing their user_id and permissions\n3. API responses are filtered based on the authenticated user's permissions\n4. Users can only access data they have permission to view\n\nNo user can access another user's data."
+  },
+  "servers": [
+    {
+      "url": "https://mcp.neonpanel.com",
+      "description": "Production MCP Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "neonpanel_oauth": {
+        "type": "oauth2",
+        "description": "OAuth 2.0 authorization with Dynamic Client Registration (RFC 7591).\n\nRegister your client by calling POST https://my.neonpanel.com/oauth2/register to receive client credentials.\n\n**Important:** This is a public client flow. Use PKCE (code_challenge and code_verifier) for security.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://my.neonpanel.com/oauth2/authorize",
+            "tokenUrl": "https://my.neonpanel.com/oauth2/token",
+            "refreshUrl": "https://my.neonpanel.com/oauth2/token",
+            "scopes": {
+              "read:inventory": "Read inventory data",
+              "read:analytics": "Read analytics data",
+              "read:companies": "Read company information",
+              "read:reports": "Read reports",
+              "read:warehouses": "Read warehouse data",
+              "read:revenue": "Read revenue data",
+              "read:cogs": "Read cost of goods sold",
+              "read:landed-cost": "Read landed cost data",
+              "write:import": "Import data"
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "neonpanel_oauth": [
+        "read:inventory",
+        "read:analytics",
+        "read:companies",
+        "read:reports"
+      ]
+    }
+  ],
+  "paths": {
+    "/oauth2/register": {
+      "post": {
+        "summary": "Dynamic Client Registration",
+        "description": "Register a new OAuth 2.0 client (RFC 7591). Returns client credentials for authentication.",
+        "operationId": "registerClient",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "client_name": {
+                    "type": "string",
+                    "description": "Human-readable name of the client"
+                  },
+                  "redirect_uris": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Redirect URIs for OAuth callback"
+                  },
+                  "grant_types": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "OAuth grant types"
+                  },
+                  "response_types": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "OAuth response types"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "description": "Space-separated list of scopes"
+                  },
+                  "token_endpoint_auth_method": {
+                    "type": "string",
+                    "description": "Token endpoint authentication method"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Client registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client_id": {
+                      "type": "string",
+                      "description": "Unique client identifier"
+                    },
+                    "client_secret": {
+                      "type": "string",
+                      "description": "Client secret for authentication"
+                    },
+                    "client_id_issued_at": {
+                      "type": "integer",
+                      "description": "Unix timestamp when client_id was issued"
+                    },
+                    "client_secret_expires_at": {
+                      "type": "integer",
+                      "description": "Unix timestamp when client_secret expires (0 = no expiration)"
+                    },
+                    "redirect_uris": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "grant_types": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "response_types": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "token_endpoint_auth_method": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "description": "Check if the MCP server is running",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "service": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp/capabilities": {
+      "get": {
+        "summary": "Get MCP capabilities",
+        "description": "Retrieve available MCP tools and capabilities",
+        "operationId": "getCapabilities",
+        "responses": {
+          "200": {
+            "description": "List of available capabilities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "capabilities": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies": {
+      "get": {
+        "summary": "List companies",
+        "description": "Get list of companies from NeonPanel",
+        "operationId": "listCompanies",
+        "security": [
+          {
+            "neonpanel_oauth": [
+              "read:companies"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of companies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - OAuth token required"
+          }
+        }
+      }
+    },
+    "/api/inventory": {
+      "get": {
+        "summary": "Get inventory data",
+        "description": "Retrieve inventory information from NeonPanel",
+        "operationId": "getInventory",
+        "security": [
+          {
+            "neonpanel_oauth": [
+              "read:inventory"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventory data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - OAuth token required"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+*.swp
+*.swo
+*~
+.dcr/
+cdk.out/
+.cdk.staging/
+*.js.map
+coverage/

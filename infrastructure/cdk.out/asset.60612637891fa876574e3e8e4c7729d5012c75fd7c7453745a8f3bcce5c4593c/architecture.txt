@@ -1,0 +1,12 @@
+Here is how MCP servers should work: 
+
+1. Keepa MCP - independend MCP server we run to let user use their Keepa API Key to let AI access their data. 
+NO CONNECTION WITH NeonPanel. 
+
+2. Neonpanel users can use their neonpanel a creditations Client ID and Client secret to 
+obtain NeonPanel JWT. Users have granted NeonPanel access to their account on 3d party API 
+like Amazon SP-API and QuickBooks. As soon as NeonPanel maintain their access tokens to 
+those servers, it can generate authorised requests to their API.
+So, mcp.neonpanel.com MCP server incide itself should be able to send user request derectly to NeonPanel API (provider = neonpanel)
+or to SP API or QuickBooks API. So, this possibilities should we exposed to AI connected to 
+NeonPanel MCP Server. 

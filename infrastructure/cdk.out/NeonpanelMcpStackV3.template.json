@@ -1,0 +1,515 @@
+{
+ "Resources": {
+  "NeonpanelMcpCluster2BAEE5B1": {
+   "Type": "AWS::ECS::Cluster",
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpCluster/Resource"
+   }
+  },
+  "NeonpanelMcpLogs8D379111": {
+   "Type": "AWS::Logs::LogGroup",
+   "Properties": {
+    "LogGroupName": "/ecs/neonpanel-mcp-v2",
+    "RetentionInDays": 7
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpLogs/Resource"
+   }
+  },
+  "NeonpanelMcpServiceLB80062137": {
+   "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+   "Properties": {
+    "LoadBalancerAttributes": [
+     {
+      "Key": "deletion_protection.enabled",
+      "Value": "false"
+     }
+    ],
+    "Scheme": "internet-facing",
+    "SecurityGroups": [
+     {
+      "Fn::GetAtt": [
+       "NeonpanelMcpServiceLBSecurityGroup33D54227",
+       "GroupId"
+      ]
+     }
+    ],
+    "Subnets": [
+     "subnet-0794f40f8cce4adf8",
+     "subnet-05b888f9ea3807e24",
+     "subnet-0d7284ca4c35f3d66",
+     "subnet-0d2712e43a4307c52",
+     "subnet-02b280fe6be8f03ee",
+     "subnet-0bb10ef6dd8515d6b"
+    ],
+    "Type": "application"
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/LB/Resource"
+   }
+  },
+  "NeonpanelMcpServiceLBSecurityGroup33D54227": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "Automatically created Security Group for ELB NeonpanelMcpStackV3NeonpanelMcpServiceLB3ACA0AE8",
+    "SecurityGroupIngress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow from anyone on port 443",
+      "FromPort": 443,
+      "IpProtocol": "tcp",
+      "ToPort": 443
+     }
+    ],
+    "VpcId": "vpc-096409c6e5077aa8d"
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/LB/SecurityGroup/Resource"
+   }
+  },
+  "NeonpanelMcpServiceLBSecurityGrouptoNeonpanelMcpStackV3NeonpanelMcpServiceSecurityGroup6750D491303069A13FB4": {
+   "Type": "AWS::EC2::SecurityGroupEgress",
+   "Properties": {
+    "Description": "Load balancer to target",
+    "DestinationSecurityGroupId": {
+     "Fn::GetAtt": [
+      "NeonpanelMcpServiceSecurityGroup825C73DC",
+      "GroupId"
+     ]
+    },
+    "FromPort": 3030,
+    "GroupId": {
+     "Fn::GetAtt": [
+      "NeonpanelMcpServiceLBSecurityGroup33D54227",
+      "GroupId"
+     ]
+    },
+    "IpProtocol": "tcp",
+    "ToPort": 3030
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/LB/SecurityGroup/to NeonpanelMcpStackV3NeonpanelMcpServiceSecurityGroup6750D491:3030"
+   }
+  },
+  "NeonpanelMcpServiceLBPublicListener68FFC455": {
+   "Type": "AWS::ElasticLoadBalancingV2::Listener",
+   "Properties": {
+    "Certificates": [
+     {
+      "CertificateArn": "arn:aws:acm:us-east-1:303498144074:certificate/2fee2d20-5b9c-42df-9538-a98df4867097"
+     }
+    ],
+    "DefaultActions": [
+     {
+      "TargetGroupArn": {
+       "Ref": "NeonpanelMcpServiceLBPublicListenerECSGroup21CD6E82"
+      },
+      "Type": "forward"
+     }
+    ],
+    "LoadBalancerArn": {
+     "Ref": "NeonpanelMcpServiceLB80062137"
+    },
+    "Port": 443,
+    "Protocol": "HTTPS"
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/LB/PublicListener/Resource"
+   }
+  },
+  "NeonpanelMcpServiceLBPublicListenerECSGroup21CD6E82": {
+   "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+   "Properties": {
+    "HealthCheckIntervalSeconds": 30,
+    "HealthCheckPath": "/health",
+    "HealthCheckTimeoutSeconds": 5,
+    "HealthyThresholdCount": 2,
+    "Matcher": {
+     "HttpCode": "200"
+    },
+    "Port": 80,
+    "Protocol": "HTTP",
+    "TargetGroupAttributes": [
+     {
+      "Key": "stickiness.enabled",
+      "Value": "false"
+     }
+    ],
+    "TargetType": "ip",
+    "UnhealthyThresholdCount": 3,
+    "VpcId": "vpc-096409c6e5077aa8d"
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/LB/PublicListener/ECSGroup/Resource"
+   }
+  },
+  "NeonpanelMcpServiceTaskDefTaskRole8959A12B": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/TaskRole/Resource"
+   }
+  },
+  "NeonpanelMcpServiceTaskDefDBB9B587": {
+   "Type": "AWS::ECS::TaskDefinition",
+   "Properties": {
+    "ContainerDefinitions": [
+     {
+      "Environment": [
+       {
+        "Name": "NODE_ENV",
+        "Value": "production"
+       },
+       {
+        "Name": "PORT",
+        "Value": "3030"
+       },
+       {
+        "Name": "NEONPANEL_BASE_URL",
+        "Value": "https://my.neonpanel.com"
+       },
+       {
+        "Name": "BUILD_VERSION",
+        "Value": "v3.1.1"
+       }
+      ],
+      "Essential": true,
+      "Image": {
+       "Fn::Sub": "303498144074.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-303498144074-us-east-1:53c6b4f6b7e7d67a1052ab0073dc1ba087e2aa42f678d3fc9758ba8c74a8131f"
+      },
+      "LogConfiguration": {
+       "LogDriver": "awslogs",
+       "Options": {
+        "awslogs-group": {
+         "Ref": "NeonpanelMcpLogs8D379111"
+        },
+        "awslogs-stream-prefix": "neonpanel-mcp",
+        "awslogs-region": "us-east-1"
+       }
+      },
+      "Name": "web",
+      "PortMappings": [
+       {
+        "ContainerPort": 3030,
+        "Protocol": "tcp"
+       }
+      ]
+     }
+    ],
+    "Cpu": "512",
+    "ExecutionRoleArn": {
+     "Fn::GetAtt": [
+      "NeonpanelMcpServiceTaskDefExecutionRole157B7314",
+      "Arn"
+     ]
+    },
+    "Family": "NeonpanelMcpStackV3NeonpanelMcpServiceTaskDefD750325C",
+    "Memory": "1024",
+    "NetworkMode": "awsvpc",
+    "RequiresCompatibilities": [
+     "FARGATE"
+    ],
+    "TaskRoleArn": {
+     "Fn::GetAtt": [
+      "NeonpanelMcpServiceTaskDefTaskRole8959A12B",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/Resource"
+   }
+  },
+  "NeonpanelMcpServiceTaskDefExecutionRole157B7314": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/ExecutionRole/Resource"
+   }
+  },
+  "NeonpanelMcpServiceTaskDefExecutionRoleDefaultPolicy829EF975": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          "arn:",
+          {
+           "Ref": "AWS::Partition"
+          },
+          ":ecr:us-east-1:303498144074:repository/cdk-hnb659fds-container-assets-303498144074-us-east-1"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": "ecr:GetAuthorizationToken",
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NeonpanelMcpLogs8D379111",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "NeonpanelMcpServiceTaskDefExecutionRoleDefaultPolicy829EF975",
+    "Roles": [
+     {
+      "Ref": "NeonpanelMcpServiceTaskDefExecutionRole157B7314"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/ExecutionRole/DefaultPolicy/Resource"
+   }
+  },
+  "NeonpanelMcpService7A4F7063": {
+   "Type": "AWS::ECS::Service",
+   "Properties": {
+    "Cluster": {
+     "Ref": "NeonpanelMcpCluster2BAEE5B1"
+    },
+    "DeploymentConfiguration": {
+     "Alarms": {
+      "AlarmNames": [],
+      "Enable": false,
+      "Rollback": false
+     },
+     "MaximumPercent": 200,
+     "MinimumHealthyPercent": 50
+    },
+    "DesiredCount": 1,
+    "EnableECSManagedTags": false,
+    "HealthCheckGracePeriodSeconds": 60,
+    "LaunchType": "FARGATE",
+    "LoadBalancers": [
+     {
+      "ContainerName": "web",
+      "ContainerPort": 3030,
+      "TargetGroupArn": {
+       "Ref": "NeonpanelMcpServiceLBPublicListenerECSGroup21CD6E82"
+      }
+     }
+    ],
+    "NetworkConfiguration": {
+     "AwsvpcConfiguration": {
+      "AssignPublicIp": "ENABLED",
+      "SecurityGroups": [
+       {
+        "Fn::GetAtt": [
+         "NeonpanelMcpServiceSecurityGroup825C73DC",
+         "GroupId"
+        ]
+       }
+      ],
+      "Subnets": [
+       "subnet-0794f40f8cce4adf8",
+       "subnet-05b888f9ea3807e24",
+       "subnet-0d7284ca4c35f3d66",
+       "subnet-0d2712e43a4307c52",
+       "subnet-02b280fe6be8f03ee",
+       "subnet-0bb10ef6dd8515d6b"
+      ]
+     }
+    },
+    "TaskDefinition": {
+     "Ref": "NeonpanelMcpServiceTaskDefDBB9B587"
+    }
+   },
+   "DependsOn": [
+    "NeonpanelMcpServiceLBPublicListenerECSGroup21CD6E82",
+    "NeonpanelMcpServiceLBPublicListener68FFC455",
+    "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/Service/Service"
+   }
+  },
+  "NeonpanelMcpServiceSecurityGroup825C73DC": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "NeonpanelMcpStackV3/NeonpanelMcpService/Service/SecurityGroup",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow all outbound traffic by default",
+      "IpProtocol": "-1"
+     }
+    ],
+    "VpcId": "vpc-096409c6e5077aa8d"
+   },
+   "DependsOn": [
+    "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/Service/SecurityGroup/Resource"
+   }
+  },
+  "NeonpanelMcpServiceSecurityGroupfromNeonpanelMcpStackV3NeonpanelMcpServiceLBSecurityGroup0B8E86AD30303C75E34D": {
+   "Type": "AWS::EC2::SecurityGroupIngress",
+   "Properties": {
+    "Description": "Load balancer to target",
+    "FromPort": 3030,
+    "GroupId": {
+     "Fn::GetAtt": [
+      "NeonpanelMcpServiceSecurityGroup825C73DC",
+      "GroupId"
+     ]
+    },
+    "IpProtocol": "tcp",
+    "SourceSecurityGroupId": {
+     "Fn::GetAtt": [
+      "NeonpanelMcpServiceLBSecurityGroup33D54227",
+      "GroupId"
+     ]
+    },
+    "ToPort": 3030
+   },
+   "DependsOn": [
+    "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/Service/SecurityGroup/from NeonpanelMcpStackV3NeonpanelMcpServiceLBSecurityGroup0B8E86AD:3030"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/31S227CMAz9Ft5DNip+gMs2ISFtKrwjk5rKNCRVnDKhqv8+p1xUsWlPPj4+9nGsZDqbTPXrCL55bIpqbGmv200EU6kc2TfBoJLarkXDul3YhiMGtTi4O3yHUELELXC1xAM5iuRdEjwz3kUgh2HA3Xo3GM4kPtJ0g52yvhS/tS8/gm/qVLrjTskquxqiuDvWs7q2ZCDNW3so5mDBGSyeRqMFjmSsKPa9glx5znT7d3e4+g3yoY7k3e6mueNBfSvOGB9rD9K0uXhu0DSB4uUh+Z94KwMy/6JXruc7RXDSbe5tf78+fnnZ5ZLSK0q+YQfMGFkvvakwrE5Q4iwxqaZzrD1T9OEyB5brS+tnE+smql4j/6GUg3XK+QL1kV/O2VRP9WR0ZKJxaFykE+r8Gn8ATcmSCVICAAA="
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "NeonpanelMcpServiceLoadBalancerDNSD8F88DAD": {
+   "Value": {
+    "Fn::GetAtt": [
+     "NeonpanelMcpServiceLB80062137",
+     "DNSName"
+    ]
+   }
+  },
+  "NeonpanelMcpServiceServiceURL39FB5383": {
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Fn::GetAtt": [
+        "NeonpanelMcpServiceLB80062137",
+        "DNSName"
+       ]
+      }
+     ]
+    ]
+   }
+  },
+  "NeonpanelMcpUrl": {
+   "Description": "Base URL for NeonPanel MCP",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Fn::GetAtt": [
+        "NeonpanelMcpServiceLB80062137",
+        "DNSName"
+       ]
+      }
+     ]
+    ]
+   }
+  },
+  "NeonpanelMcpCustomUrl": {
+   "Description": "Custom domain URL for NeonPanel MCP",
+   "Value": "https://mcp.neonpanel.com"
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

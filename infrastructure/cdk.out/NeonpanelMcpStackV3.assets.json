@@ -1,0 +1,38 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "23d040d586704508b35d971743f2925ddc5ac0e502d646f6563cfa1fb6952ab8": {
+      "displayName": "NeonpanelMcpStackV3 Template",
+      "source": {
+        "path": "NeonpanelMcpStackV3.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "303498144074-us-east-1-5c298398": {
+          "bucketName": "cdk-hnb659fds-assets-303498144074-us-east-1",
+          "objectKey": "23d040d586704508b35d971743f2925ddc5ac0e502d646f6563cfa1fb6952ab8.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::303498144074:role/cdk-hnb659fds-file-publishing-role-303498144074-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {
+    "53c6b4f6b7e7d67a1052ab0073dc1ba087e2aa42f678d3fc9758ba8c74a8131f": {
+      "displayName": "NeonpanelMcpService/TaskDef/web/AssetImage",
+      "source": {
+        "directory": "asset.53c6b4f6b7e7d67a1052ab0073dc1ba087e2aa42f678d3fc9758ba8c74a8131f",
+        "dockerFile": "Dockerfile",
+        "platform": "linux/amd64"
+      },
+      "destinations": {
+        "303498144074-us-east-1-1df479f8": {
+          "repositoryName": "cdk-hnb659fds-container-assets-303498144074-us-east-1",
+          "imageTag": "53c6b4f6b7e7d67a1052ab0073dc1ba087e2aa42f678d3fc9758ba8c74a8131f",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::303498144074:role/cdk-hnb659fds-image-publishing-role-303498144074-us-east-1"
+        }
+      }
+    }
+  }
+}
