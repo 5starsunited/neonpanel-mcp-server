@@ -53,6 +53,34 @@ export function createApp(deps: AppDependencies): Application {
     }
   });
 
+  // OAuth 2.0 Authorization Server Metadata (RFC 8414)
+  app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+    const issuer = config.neonpanel.issuer;
+    res.json({
+      issuer: issuer,
+      authorization_endpoint: `${issuer}/oauth2/authorize`,
+      token_endpoint: `${issuer}/oauth2/token`,
+      registration_endpoint: `${issuer}/oauth2/register`,
+      jwks_uri: config.neonpanel.jwksUri,
+      scopes_supported: [
+        'read:inventory',
+        'read:analytics',
+        'read:companies',
+        'read:reports',
+        'read:warehouses',
+        'read:revenue',
+        'read:cogs',
+        'read:landed-cost',
+        'write:import',
+      ],
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code', 'refresh_token'],
+      token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+      code_challenge_methods_supported: ['S256'],
+      service_documentation: 'https://docs.neonpanel.com',
+    });
+  });
+
   app.get('/openapi.json', async (_req, res, next) => {
     try {
       const document = await deps.openApiService.getDocument();
