@@ -1,16 +1,16 @@
 {
   "version": "48.0.0",
   "files": {
-    "2f5968454a15b94b3c56e2f2a515170450c00a0f82999c69f31b9df2d236c1b9": {
+    "318e7fff98c0ccad376d55f0b1cd0c586d1dbae286cf8ee820cb7fcce7abe68f": {
       "displayName": "NeonpanelMcpStackV3 Template",
       "source": {
         "path": "NeonpanelMcpStackV3.template.json",
         "packaging": "file"
       },
       "destinations": {
-        "303498144074-us-east-1-c4744884": {
+        "303498144074-us-east-1-10e835ad": {
           "bucketName": "cdk-hnb659fds-assets-303498144074-us-east-1",
-          "objectKey": "2f5968454a15b94b3c56e2f2a515170450c00a0f82999c69f31b9df2d236c1b9.json",
+          "objectKey": "318e7fff98c0ccad376d55f0b1cd0c586d1dbae286cf8ee820cb7fcce7abe68f.json",
           "region": "us-east-1",
           "assumeRoleArn": "arn:${AWS::Partition}:iam::303498144074:role/cdk-hnb659fds-file-publishing-role-303498144074-us-east-1"
         }
@@ -18,17 +18,17 @@
     }
   },
   "dockerImages": {
-    "ebd24f178e1a9e02aa6e37e84d4ac6644da3296976a776bfd6166d6e11e4fc0c": {
+    "d81738a8b3f5ede8ebc84123169bc83aa1ab1f82fa7952c665c89de489c672a2": {
       "displayName": "NeonpanelMcpService/TaskDef/web/AssetImage",
       "source": {
-        "directory": "asset.ebd24f178e1a9e02aa6e37e84d4ac6644da3296976a776bfd6166d6e11e4fc0c",
+        "directory": "asset.d81738a8b3f5ede8ebc84123169bc83aa1ab1f82fa7952c665c89de489c672a2",
         "dockerFile": "Dockerfile",
         "platform": "linux/amd64"
       },
       "destinations": {
-        "303498144074-us-east-1-7977aaff": {
+        "303498144074-us-east-1-d34dc8cb": {
           "repositoryName": "cdk-hnb659fds-container-assets-303498144074-us-east-1",
-          "imageTag": "ebd24f178e1a9e02aa6e37e84d4ac6644da3296976a776bfd6166d6e11e4fc0c",
+          "imageTag": "d81738a8b3f5ede8ebc84123169bc83aa1ab1f82fa7952c665c89de489c672a2",
           "region": "us-east-1",
           "assumeRoleArn": "arn:${AWS::Partition}:iam::303498144074:role/cdk-hnb659fds-image-publishing-role-303498144074-us-east-1"
         }
