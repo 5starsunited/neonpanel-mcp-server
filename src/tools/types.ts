@@ -49,17 +49,30 @@ export class ToolRegistry {
   }
 
   list(): ToolListEntry[] {
-    return Array.from(this.tools.values()).map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      auth: tool.auth,
-      inputSchema: zodToJsonSchema(tool.inputSchema, {
+    return Array.from(this.tools.values()).map((tool) => {
+      const jsonSchema = zodToJsonSchema(tool.inputSchema, {
         name: `${tool.name}Input`,
         target: 'openApi3',
-      }) as Record<string, unknown>,
-      outputSchema: tool.outputSchema,
-      examples: tool.examples,
-    }));
+      }) as any;
+      
+      // Flatten the schema - extract the actual schema from $ref if present
+      let inputSchema: Record<string, unknown>;
+      if (jsonSchema.$ref && jsonSchema.definitions) {
+        const refKey = jsonSchema.$ref.replace('#/definitions/', '');
+        inputSchema = jsonSchema.definitions[refKey] || jsonSchema;
+      } else {
+        inputSchema = jsonSchema;
+      }
+      
+      return {
+        name: tool.name,
+        description: tool.description,
+        auth: tool.auth,
+        inputSchema,
+        outputSchema: tool.outputSchema,
+        examples: tool.examples,
+      };
+    });
   }
 
   get(name: string): ToolDefinition | undefined {
