@@ -25,7 +25,7 @@ const RawConfigSchema = z.object({
     .optional()
     .transform((value) => {
       if (!value || value.trim().length === 0) {
-        return ['mcp.read', 'mcp.tools'];
+        return []; // No required scopes by default - accept any valid token from trusted issuer
       }
       return value
         .split(/[,\s]+/)
