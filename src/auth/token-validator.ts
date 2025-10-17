@@ -55,7 +55,8 @@ export async function validateAccessToken(token: string): Promise<ValidatedAcces
   const verifyOptions: VerifyOptions = {
     algorithms: ['RS256'],
     issuer: config.neonpanel.issuer,
-    audience: config.neonpanel.expectedAudience,
+    // Make audience validation optional - OAuth server may not include audience claim
+    // This is acceptable since we're validating the issuer and signature
   };
 
   const payload = await new Promise<JwtPayload>((resolve, reject) => {

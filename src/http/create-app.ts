@@ -31,6 +31,29 @@ export function createApp(deps: AppDependencies): Application {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false }));
 
+  // Root endpoint - MCP server info
+  app.get('/', (_req, res) => {
+    res.json({
+      name: config.mcp.serverName,
+      version: config.buildVersion,
+      protocol: config.mcp.protocolVersion,
+      description: 'NeonPanel MCP Server - Access NeonPanel APIs via Model Context Protocol',
+      endpoints: {
+        health: '/healthz',
+        oauth_discovery: '/.well-known/oauth-authorization-server',
+        openapi_json: '/openapi.json',
+        openapi_yaml: '/openapi.yaml',
+        sse: '/sse',
+        messages: '/messages',
+      },
+      oauth: {
+        issuer: 'https://my.neonpanel.com',
+        required: true,
+      },
+      documentation: 'https://github.com/5starsunited/neonpanel-mcp-server',
+    });
+  });
+
   app.get('/healthz', async (req, res, next) => {
     try {
       const deepCheck = req.query.deep === '1' || req.query.deep === 'true';
