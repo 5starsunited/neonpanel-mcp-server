@@ -8,6 +8,7 @@ exports.isTokenValidationError = isTokenValidationError;
 exports.validateAccessToken = validateAccessToken;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const jwks_rsa_1 = __importDefault(require("jwks-rsa"));
+const config_1 = require("../config");
 class TokenValidationError extends Error {
     constructor(message, code = 'invalid_token', status = 401, cause) {
         super(message);
@@ -23,13 +24,8 @@ exports.TokenValidationError = TokenValidationError;
 function isTokenValidationError(error) {
     return error instanceof TokenValidationError;
 }
-const DEFAULT_ISSUER = 'https://my.neonpanel.com';
-const issuer = sanitizeIssuer(process.env.NEONPANEL_OAUTH_ISSUER || DEFAULT_ISSUER);
-const jwksUri = process.env.NEONPANEL_JWKS_URI || `${issuer}/.well-known/jwks.json`;
-const allowedAudiences = parseList(process.env.NEONPANEL_OAUTH_AUDIENCE, ['https://mcp.neonpanel.com', issuer]);
-const requiredScopes = parseList(process.env.NEONPANEL_REQUIRED_SCOPES);
 const jwks = (0, jwks_rsa_1.default)({
-    jwksUri,
+    jwksUri: config_1.config.neonpanel.jwksUri,
     cache: true,
     cacheMaxEntries: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MAX_ENTRIES, 10),
     cacheMaxAge: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MS, 10 * 60 * 1000),
@@ -42,14 +38,9 @@ async function validateAccessToken(token) {
     }
     const verifyOptions = {
         algorithms: ['RS256'],
-        issuer,
+        issuer: config_1.config.neonpanel.issuer,
+        audience: config_1.config.neonpanel.expectedAudience,
     };
-    if (allowedAudiences.length === 1) {
-        verifyOptions.audience = allowedAudiences[0];
-    }
-    else if (allowedAudiences.length > 1) {
-        verifyOptions.audience = allowedAudiences;
-    }
     const payload = await new Promise((resolve, reject) => {
         jsonwebtoken_1.default.verify(token, getSigningKey, verifyOptions, (err, decoded) => {
             if (err) {
@@ -65,8 +56,9 @@ async function validateAccessToken(token) {
     if (scopes.length === 1 && scopes[0] === 'dcr.create') {
         throw new TokenValidationError('Initial access tokens (scope dcr.create) are not permitted for MCP requests.');
     }
+    const requiredScopes = config_1.config.neonpanel.requiredScopes;
     if (requiredScopes.length > 0) {
-        const missing = requiredScopes.filter(scope => !scopes.includes(scope));
+        const missing = requiredScopes.filter((scope) => !scopes.includes(scope));
         if (missing.length > 0) {
             throw new TokenValidationError(`Access token missing required scopes: ${missing.join(', ')}`);
         }
@@ -132,17 +124,6 @@ function extractScopes(payload) {
         }
     }
     return Array.from(new Set(scopes.filter(Boolean)));
-}
-function parseList(value, fallback = []) {
-    if (!value) {
-        return [...fallback];
-    }
-    const parts = value.split(/[;,\s]+/).map(part => part.trim()).filter(Boolean);
-    const combined = parts.length > 0 ? parts : [...fallback];
-    return Array.from(new Set(combined));
-}
-function sanitizeIssuer(value) {
-    return value.replace(/\/$/, '');
 }
 function toPositiveInt(value, fallback) {
     if (!value) {

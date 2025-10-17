@@ -6,6 +6,7 @@ import jwt, {
   VerifyOptions,
 } from 'jsonwebtoken';
 import jwksClient, { JwksClient } from 'jwks-rsa';
+import { config } from '../config';
 
 export interface ValidatedAccessToken {
   token: string;
@@ -37,14 +38,8 @@ export function isTokenValidationError(error: unknown): error is TokenValidation
   return error instanceof TokenValidationError;
 }
 
-const DEFAULT_ISSUER = 'https://my.neonpanel.com';
-const issuer = sanitizeIssuer(process.env.NEONPANEL_OAUTH_ISSUER || DEFAULT_ISSUER);
-const jwksUri = process.env.NEONPANEL_JWKS_URI || `${issuer}/.well-known/jwks.json`;
-const allowedAudiences = parseList(process.env.NEONPANEL_OAUTH_AUDIENCE, ['https://mcp.neonpanel.com', issuer]);
-const requiredScopes = parseList(process.env.NEONPANEL_REQUIRED_SCOPES);
-
 const jwks: JwksClient = jwksClient({
-  jwksUri,
+  jwksUri: config.neonpanel.jwksUri,
   cache: true,
   cacheMaxEntries: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MAX_ENTRIES, 10),
   cacheMaxAge: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MS, 10 * 60 * 1000),
@@ -59,14 +54,9 @@ export async function validateAccessToken(token: string): Promise<ValidatedAcces
 
   const verifyOptions: VerifyOptions = {
     algorithms: ['RS256'],
-    issuer,
+    issuer: config.neonpanel.issuer,
+    audience: config.neonpanel.expectedAudience,
   };
-
-  if (allowedAudiences.length === 1) {
-    verifyOptions.audience = allowedAudiences[0];
-  } else if (allowedAudiences.length > 1) {
-    verifyOptions.audience = allowedAudiences as [string, ...string[]];
-  }
 
   const payload = await new Promise<JwtPayload>((resolve, reject) => {
     jwt.verify(token, getSigningKey, verifyOptions, (err, decoded) => {
@@ -88,8 +78,9 @@ export async function validateAccessToken(token: string): Promise<ValidatedAcces
     throw new TokenValidationError('Initial access tokens (scope dcr.create) are not permitted for MCP requests.');
   }
 
+  const requiredScopes = config.neonpanel.requiredScopes;
   if (requiredScopes.length > 0) {
-    const missing = requiredScopes.filter(scope => !scopes.includes(scope));
+    const missing = requiredScopes.filter((scope) => !scopes.includes(scope));
     if (missing.length > 0) {
       throw new TokenValidationError(`Access token missing required scopes: ${missing.join(', ')}`);
     }
@@ -167,20 +158,6 @@ function extractScopes(payload: JwtPayload): string[] {
   }
 
   return Array.from(new Set(scopes.filter(Boolean)));
-}
-
-function parseList(value: string | undefined, fallback: string[] = []): string[] {
-  if (!value) {
-    return [...fallback];
-  }
-
-  const parts = value.split(/[;,\s]+/).map(part => part.trim()).filter(Boolean);
-  const combined = parts.length > 0 ? parts : [...fallback];
-  return Array.from(new Set(combined));
-}
-
-function sanitizeIssuer(value: string): string {
-  return value.replace(/\/$/, '');
 }
 
 function toPositiveInt(value: string | undefined, fallback: number): number {

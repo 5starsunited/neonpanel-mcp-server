@@ -5,15 +5,38 @@ Production-ready Model Context Protocol (MCP) servers for NeonPanel and Keepa AP
 ## 🚀 Projects
 
 ### NeonPanel MCP Server
-OAuth 2.0 authenticated MCP server for NeonPanel hosting services.
+Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validation, JSON-RPC tooling, and SSE transport.
 
-**Features:**
-- ✅ OAuth 2.0 (Bearer & DPoP tokens)
-- ✅ Dynamic Client Registration (RFC 7591)
-- ✅ ChatGPT integration ready
-- ✅ AWS Fargate deployment
+**Key capabilities**
+- ✅ OAuth 2.0 bearer token validation via JWKS (Provider OAuth / GPT Connect compatible)
+- ✅ `/sse` Server-Sent Events stream + `/messages` JSON-RPC sink
+- ✅ Automatic OpenAPI schema refresh with disk caching
+- ✅ Structured logging, rate limiting, correlation ids, and health diagnostics
+- ✅ Tool registry generated from the NeonPanel 3.0.3 OpenAPI spec, covering:
+  - `neonpanel.listCompanies`
+  - `neonpanel.listReports`
+  - `neonpanel.listInventoryItems`
+  - `neonpanel.listWarehouses`
+  - `neonpanel.getWarehouseBalances`
+  - `neonpanel.getInventoryDetails`
+  - `neonpanel.getInventoryLandedCost`
+  - `neonpanel.getInventoryCogs`
+  - `neonpanel.getRevenueAndCogs`
+  - `neonpanel.getImportInstructions`
+  - `neonpanel.createDocuments`
+  - `neonpanel.createDocumentsByPdf`
+  - `neonpanel.checkImportStatus`
 
-**Tools:** `getAccount`, `searchOrders`
+**Operational endpoints**
+- `GET /healthz` – readiness / diagnostics (`?deep=1` performs JWKS + schema reachability checks)
+- `GET /sse` – authenticated event stream
+- `POST /messages` – JSON-RPC entry point for MCP methods / tools
+
+**Developer workflow**
+- `npm run dev` – start the server in watch mode
+- `npm run test` – execute unit tests (Node test runner via `tsx`)
+- `npm run openapi:refresh` – force-refresh the NeonPanel OpenAPI document and persist it locally
+- `scripts/mcp_check.sh` – quick smoke to hit `/healthz`, `initialize`, and `tools/list` (requires `ACCESS_TOKEN`)
 
 **Production:** https://mcp.neonpanel.com
 

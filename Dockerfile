@@ -17,5 +17,5 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/openapi.json ./openapi.json
 EXPOSE 3030
-CMD ["node","dist/hybrid-server.js"]
+CMD ["node","dist/main.js"]
 

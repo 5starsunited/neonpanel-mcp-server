@@ -85,7 +85,7 @@ class NeonpanelMcpStack extends cdk.Stack {
         });
         // Using existing issued certificate for mcp.neonasphera.com
         service.targetGroup.configureHealthCheck({
-            path: '/health',
+            path: '/healthz',
             healthyHttpCodes: '200',
             interval: cdk.Duration.seconds(30),
             timeout: cdk.Duration.seconds(5),

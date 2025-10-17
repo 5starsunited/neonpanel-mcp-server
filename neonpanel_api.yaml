@@ -1,0 +1,674 @@
+openapi: 3.0.3
+info:
+  title: NeonPanel OAuth2 & Dynamic Client Registration (DCR)
+  version: "1.0.0"
+  description: |
+    OAuth 2.0 (RFC 6749) and Dynamic Client Registration (RFC 7591 / 7592) for my.neonpanel.com.
+    This spec reflects the current server behavior:
+
+    - Open DCR: Initial Access Token (IAT) is NOT required for POST /oauth2/register.
+    - Registration Access Token (RAT) lifetime: 30 days.
+    - Client Secret has no expiration for now: client_secret_expires_at = 0 (this may change in the future).
+    - PKCE supported with S256 only.
+    - Response type supported at the authorization endpoint: code.
+    - Grant types supported: authorization_code, refresh_token, client_credentials.
+    - Token endpoint client authentication methods: none, client_secret_basic, client_secret_post, private_key_jwt.
+
+servers:
+  - url: https://my.neonpanel.com
+    description: Production
+
+tags:
+  - name: Authorization
+    description: OAuth2 authorization endpoint
+  - name: Token
+    description: OAuth2 token endpoint
+  - name: DCR
+    description: Client registration and management endpoints (RFC 7591/7592)
+
+paths:
+  /oauth2/authorize:
+    get:
+      tags: [Authorization]
+      summary: OAuth2 Authorization Endpoint (authorization_code + PKCE S256)
+      description: >
+        Implements the Authorization Code flow. Redirects (302) to the client's `redirect_uri`
+        with `code` (success) or `error`. Only `response_type=code` is supported. PKCE with
+        `code_challenge_method=S256` is supported.
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+          description: Must be `code`.
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: redirect_uri
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+          description: Optional if a single redirect URI is registered; required if multiple URIs are registered.
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque value used to maintain state between the request and callback.
+        - name: code_challenge
+          in: query
+          required: false
+          schema:
+            type: string
+          description: PKCE code challenge (required for public clients using PKCE).
+        - name: code_challenge_method
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [S256]
+          description: Only S256 is supported.
+      responses:
+        "302":
+          description: Redirect to the `redirect_uri` with `code` or `error`.
+          headers:
+            Location:
+              description: Redirect target containing the result (`code` or `error`).
+              schema:
+                type: string
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /oauth2/token:
+    post:
+      tags: [Token]
+      summary: OAuth2 Token Endpoint (authorization_code, refresh_token, client_credentials)
+      description: >
+        Issues tokens using Authorization Code (with optional PKCE), Refresh Token, or Client Credentials grants.
+        Content-Type: `application/x-www-form-urlencoded`.
+
+        Client authentication methods:
+        - `client_secret_basic` (HTTP Basic with client_id/client_secret)
+        - `client_secret_post` (client_id/client_secret in form body)
+        - `private_key_jwt` (RFC 7523 with `client_assertion`)
+        - `none` (public clients with PKCE; subject to server policy)
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/TokenRequestAuthorizationCode"
+                - $ref: "#/components/schemas/TokenRequestRefreshToken"
+                - $ref: "#/components/schemas/TokenRequestClientCredentials"
+            examples:
+              authorization_code:
+                summary: Exchange authorization code for tokens
+                value:
+                  grant_type: authorization_code
+                  code: abc123
+                  redirect_uri: https://app.example.com/callback
+                  code_verifier: N8s... (PKCE)
+              refresh_token:
+                summary: Refresh access token
+                value:
+                  grant_type: refresh_token
+                  refresh_token: r1..xyz
+              client_credentials:
+                summary: Client credentials grant
+                value:
+                  grant_type: client_credentials
+      responses:
+        "200":
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid client authentication
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        # The token endpoint accepts multiple client auth methods; this documents the alternatives.
+        - client_secret_basic: []
+        - client_secret_post: []
+        - private_key_jwt: []
+        - {}   # none (public clients with PKCE)
+
+  /oauth2/register:
+    post:
+      tags: [DCR]
+      summary: Create a client (Open DCR)
+      description: >
+        Registers a new client according to RFC 7591. Open DCR is enabled (no Initial Access Token required).
+        The response includes a `registration_access_token` and `registration_client_uri` for subsequent
+        read/update/delete operations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientRegistrationRequest"
+            examples:
+              basic:
+                summary: Minimal client registration
+                value:
+                  client_name: "My App"
+                  redirect_uris: ["https://app.example.com/callback"]
+                  grant_types: ["authorization_code", "refresh_token"]
+                  response_types: ["code"]
+                  token_endpoint_auth_method: "client_secret_basic"
+      responses:
+        "201":
+          description: Client registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientRegistrationResponse"
+        "400":
+          description: Invalid client metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      # Open DCR: no security required here
+      security:
+        - {}
+
+  /oauth2/register/{client_id}:
+    get:
+      tags: [DCR]
+      summary: Read client metadata (requires RAT)
+      description: Returns the registered client metadata. Requires a valid Registration Access Token (RAT).
+      parameters:
+        - in: path
+          name: client_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Client metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientRegistrationResponse"
+        "401":
+          description: Missing or invalid registration access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - dcr_registration_bearer: []
+
+    patch:
+      tags: [DCR]
+      summary: Update client metadata (PATCH, requires RAT)
+      description: Partially updates client metadata. Returns the updated metadata. Requires a valid RAT.
+      parameters:
+        - in: path
+          name: client_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientRegistrationPatch"
+      responses:
+        "200":
+          description: Updated client metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientRegistrationResponse"
+        "400":
+          description: Invalid fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid registration access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - dcr_registration_bearer: []
+
+    delete:
+      tags: [DCR]
+      summary: Delete client (requires RAT)
+      description: Deletes the registered client. Requires a valid RAT.
+      parameters:
+        - in: path
+          name: client_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Missing or invalid registration access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - dcr_registration_bearer: []
+
+  /oauth2/register/{client_id}/rotate:
+    post:
+      tags: [DCR]
+      summary: Issue a new Registration Access Token (RAT) for the client
+      description: >
+        Rotates the Registration Access Token. The previously issued RAT is revoked per server policy.
+        The new RAT lifetime is 30 days.
+      parameters:
+        - in: path
+          name: client_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: New RAT issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotateRatResponse"
+        "401":
+          description: Missing or invalid registration access token or insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - dcr_registration_bearer: []
+
+  /oauth2/register/{client_id}/rotate-secret:
+    post:
+      tags: [DCR]
+      summary: Rotate client_secret (issue a new secret)
+      description: >
+        Generates a new `client_secret` for the specified `client_id`. The previous secret is revoked.
+        **Important:** The secret is returned only once in the response. For now, `client_secret_expires_at = 0`.
+      parameters:
+        - in: path
+          name: client_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: New client secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotateSecretResponse"
+        "401":
+          description: Missing or invalid registration access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - dcr_registration_bearer: []
+
+components:
+  securitySchemes:
+    # Authorization Code flow (if you want to protect other business resources in the same API)
+    oauth2_auth_code:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://my.neonpanel.com/oauth2/authorize
+          tokenUrl: https://my.neonpanel.com/oauth2/token
+          scopes: {}
+      description: OAuth2 Authorization Code flow (no specific API scopes declared in this spec).
+
+    # Client authentication for /oauth2/token via HTTP Basic
+    client_secret_basic:
+      type: http
+      scheme: basic
+      description: HTTP Basic with client_id/client_secret.
+
+    # `client_secret_post` cannot be expressed natively as a header-based scheme in OpenAPI.
+    # We document it as an apiKey to indicate an alternative. In practice, send client_id and
+    # client_secret in the x-www-form-urlencoded body.
+    client_secret_post:
+      type: apiKey
+      name: X-Client-Auth-Form
+      in: header
+      description: |
+        Documentation placeholder for `client_secret_post`. In requests, include
+        `client_id` and `client_secret` as form fields in the request body.
+
+    # Private Key JWT discovery via OIDC configuration; actual assertion is sent as form fields.
+    private_key_jwt:
+      type: openIdConnect
+      openIdConnectUrl: https://my.neonpanel.com/.well-known/openid-configuration
+      description: |
+        Client Authentication with `private_key_jwt` (RFC 7523).
+        Form fields required:
+          - client_assertion_type = urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+          - client_assertion = <signed JWT using client's private key>
+
+    # Registration Access Token (RAT) used to manage the registered client.
+    dcr_registration_bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Registration Access Token (RAT) required for GET/PATCH/DELETE /oauth2/register/{client_id}
+        and rotation endpoints. Current lifetime: 30 days.
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: OAuth2/DCR error code
+        error_description:
+          type: string
+        error_uri:
+          type: string
+          format: uri
+
+    TokenRequestAuthorizationCode:
+      type: object
+      required:
+        - grant_type
+        - code
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code]
+        code:
+          type: string
+        redirect_uri:
+          type: string
+          format: uri
+          description: Must match a pre-registered redirect URI as required by server policy.
+        code_verifier:
+          type: string
+          description: PKCE code verifier (required for public clients).
+        # Client authentication (choose one as applicable to your client):
+        client_id:
+          type: string
+          description: Provide when using `none` or `client_secret_post`/`private_key_jwt`.
+        client_secret:
+          type: string
+          description: Provide when using `client_secret_post`.
+        client_assertion_type:
+          type: string
+          example: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+        client_assertion:
+          type: string
+          description: JWT assertion for `private_key_jwt`.
+
+    TokenRequestRefreshToken:
+      type: object
+      required:
+        - grant_type
+        - refresh_token
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token]
+        refresh_token:
+          type: string
+        # Client authentication options:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        client_assertion_type:
+          type: string
+        client_assertion:
+          type: string
+
+    TokenRequestClientCredentials:
+      type: object
+      required:
+        - grant_type
+      properties:
+        grant_type:
+          type: string
+          enum: [client_credentials]
+        # Client authentication is required unless server allows `none` for specific use cases:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        client_assertion_type:
+          type: string
+        client_assertion:
+          type: string
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          description: Lifetime in seconds.
+        refresh_token:
+          type: string
+          description: Returned when server policy issues refresh tokens.
+        scope:
+          type: string
+          description: Space-delimited scope string (if applicable).
+      required:
+        - access_token
+        - token_type
+
+    # RFC 7591 client metadata (aligned with current capabilities)
+    ClientRegistrationRequest:
+      type: object
+      properties:
+        client_name:
+          type: string
+          description: Human-readable string name of the client to be presented to the end-user.
+        redirect_uris:
+          type: array
+          description: Array of redirection URIs for use in redirect-based flows.
+          items:
+            type: string
+            format: uri
+        grant_types:
+          type: array
+          items:
+            type: string
+            enum: [authorization_code, refresh_token, client_credentials]
+          description: Grant types the client intends to use.
+        response_types:
+          type: array
+          items:
+            type: string
+            enum: [code]
+          description: Response types the client intends to use. Only `code` is supported.
+        token_endpoint_auth_method:
+          type: string
+          enum: [none, client_secret_basic, client_secret_post, private_key_jwt]
+          description: Client authentication method for the token endpoint.
+        jwks_uri:
+          type: string
+          format: uri
+          description: URL for the client's JWK Set document for `private_key_jwt`.
+        jwks:
+          type: object
+          description: Client's JWK Set (inline) for `private_key_jwt` (alternative to `jwks_uri`).
+        contacts:
+          type: array
+          items:
+            type: string
+            format: email
+        client_uri:
+          type: string
+          format: uri
+        logo_uri:
+          type: string
+          format: uri
+      required:
+        - redirect_uris
+
+    ClientRegistrationResponse:
+      allOf:
+        - $ref: "#/components/schemas/ClientRegistrationRequest"
+        - type: object
+          properties:
+            client_id:
+              type: string
+              description: Unique Client Identifier.
+            client_secret:
+              type: string
+              description: Returned when the chosen auth method issues a secret.
+            client_id_issued_at:
+              type: integer
+              format: int64
+              description: Issuance time as seconds since 1970-01-01T00:00:00Z.
+            client_secret_expires_at:
+              type: integer
+              format: int64
+              description: |
+                Expiration time for the client_secret. Currently `0` (no expiration).
+            registration_client_uri:
+              type: string
+              format: uri
+              description: Client's Registration Management Endpoint URL.
+            registration_access_token:
+              type: string
+              description: Bearer token used to manage the registered client (RAT).
+          required:
+            - client_id
+            - registration_client_uri
+            - registration_access_token
+
+    ClientRegistrationPatch:
+      type: object
+      description: Fields allowed for partial update.
+      properties:
+        client_name:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            format: uri
+        contacts:
+          type: array
+          items:
+            type: string
+            format: email
+        jwks_uri:
+          type: string
+          format: uri
+        jwks:
+          type: object
+
+    RotateRatResponse:
+      type: object
+      properties:
+        registration_access_token:
+          type: string
+          description: Newly issued RAT.
+        issued_at:
+          type: integer
+          format: int64
+          description: Issuance time as seconds since epoch.
+        expires_in:
+          type: integer
+          description: RAT lifetime in seconds (30 days).
+      required:
+        - registration_access_token
+
+    RotateSecretResponse:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        client_secret_expires_at:
+          type: integer
+          format: int64
+          description: Currently `0` (no expiration).
+      required:
+        - client_id
+        - client_secret
+
+security:
+  - {}  # No global security requirement (endpoints declare their own)
+
