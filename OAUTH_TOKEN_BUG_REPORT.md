@@ -5,9 +5,75 @@
 
 ---
 
-## Summary
+# OAuth Flow Bug Report - CORRECTED
 
-End-to-end testing discovered a **critical bug in the my.neonpanel.com OAuth2 token endpoint**. The server is unable to extract `client_id` from the Basic Authentication header, causing token exchange to fail.
+**Date**: October 17, 2025  
+**Status**: ⚠️ **TESTING IN PROGRESS** - Initial bug report was based on incorrect test
+
+---
+
+## Update: Initial Analysis Was Wrong!
+
+### What I Thought
+The OAuth server couldn't extract `client_id` from Basic Authentication header.
+
+### What's Actually Happening
+**ChatGPT uses PUBLIC clients with PKCE** - it sends `client_id` as a **form parameter**, NOT in Basic Auth!
+
+```json
+// From chatgpt-client-credentials.json:
+{
+  "token_endpoint_auth_method": "none",  // ← NO authentication!
+  "client_id": "a89c4bddd6444d64a0962564e7950b7e04834690"
+  // No client_secret!
+}
+```
+
+### Correct Token Exchange Request
+
+```bash
+# ✅ CORRECT - Public client with PKCE
+POST /oauth2/token HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&client_id=a89c4bddd6444d64a0962564e7950b7e04834690  # ← As form parameter
+&code=<AUTHORIZATION_CODE>
+&redirect_uri=https://chat.openai.com/aip/g/callback
+&code_verifier=<CODE_VERIFIER>  # ← PKCE proof
+```
+
+```bash
+# ❌ WRONG - What I was testing (confidential client)
+POST /oauth2/token HTTP/1.1
+Authorization: Basic base64(client_id:client_secret)  # ← Not used for public clients!
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&code=<AUTHORIZATION_CODE>
+&redirect_uri=https://chat.openai.com/aip/g/callback
+&code_verifier=<CODE_VERIFIER>
+```
+
+---
+
+## Public vs Confidential Clients
+
+### Public Client (ChatGPT MCP) ✅
+- **No client_secret**
+- **PKCE required** (code_challenge/code_verifier)
+- **client_id in form data**
+- `token_endpoint_auth_method: "none"`
+
+### Confidential Client (Server-to-Server)
+- **Has client_secret**
+- **PKCE optional**
+- **Basic Auth OR form data**
+- `token_endpoint_auth_method: "client_secret_basic"` or `"client_secret_post"`
+
+---
+
+## Summary / Резюме
 
 ---
 
@@ -243,6 +309,85 @@ Called at:
 
 ---
 
+## Why Basic Auth Instead of Query Parameters?
+
+### Security Best Practices
+
+**Query parameters are inherently insecure for credentials**:
+
+1. **Logged Everywhere** 🔴
+   ```bash
+   # Query params appear in:
+   # - Web server access logs (nginx, Apache)
+   # - Application logs
+   # - Proxy/CDN logs (Cloudflare, etc.)
+   # - Load balancer logs
+   # - Browser history
+   # - Browser cache
+   # - Referer headers
+   ```
+
+2. **Basic Auth Headers Are NOT Logged** ✅
+   ```bash
+   # Standard web servers don't log Authorization headers
+   # Only the request line is logged:
+   # "POST /oauth2/token HTTP/1.1" 200
+   ```
+
+3. **URL Sharing Risk** 🔴
+   ```
+   # Someone copies URL to send to colleague:
+   https://api.example.com/oauth?client_secret=abc123
+   # Secret is now in Slack, email, etc.
+   ```
+
+### OAuth 2.0 Client Authentication Methods
+
+**RFC 6749 Section 2.3.1** defines three methods (in order of security):
+
+#### 1. Basic Authentication (Most Secure) ⭐
+```http
+POST /oauth2/token HTTP/1.1
+Authorization: Basic YWJjMTIzOnNlY3JldDEyMw==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&code=xyz
+```
+- **Pros**: Not logged, not cached, not in history
+- **Cons**: None
+- **Used by**: ChatGPT, GitHub, Stripe, most OAuth clients
+
+#### 2. POST Body (Acceptable)
+```http
+POST /oauth2/token HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&code=xyz&client_id=abc&client_secret=secret
+```
+- **Pros**: Not in URL
+- **Cons**: May appear in application logs
+- **Used by**: Some legacy clients
+
+#### 3. Query Parameters (Discouraged) ❌
+```http
+POST /oauth2/token?client_id=abc&client_secret=secret HTTP/1.1
+
+grant_type=authorization_code&code=xyz
+```
+- **Pros**: None
+- **Cons**: Logged everywhere, major security risk
+- **Used by**: Almost nobody (violates security best practices)
+
+### Industry Standard
+
+**All major OAuth providers require Basic Auth**:
+- ✅ Google OAuth
+- ✅ GitHub OAuth
+- ✅ Microsoft Azure AD
+- ✅ Auth0
+- ✅ Okta
+- ✅ Stripe
+
 ## OAuth 2.0 Spec Compliance
 
 ### Violated RFCs
@@ -253,8 +398,10 @@ Called at:
 2. **RFC 2617** - HTTP Basic Authentication
    > Clients MAY use the HTTP Basic authentication scheme to authenticate with the authorization server
 
-3. **RFC 6749 Section 2.3.1** - Client Password
-   > Clients in possession of a client password MAY use the HTTP Basic authentication scheme
+3. **RFC 6749 Section 2.3.1** - Client Password (Most Important)
+   > The authorization server MUST support the HTTP Basic authentication scheme for authenticating clients that were issued a client password.
+   
+   ⚠️ **This is a MUST requirement, not optional**
 
 ---
 

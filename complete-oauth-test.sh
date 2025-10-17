@@ -52,12 +52,13 @@ fi
 
 echo ""
 echo -e "${BLUE}Exchanging authorization code for access token...${NC}"
+echo -e "${YELLOW}Using PUBLIC client (PKCE) - client_id as form parameter${NC}"
 
-# Exchange token
+# Exchange token - PUBLIC CLIENT (no Basic Auth)
 RESPONSE=$(curl -s -X POST "https://my.neonpanel.com/oauth2/token" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -u "${CLIENT_ID}:${CLIENT_SECRET}" \
     -d "grant_type=authorization_code" \
+    -d "client_id=${CLIENT_ID}" \
     -d "code=${AUTH_CODE}" \
     -d "redirect_uri=https://chat.openai.com/aip/g/callback" \
     -d "code_verifier=${CODE_VERIFIER}")
