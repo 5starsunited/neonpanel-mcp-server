@@ -99,6 +99,15 @@ export function createApp(deps: AppDependencies): Application {
     }
   });
 
+  // GET /messages - return 405 Method Not Allowed
+  app.get('/messages', (_req, res) => {
+    res.status(405).json({
+      status: 405,
+      code: 'method_not_allowed',
+      message: 'Only POST method is allowed for /messages endpoint.',
+    });
+  });
+
   app.post('/messages', requireBearer, rateLimit(), async (req, res, next) => {
     const authContext = (req as AuthenticatedRequest).authContext;
     if (!authContext) {
