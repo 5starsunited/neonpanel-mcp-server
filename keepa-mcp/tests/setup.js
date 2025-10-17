@@ -1,0 +1,14 @@
+"use strict";
+// Test setup file
+// Add any global test configuration here
+// Mock console methods to reduce noise in tests
+global.console = {
+    ...console,
+    // Uncomment below to silence console.log in tests
+    // log: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+};
+// Set test timeout
+jest.setTimeout(30000);
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoic2V0dXAuanMiLCJzb3VyY2VSb290IjoiIiwic291cmNlcyI6WyJzZXR1cC50cyJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiO0FBQUEsa0JBQWtCO0FBQ2xCLHlDQUF5QztBQUV6QyxnREFBZ0Q7QUFDaEQsTUFBTSxDQUFDLE9BQU8sR0FBRztJQUNmLEdBQUcsT0FBTztJQUNWLGtEQUFrRDtJQUNsRCxrQkFBa0I7SUFDbEIsSUFBSSxFQUFFLElBQUksQ0FBQyxFQUFFLEVBQUU7SUFDZixLQUFLLEVBQUUsSUFBSSxDQUFDLEVBQUUsRUFBRTtDQUNqQixDQUFDO0FBRUYsbUJBQW1CO0FBQ25CLElBQUksQ0FBQyxVQUFVLENBQUMsS0FBSyxDQUFDLENBQUMiLCJzb3VyY2VzQ29udGVudCI6WyIvLyBUZXN0IHNldHVwIGZpbGVcbi8vIEFkZCBhbnkgZ2xvYmFsIHRlc3QgY29uZmlndXJhdGlvbiBoZXJlXG5cbi8vIE1vY2sgY29uc29sZSBtZXRob2RzIHRvIHJlZHVjZSBub2lzZSBpbiB0ZXN0c1xuZ2xvYmFsLmNvbnNvbGUgPSB7XG4gIC4uLmNvbnNvbGUsXG4gIC8vIFVuY29tbWVudCBiZWxvdyB0byBzaWxlbmNlIGNvbnNvbGUubG9nIGluIHRlc3RzXG4gIC8vIGxvZzogamVzdC5mbigpLFxuICB3YXJuOiBqZXN0LmZuKCksXG4gIGVycm9yOiBqZXN0LmZuKCksXG59O1xuXG4vLyBTZXQgdGVzdCB0aW1lb3V0XG5qZXN0LnNldFRpbWVvdXQoMzAwMDApOyJdfQ==
