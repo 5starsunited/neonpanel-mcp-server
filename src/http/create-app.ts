@@ -148,34 +148,63 @@ export function createApp(deps: AppDependencies): Application {
     });
   });
 
-  app.post('/messages', requireBearer, rateLimit(), async (req, res, next) => {
-    const authContext = (req as AuthenticatedRequest).authContext;
-    if (!authContext) {
-      res.status(500).json({ status: 500, message: 'Authentication context missing.' });
+  app.post('/messages', rateLimit(), async (req, res, next) => {
+    const method = req.body?.method;
+    const publicMethods = ['initialize', 'tools/list'];
+    
+    // Public discovery methods - no authentication required
+    if (publicMethods.includes(method)) {
+      try {
+        const response = await deps.dispatcher.handle(req.body, {
+          token: '',
+          scopes: [],
+          subject: undefined,
+          payload: {},
+          validatedToken: {
+            token: '',
+            payload: {},
+            scopes: [],
+            subject: undefined,
+          },
+        });
+
+        res.json(response);
+      } catch (error) {
+        next(error);
+      }
       return;
     }
 
-    try {
-      const response = await deps.dispatcher.handle(req.body, {
-        token: authContext.token,
-        scopes: authContext.scopes,
-        subject: authContext.subject,
-        payload: authContext.payload,
-        validatedToken: authContext.validatedToken,
-      });
-
-      const sessions = deps.sessionRegistry.findMatchingSessions(authContext);
-      for (const record of sessions) {
-        deps.sseManager.send(record.session.id, {
-          event: 'rpc.result',
-          data: response,
-        });
+    // All other methods require authentication
+    return requireBearer(req, res, async () => {
+      const authContext = (req as AuthenticatedRequest).authContext;
+      if (!authContext) {
+        res.status(500).json({ status: 500, message: 'Authentication context missing.' });
+        return;
       }
 
-      res.json(response);
-    } catch (error) {
-      next(error);
-    }
+      try {
+        const response = await deps.dispatcher.handle(req.body, {
+          token: authContext.token,
+          scopes: authContext.scopes,
+          subject: authContext.subject,
+          payload: authContext.payload,
+          validatedToken: authContext.validatedToken,
+        });
+
+        const sessions = deps.sessionRegistry.findMatchingSessions(authContext);
+        for (const record of sessions) {
+          deps.sseManager.send(record.session.id, {
+            event: 'rpc.result',
+            data: response,
+          });
+        }
+
+        res.json(response);
+      } catch (error) {
+        next(error);
+      }
+    });
   });
 
   if (config.features.enableStreamableTransport) {
