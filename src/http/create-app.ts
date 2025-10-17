@@ -54,30 +54,19 @@ export function createApp(deps: AppDependencies): Application {
   });
 
   // OAuth 2.0 Authorization Server Metadata (RFC 8414)
+  // Proxies to my.neonpanel.com OAuth server which supports dynamic callback URLs
   app.get('/.well-known/oauth-authorization-server', (_req, res) => {
-    const issuer = config.neonpanel.issuer;
     res.json({
-      issuer: issuer,
-      authorization_endpoint: `${issuer}/oauth2/authorize`,
-      token_endpoint: `${issuer}/oauth2/token`,
-      registration_endpoint: `${issuer}/oauth2/register`,
-      jwks_uri: config.neonpanel.jwksUri,
-      scopes_supported: [
-        'read:inventory',
-        'read:analytics',
-        'read:companies',
-        'read:reports',
-        'read:warehouses',
-        'read:revenue',
-        'read:cogs',
-        'read:landed-cost',
-        'write:import',
-      ],
-      response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code', 'refresh_token'],
-      token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
-      code_challenge_methods_supported: ['S256'],
-      service_documentation: 'https://docs.neonpanel.com',
+      issuer: "https://my.neonpanel.com",
+      authorization_endpoint: "https://my.neonpanel.com/oauth2/authorize",
+      registration_endpoint: "https://my.neonpanel.com/oauth2/register",
+      token_endpoint: "https://my.neonpanel.com/oauth2/token",
+      jwks_uri: "https://my.neonpanel.com/.well-known/jwks.json",
+      scopes_supported: ["dcr.create"],
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt", "client_secret_post", "client_secret_basic"],
+      code_challenge_methods_supported: ["S256"],
     });
   });
 
