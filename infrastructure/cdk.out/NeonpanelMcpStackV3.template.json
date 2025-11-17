@@ -180,8 +180,16 @@
         "Value": "3030"
        },
        {
-        "Name": "NEONPANEL_BASE_URL",
+        "Name": "NEONPANEL_API_BASE",
         "Value": "https://my.neonpanel.com"
+       },
+       {
+        "Name": "NEONPANEL_OAUTH_ISSUER",
+        "Value": "https://my.neonpanel.com"
+       },
+       {
+        "Name": "NEONPANEL_OAUTH_JWKS_URI",
+        "Value": "https://my.neonpanel.com/.well-known/jwks.json"
        },
        {
         "Name": "BUILD_VERSION",
@@ -190,7 +198,7 @@
       ],
       "Essential": true,
       "Image": {
-       "Fn::Sub": "303498144074.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-303498144074-us-east-1:d81738a8b3f5ede8ebc84123169bc83aa1ab1f82fa7952c665c89de489c672a2"
+       "Fn::Sub": "303498144074.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-303498144074-us-east-1:7a52f3d1bc46f9613c1476e22e9d630b568c00276cb2c1280b94058c7f67c87a"
       },
       "LogConfiguration": {
        "LogDriver": "awslogs",

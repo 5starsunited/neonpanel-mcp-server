@@ -12,13 +12,9 @@ export type SseSession = {
 
 type SessionMap = Map<string, SseSession>;
 
-function writeSseMessage(res: ServerResponse, payload: { event?: string; data: unknown }) {
-  const { event, data } = payload;
-  if (event) {
-    res.write(`event: ${event}\n`);
-  }
+function writeSseMessage(res: ServerResponse, payload: { data: unknown }) {
   const serialized =
-    typeof data === 'string' ? data : JSON.stringify(data, (_key, value) => value ?? null);
+    typeof payload.data === 'string' ? payload.data : JSON.stringify(payload.data, (_key, value) => value ?? null);
   res.write(`data: ${serialized}\n\n`);
 }
 
@@ -58,12 +54,12 @@ export class SseSessionManager {
 
     this.ensureHeartbeat();
 
-    writeSseMessage(response, { event: 'ready', data: { sessionId: session.id } });
+    writeSseMessage(response, { data: { event: 'ready', sessionId: session.id } });
 
     return session;
   }
 
-  public send(sessionId: string, payload: { event?: string; data: unknown }) {
+  public send(sessionId: string, payload: { data: unknown }) {
     const session = this.sessions.get(sessionId);
     if (!session) {
       logger.warn({ sessionId }, 'Attempted to send SSE message to unknown session');
@@ -73,7 +69,7 @@ export class SseSessionManager {
     writeSseMessage(session.response, payload);
   }
 
-  public broadcast(payload: { event?: string; data: unknown }) {
+  public broadcast(payload: { data: unknown }) {
     for (const session of this.sessions.values()) {
       writeSseMessage(session.response, payload);
     }
@@ -85,7 +81,7 @@ export class SseSessionManager {
       return;
     }
 
-    writeSseMessage(session.response, { event: 'close', data: {} });
+    writeSseMessage(session.response, { data: { event: 'close' } });
     session.response.end();
     this.sessions.delete(sessionId);
     this.maybeStopHeartbeat();
@@ -94,7 +90,7 @@ export class SseSessionManager {
   public closeAll() {
     for (const session of this.sessions.values()) {
       try {
-        writeSseMessage(session.response, { event: 'shutdown', data: {} });
+        writeSseMessage(session.response, { data: { event: 'shutdown' } });
         session.response.end();
       } catch (error) {
         logger.warn({ sessionId: session.id, error }, 'Failed to close SSE session during shutdown');
@@ -112,7 +108,7 @@ export class SseSessionManager {
     this.heartbeatTimer = setInterval(() => {
       const now = new Date().toISOString();
       for (const session of this.sessions.values()) {
-        writeSseMessage(session.response, { event: 'heartbeat', data: { ts: now } });
+        writeSseMessage(session.response, { data: { event: 'heartbeat', ts: now } });
       }
     }, this.heartbeatInterval).unref();
   }

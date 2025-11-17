@@ -49,7 +49,9 @@ export class NeonpanelMcpStack extends cdk.Stack {
         environment: {
           NODE_ENV: 'production',
           PORT: '3030',
-          NEONPANEL_BASE_URL: 'https://my.neonpanel.com',
+          NEONPANEL_API_BASE: 'https://my.neonpanel.com',
+          NEONPANEL_OAUTH_ISSUER: 'https://my.neonpanel.com',
+          NEONPANEL_OAUTH_JWKS_URI: 'https://my.neonpanel.com/.well-known/jwks.json',
           BUILD_VERSION: 'v3.1.1' // Dynamic MCP with fresh API capabilities
         },
         logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'neonpanel-mcp', logGroup }),
