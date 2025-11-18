@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import type { Application, Request, Response } from 'express';
+import type { Application, Request, Response, NextFunction } from 'express';
 import type { JwtPayload } from 'jsonwebtoken';
 import { config } from '../config';
 import { correlationIdMiddleware } from '../middleware/correlation-id';
@@ -201,7 +201,7 @@ export function createApp(deps: AppDependencies): Application {
     }
   });
 
-  app.get('/healthz', async (req, res, next) => {
+  const handleHealthRequest = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const deepCheck = req.query.deep === '1' || req.query.deep === 'true';
       const summary = await deps.openApiService.getStatus({ includeCache: true, pingRemote: deepCheck });
@@ -221,7 +221,10 @@ export function createApp(deps: AppDependencies): Application {
     } catch (error) {
       next(error);
     }
-  });
+  };
+
+  app.get('/healthz', handleHealthRequest);
+  app.get('/health', handleHealthRequest);
 
   // OAuth 2.0 Authorization Server Metadata (RFC 8414)
   // Proxies to my.neonpanel.com OAuth server which supports dynamic callback URLs

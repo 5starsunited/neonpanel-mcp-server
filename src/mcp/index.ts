@@ -5,6 +5,7 @@ import { RpcDispatcher } from './rpc/dispatcher';
 import { ToolRegistry } from '../tools/types';
 import { registerNeonPanelTools } from '../tools/neonpanel';
 import { userTokenProvider, type UserTokenProvider } from '../auth/user-token-provider';
+import { logger } from '../logging/logger';
 
 const ToolCallParamsSchema = z.object({
   name: z.string().min(1),
@@ -23,20 +24,44 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
   const provider = options.userTokenProvider ?? userTokenProvider;
 
   return RpcDispatcher.fromRecord({
-    initialize: async () => ({
-      serverInfo: {
-        name: config.mcp.serverName,
-        version: config.buildVersion,
-      },
-      protocolVersion: config.mcp.protocolVersion,
-      capabilities: {
-        tools: true,
-      },
-    }),
-    'tools/list': async (params) => {
-      ToolListParamsSchema.parse(params);
+    initialize: async (_params, context) => {
+      logger.info(
+        {
+          method: 'initialize',
+          subject: context.subject,
+          scopes: context.scopes,
+          authenticated: Boolean(context.token),
+        },
+        'RPC initialize invoked',
+      );
       return {
-        tools: registry.list(),
+        serverInfo: {
+          name: config.mcp.serverName,
+          version: config.buildVersion,
+        },
+        protocolVersion: config.mcp.protocolVersion,
+        capabilities: {
+          tools: {
+            listChanged: false,
+          },
+        },
+      };
+    },
+    'tools/list': async (params, context) => {
+      ToolListParamsSchema.parse(params);
+      const tools = registry.list();
+      logger.info(
+        {
+          method: 'tools/list',
+          subject: context.subject,
+          scopes: context.scopes,
+          authenticated: Boolean(context.token),
+          toolCount: tools.length,
+        },
+        'RPC tools/list invoked',
+      );
+      return {
+        tools,
       };
     },
     'tools/call': async (params, context) => {
