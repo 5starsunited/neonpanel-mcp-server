@@ -1,6 +1,6 @@
 # NeonPanel MCP HTTP Server
 
-MCP-compatible HTTP server that exposes a single `/exec` endpoint and proxies to NeonPanel's OpenAPI (https://my.neonpanel.com/api/v1/scheme) using the incoming `Authorization: Bearer` token.
+MCP-compatible HTTP server that exposes a single `/exec` endpoint and proxies to NeonPanel's OpenAPI (https://my.neonpanel.com/api/v1/scheme/3.1.0 or https://my.neonpanel.com/api/v1/scheme/3.0.3) using the incoming `Authorization: Bearer` token.
 
 - Health: `GET /health`
 - Exec: `POST /exec` with body: `{ "action": "neonpanel.inventoryManager.getItems", "args": { ... } }`

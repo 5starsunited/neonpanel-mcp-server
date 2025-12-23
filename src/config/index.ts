@@ -33,7 +33,7 @@ const RawConfigSchema = z.object({
         .filter(Boolean);
     }),
   NEONPANEL_API_BASE: z.string().default('https://api.neonpanel.com'),
-  NEONPANEL_OPENAPI_URL: z.string().default('https://my.neonpanel.com/api/v1/scheme'),
+  NEONPANEL_OPENAPI_URL: z.string().default('https://my.neonpanel.com/api/v1/scheme/3.1.0'),
   OPENAPI_CACHE_TTL_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
 });
 
