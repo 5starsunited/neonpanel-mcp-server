@@ -50,6 +50,7 @@ export class NeonpanelMcpStack extends cdk.Stack {
           NODE_ENV: 'production',
           PORT: '3030',
           NEONPANEL_API_BASE: 'https://my.neonpanel.com',
+          NEONPANEL_OPENAPI_URL: 'https://my.neonpanel.com/api/v1/scheme/3.1.0',
           NEONPANEL_OAUTH_ISSUER: 'https://my.neonpanel.com',
           NEONPANEL_OAUTH_JWKS_URI: 'https://my.neonpanel.com/.well-known/jwks.json',
               // Scope requested by the ChatGPT connector and advertised by this MCP server.
