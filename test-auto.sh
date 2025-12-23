@@ -10,6 +10,7 @@ NC='\033[0m'
 
 echo "Loading client credentials..."
 CLIENT_ID=$(jq -r '.client_id' chatgpt-client-credentials.json)
+CLIENT_SECRET=$(jq -r '.client_secret // empty' chatgpt-client-credentials.json)
 REDIRECT_URI="http://localhost:8888/callback"
 
 echo "Generating PKCE challenge..."
@@ -119,15 +120,39 @@ echo ""
 echo -e "${YELLOW}=== STEP 2: TOKEN EXCHANGE ===${NC}"
 echo "Exchanging code for token..."
 
-RESPONSE=$(curl -s -X POST "https://my.neonpanel.com/oauth2/token" \
-    -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "grant_type=authorization_code" \
-    -d "client_id=${CLIENT_ID}" \
-    -d "code=${AUTH_CODE}" \
-    -d "redirect_uri=${REDIRECT_URI}" \
-    -d "code_verifier=${CODE_VERIFIER}")
+RESPONSE_FILE=$(mktemp)
+TOKEN_REQUEST=(
+    -s -o "$RESPONSE_FILE" -w "%{http_code}"
+    -X POST "https://my.neonpanel.com/oauth2/token"
+    -H "Content-Type: application/x-www-form-urlencoded"
+    -d "grant_type=authorization_code"
+    -d "client_id=${CLIENT_ID}"
+    -d "code=${AUTH_CODE}"
+    -d "redirect_uri=${REDIRECT_URI}"
+    -d "code_verifier=${CODE_VERIFIER}"
+)
 
-echo "$RESPONSE" | jq .
+if [ -n "$CLIENT_SECRET" ]; then
+    TOKEN_REQUEST+=(-d "client_secret=${CLIENT_SECRET}")
+fi
+
+HTTP_STATUS=$(curl "${TOKEN_REQUEST[@]}")
+RESPONSE=$(cat "$RESPONSE_FILE")
+rm -f "$RESPONSE_FILE"
+
+if ! JQ_OUTPUT=$(echo "$RESPONSE" | jq . 2>/dev/null); then
+    echo -e "${RED}ERROR: Token endpoint returned non-JSON response (HTTP $HTTP_STATUS)${NC}"
+    echo "Raw response:"
+    echo "$RESPONSE"
+    exit 1
+fi
+
+echo "$JQ_OUTPUT"
+
+if [ "$HTTP_STATUS" != "200" ]; then
+    echo -e "${RED}ERROR: Token endpoint returned HTTP $HTTP_STATUS${NC}"
+    exit 1
+fi
 
 # Check for access token
 ACCESS_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token // empty')

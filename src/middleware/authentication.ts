@@ -20,7 +20,7 @@ export async function requireBearer(req: Request, res: Response, next: NextFunct
   try {
     const bearer = extractBearerToken(req);
     if (!bearer) {
-      attachAuthChallenge(res);
+      attachAuthChallenge(req, res);
       return res.status(401).json({
         status: 401,
         code: 'missing_token',
@@ -39,7 +39,7 @@ export async function requireBearer(req: Request, res: Response, next: NextFunct
     return next();
   } catch (error) {
     if (error instanceof TokenValidationError) {
-      attachAuthChallenge(res, error);
+      attachAuthChallenge(req, res, error);
       logger.warn({ err: error }, 'Access token validation failed');
       return res.status(error.status).json({
         status: error.status,
@@ -49,7 +49,7 @@ export async function requireBearer(req: Request, res: Response, next: NextFunct
     }
 
     logger.error({ err: error }, 'Unexpected error during access token validation');
-    attachAuthChallenge(res);
+    attachAuthChallenge(req, res);
     return res.status(500).json({
       status: 500,
       code: 'auth_internal_error',
@@ -68,9 +68,17 @@ function extractBearerToken(req: Request): string | null {
   return match ? match[1] : null;
 }
 
-function attachAuthChallenge(res: Response, error?: TokenValidationError) {
+function attachAuthChallenge(req: Request, res: Response, error?: TokenValidationError) {
   const parts = [`realm="${config.mcp.serverName}"`];
-  parts.push(`resource="${config.neonpanel.expectedAudience}"`);
+  const resource = buildResourceIdentifier(req);
+  if (resource) {
+    parts.push(`resource="${sanitizeHeaderValue(resource)}"`);
+  }
+
+  const resourceMetadataUrl = buildResourceMetadataUrl(req);
+  if (resourceMetadataUrl) {
+    parts.push(`resource_metadata="${sanitizeHeaderValue(resourceMetadataUrl)}"`);
+  }
 
   if (error) {
     parts.push(`error="${error.code}"`);
@@ -79,6 +87,42 @@ function attachAuthChallenge(res: Response, error?: TokenValidationError) {
 
   const headerValue = `Bearer ${parts.join(', ')}`;
   res.setHeader('WWW-Authenticate', headerValue);
+}
+
+function buildResourceMetadataUrl(req: Request): string | null {
+  const forwardedProto = req.get('x-forwarded-proto');
+  const proto = (typeof forwardedProto === 'string' && forwardedProto.length > 0
+    ? forwardedProto.split(',')[0]?.trim()
+    : req.protocol) || 'https';
+
+  const forwardedHost = req.get('x-forwarded-host');
+  const host =
+    (typeof forwardedHost === 'string' && forwardedHost.length > 0 ? forwardedHost : null) ??
+    (req.get('host') ?? req.get('Host') ?? null);
+
+  if (!host) {
+    return null;
+  }
+
+  return `${proto}://${host}/.well-known/oauth-protected-resource`;
+}
+
+function buildResourceIdentifier(req: Request): string | null {
+  const forwardedProto = req.get('x-forwarded-proto');
+  const proto = (typeof forwardedProto === 'string' && forwardedProto.length > 0
+    ? forwardedProto.split(',')[0]?.trim()
+    : req.protocol) || 'https';
+
+  const forwardedHost = req.get('x-forwarded-host');
+  const host =
+    (typeof forwardedHost === 'string' && forwardedHost.length > 0 ? forwardedHost : null) ??
+    (req.get('host') ?? req.get('Host') ?? null);
+
+  if (!host) {
+    return null;
+  }
+
+  return `${proto}://${host}`;
 }
 
 function sanitizeHeaderValue(value: string): string {

@@ -18,6 +18,12 @@ function writeSseMessage(res: ServerResponse, payload: { data: unknown }) {
   res.write(`data: ${serialized}\n\n`);
 }
 
+function writeSseEvent(res: ServerResponse, event: string, data: unknown) {
+  const serialized = typeof data === 'string' ? data : JSON.stringify(data, (_key, value) => value ?? null);
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${serialized}\n\n`);
+}
+
 export class SseSessionManager {
   private readonly sessions: SessionMap = new Map();
   private readonly heartbeatInterval: number;
@@ -54,6 +60,12 @@ export class SseSessionManager {
 
     this.ensureHeartbeat();
 
+    // MCP SSE transport: clients (including ChatGPT connectors) commonly expect
+    // an initial `endpoint` event containing the JSON-RPC POST URL + sessionId.
+    // We send this immediately to avoid client-side timeouts during action refresh.
+    writeSseEvent(response, 'endpoint', `/messages?sessionId=${session.id}`);
+
+    // Back-compat: also send a structured ready payload for existing clients.
     writeSseMessage(response, { data: { event: 'ready', sessionId: session.id } });
 
     return session;

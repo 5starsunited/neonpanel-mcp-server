@@ -52,6 +52,8 @@ export class NeonpanelMcpStack extends cdk.Stack {
           NEONPANEL_API_BASE: 'https://my.neonpanel.com',
           NEONPANEL_OAUTH_ISSUER: 'https://my.neonpanel.com',
           NEONPANEL_OAUTH_JWKS_URI: 'https://my.neonpanel.com/.well-known/jwks.json',
+              // Scope requested by the ChatGPT connector and advertised by this MCP server.
+              NEONPANEL_OAUTH_REQUIRED_SCOPES: 'neonpanel.mcp',
           BUILD_VERSION: 'v3.1.1' // Dynamic MCP with fresh API capabilities
         },
         logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'neonpanel-mcp', logGroup }),

@@ -40,11 +40,11 @@ export class OpenApiService {
   public async getDocument(forceRefresh = false): Promise<unknown> {
     if (forceRefresh) {
       await this.refreshFromRemote();
-      return cloneValue(this.cache);
+      return cloneValue(this.addChatGPTFlags(this.cache));
     }
 
     if (this.cache && !this.isCacheExpired()) {
-      return cloneValue(this.cache);
+      return cloneValue(this.addChatGPTFlags(this.cache));
     }
 
     if (!this.cache) {
@@ -55,7 +55,7 @@ export class OpenApiService {
       await this.refreshFromRemote();
     }
 
-    return cloneValue(this.cache);
+    return cloneValue(this.addChatGPTFlags(this.cache));
   }
 
   public async getDocumentAsYaml(): Promise<string> {
@@ -192,6 +192,46 @@ export class OpenApiService {
     }
 
     return Date.now() - this.lastFetchedAt >= this.cacheTtlMs;
+  }
+
+  /**
+   * Adds x-openai-isConsequential: false to all GET operations to make them visible in ChatGPT
+   */
+  private addChatGPTFlags(document: unknown): unknown {
+    if (!document || typeof document !== 'object') {
+      return document;
+    }
+
+    const doc = document as Record<string, unknown>;
+    
+    // Clone the document to avoid mutating the cache
+    const modified = cloneValue(doc);
+    
+    if (!modified.paths || typeof modified.paths !== 'object') {
+      return modified;
+    }
+
+    const paths = modified.paths as Record<string, unknown>;
+    
+    for (const pathKey of Object.keys(paths)) {
+      const pathItem = paths[pathKey];
+      if (!pathItem || typeof pathItem !== 'object') {
+        continue;
+      }
+
+      const pathObj = pathItem as Record<string, unknown>;
+      
+      // Add flag to GET operations (read-only, non-consequential)
+      if (pathObj.get && typeof pathObj.get === 'object') {
+        const getOp = pathObj.get as Record<string, unknown>;
+        getOp['x-openai-isConsequential'] = false;
+      }
+
+      // You can also add it to other safe operations if needed
+      // For now, leaving POST/PUT/DELETE without the flag (they remain hidden by default)
+    }
+
+    return modified;
   }
 }
 
