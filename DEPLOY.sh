@@ -1,28 +1,43 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Quick deployment guide for OAuth2 fixes
+set -euo pipefail
 
-echo "🚀 Deploying OAuth2 Path Fixes to mcp.neonpanel.com"
+echo "🚀 Deploying NeonPanel MCP Server to https://mcp.neonpanel.com"
 echo ""
-echo "Step 1: Build the updated code"
-cd providers/neonpanel-mcp
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFRA_DIR="$ROOT_DIR/infrastructure"
+
+echo "Step 0: Preflight"
+if ! command -v docker >/dev/null 2>&1; then
+	echo "❌ Docker is not installed or not on PATH. Install Docker Desktop first." >&2
+	exit 1
+fi
+if ! docker version >/dev/null 2>&1; then
+	echo "❌ Docker daemon is not running. Start Docker Desktop and retry." >&2
+	exit 1
+fi
+if ! command -v node >/dev/null 2>&1; then
+	echo "❌ Node.js is required to run CDK (node not found)." >&2
+	exit 1
+fi
+
+echo "✅ Preflight OK"
+echo ""
+
+echo "Step 1: Build application"
+cd "$ROOT_DIR"
 npm run build
+echo "✅ App build complete"
+echo ""
 
+echo "Step 2: Deploy via AWS CDK (ECS/Fargate)"
+cd "$INFRA_DIR"
+npm run cdk -- deploy NeonpanelMcpStackV3 --require-approval never
+echo "✅ CDK deploy complete"
 echo ""
-echo "Step 2: Deploy to production"
-echo "  - Upload dist/ folder to mcp.neonpanel.com"
-echo "  - Restart the Node.js service"
-echo ""
-echo "Step 3: Verify the fix"
-echo "  - Run: ./test-oauth-compliance.sh"
-echo "  - Expected: 12/12 tests passing"
-echo ""
-echo "Files changed:"
-echo "  - src/oauth-endpoints.ts (fixed /oauth/ → /oauth2/ paths)"
-echo ""
-echo "What was fixed:"
-echo "  ✅ Token endpoint URL: /oauth2/token (was /oauth/token)"
-echo "  ✅ Auth endpoint URL: /oauth2/authorize (was /oauth/authorize)"
-echo "  ✅ Added refresh_token grant type support"
-echo "  ✅ Added proper parameter validation"
+
+echo "Step 3: Verify"
+echo "- Health:  curl -fsSIL https://mcp.neonpanel.com/healthz | head -n 5"
+echo "- OpenAPI: curl -fsSL  https://mcp.neonpanel.com/openapi.json | head -c 500"
 echo ""

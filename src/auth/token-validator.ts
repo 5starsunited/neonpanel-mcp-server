@@ -40,6 +40,7 @@ export function isTokenValidationError(error: unknown): error is TokenValidation
 
 const jwks: JwksClient = jwksClient({
   jwksUri: config.neonpanel.jwksUri,
+  timeout: toPositiveInt(process.env.NEONPANEL_JWKS_TIMEOUT_MS, 5000),
   cache: true,
   cacheMaxEntries: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MAX_ENTRIES, 10),
   cacheMaxAge: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MS, 10 * 60 * 1000),
@@ -75,9 +76,8 @@ export async function validateAccessToken(token: string): Promise<ValidatedAcces
 
   const scopes = extractScopes(payload);
 
-  // Note: The OAuth server currently only supports 'dcr.create' scope
-  // We accept any valid token from the trusted issuer for now
-  // TODO: Update when OAuth server supports additional scopes like mcp.read, mcp.tools, etc.
+  // Note: Scope enforcement is currently handled at the MCP layer.
+  // We accept any valid token from the trusted issuer here.
 
   return {
     token,
@@ -97,8 +97,24 @@ function getSigningKey(header: JwtHeader, callback: SigningKeyCallback) {
     return;
   }
 
+  const timeoutMs = toPositiveInt(process.env.NEONPANEL_JWKS_TIMEOUT_MS, 5000);
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    callback(new TokenValidationError('JWKS request timed out.', 'jwks_timeout', 503));
+  }, timeoutMs);
+  timer.unref?.();
+
   jwks.getSigningKey(header.kid)
     .then(key => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       const signingKey = typeof key.getPublicKey === 'function'
         ? key.getPublicKey()
         : (key as unknown as { rsaPublicKey?: string }).rsaPublicKey;
@@ -111,6 +127,11 @@ function getSigningKey(header: JwtHeader, callback: SigningKeyCallback) {
       callback(null, signingKey);
     })
     .catch(err => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       callback(normalizeJwtError(err));
     });
 }

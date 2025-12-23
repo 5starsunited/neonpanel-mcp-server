@@ -157,6 +157,7 @@
         "summary": "Health check",
         "description": "Check if the MCP server is running",
         "operationId": "getHealth",
+        "x-openai-isConsequential": false,
         "security": [],
         "responses": {
           "200": {
@@ -185,6 +186,7 @@
         "summary": "Get MCP capabilities",
         "description": "Retrieve available MCP tools and capabilities",
         "operationId": "getCapabilities",
+        "x-openai-isConsequential": false,
         "responses": {
           "200": {
             "description": "List of available capabilities",
@@ -212,6 +214,7 @@
         "summary": "List companies",
         "description": "Get list of companies from NeonPanel",
         "operationId": "listCompanies",
+        "x-openai-isConsequential": false,
         "security": [
           {
             "neonpanel_oauth": [
@@ -252,6 +255,7 @@
         "summary": "Get inventory data",
         "description": "Retrieve inventory information from NeonPanel",
         "operationId": "getInventory",
+        "x-openai-isConsequential": false,
         "security": [
           {
             "neonpanel_oauth": [

@@ -3,7 +3,7 @@ import { logger } from '../logging/logger';
 import type { AuthContext } from '../middleware/authentication';
 import type { SseSession } from './transport/sse';
 
-type SessionRecord = {
+export type SessionRecord = {
   session: SseSession;
   subject?: string;
   tokenHash: string;
@@ -29,6 +29,10 @@ export class SessionRegistry {
     if (this.sessions.delete(sessionId)) {
       logger.debug({ sessionId }, 'Unregistered SSE session');
     }
+  }
+
+  public getBySessionId(sessionId: string): SessionRecord | undefined {
+    return this.sessions.get(sessionId);
   }
 
   public findMatchingSessions(authContext: AuthContext): SessionRecord[] {

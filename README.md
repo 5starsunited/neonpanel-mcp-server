@@ -8,11 +8,6 @@ Production-ready Model Context Protocol (MCP) servers for NeonPanel and Keepa AP
 Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validation, JSON-RPC tooling, and SSE transport.
 
 **Key capabilities**
-- ✅ OAuth 2.0 bearer token validation via JWKS (Provider OAuth / GPT Connect compatible)
-- ✅ `/sse` Server-Sent Events stream + `/messages` JSON-RPC sink
-- ✅ Automatic OpenAPI schema refresh with disk caching
-- ✅ Structured logging, rate limiting, correlation ids, and health diagnostics
-- ✅ Tool registry generated from the NeonPanel 3.0.3 OpenAPI spec, covering:
   - `neonpanel.listCompanies`
   - `neonpanel.listReports`
   - `neonpanel.listInventoryItems`
@@ -28,9 +23,31 @@ Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validatio
   - `neonpanel.checkImportStatus`
 
 **Operational endpoints**
+
 - `GET /healthz` – readiness / diagnostics (`?deep=1` performs JWKS + schema reachability checks)
-- `GET /sse` – authenticated event stream
-- `POST /messages` – JSON-RPC entry point for MCP methods / tools
+- `POST /mcp` – streamable HTTP JSON-RPC (public discovery; OAuth for `tools/call`)
+- `GET /sse` – event stream (no auth required just to connect)
+- `POST /messages` – JSON-RPC sink (used with SSE sessions)
+
+## Endpoints
+
+### MCP
+
+- `POST /mcp` (Streamable HTTP / JSON-RPC)
+  - Public (no OAuth): `initialize`, `initialized`, `tools/list`
+  - OAuth required: `tools/call`
+    - If the bearer token is missing/invalid the server returns `HTTP 401` and includes both:
+      - `WWW-Authenticate: Bearer ... resource_metadata="https://mcp.neonpanel.com/.well-known/oauth-protected-resource"`
+      - a JSON-RPC error whose `error.data._meta['mcp/www_authenticate']` contains the same challenge
+
+- `GET /sse` (optional SSE transport)
+  - Does **not** require auth just to open the stream.
+  - The server emits an `endpoint` SSE event pointing to `POST /messages?sessionId=...`.
+
+### OAuth Metadata
+
+- `GET /.well-known/oauth-protected-resource`
+- `GET /.well-known/oauth-authorization-server`
 
 **Developer workflow**
 - `npm run dev` – start the server in watch mode

@@ -1,0 +1,944 @@
+{
+  "id": "snapshot",
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.listCompanies"
+        },
+        "description": "Retrieve companies the authenticated user can access.",
+        "examples": [
+          {
+            "arguments": {},
+            "description": "Get the first page of companies with default pagination.",
+            "name": "First Page"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "perPage": {
+              "maximum": 60,
+              "minimum": 10,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.listCompanies",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "pagination": {
+              "additionalProperties": true,
+              "nullable": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.listReports"
+        },
+        "description": "Retrieve the list of reports with groups, descriptions, and URLs.",
+        "examples": [
+          {
+            "arguments": {},
+            "name": "List Reports"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.listReports",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.listInventoryItems"
+        },
+        "description": "List inventory items for a company with optional filters.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "perPage": 20,
+              "search": "SKU12345"
+            },
+            "name": "Search by SKU"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "asin": {
+              "type": "string"
+            },
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "countryCode": {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            },
+            "fnsku": {
+              "type": "string"
+            },
+            "page": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "perPage": {
+              "maximum": 60,
+              "minimum": 10,
+              "type": "integer"
+            },
+            "search": {
+              "type": "string"
+            },
+            "sku": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.listInventoryItems",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "pagination": {
+              "additionalProperties": true,
+              "nullable": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.listWarehouses"
+        },
+        "description": "Retrieve warehouses for a company with optional search.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid"
+            },
+            "name": "List Warehouses"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "page": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "perPage": {
+              "maximum": 60,
+              "minimum": 10,
+              "type": "integer"
+            },
+            "search": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.listWarehouses",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "pagination": {
+              "additionalProperties": true,
+              "nullable": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.getWarehouseBalances"
+        },
+        "description": "Retrieve paginated inventory balances for a warehouse.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "warehouseUuid": "warehouse-uuid"
+            },
+            "name": "Warehouse Balances"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "balancesDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "page": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "perPage": {
+              "maximum": 60,
+              "minimum": 10,
+              "type": "integer"
+            },
+            "warehouseUuid": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "warehouseUuid"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.getWarehouseBalances",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "pagination": {
+              "additionalProperties": true,
+              "nullable": true,
+              "type": "object"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.getInventoryDetails"
+        },
+        "description": "Retrieve inventory details including restock information and warehouse balances.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "inventoryId": 123
+            },
+            "name": "Inventory Details"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "balancesDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "inventoryId": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "inventoryId"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.getInventoryDetails",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.getInventoryLandedCost"
+        },
+        "description": "Retrieve landed cost (manufacturing expenses) for an inventory item.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "endDate": "2024-02-01",
+              "inventoryId": 123,
+              "startDate": "2024-01-01",
+              "warehouseUuid": "warehouse-uuid"
+            },
+            "name": "Landed Cost for Warehouse"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "endDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            "inventoryId": {
+              "type": "integer"
+            },
+            "page": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "perPage": {
+              "maximum": 60,
+              "minimum": 10,
+              "type": "integer"
+            },
+            "startDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            "warehouseUuid": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "inventoryId",
+            "warehouseUuid",
+            "startDate"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.getInventoryLandedCost",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.getInventoryCogs"
+        },
+        "description": "Retrieve cost of goods sold (COGS) for an inventory item.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "inventoryId": 123,
+              "startDate": "2024-01-01"
+            },
+            "name": "Inventory COGS"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "endDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            "inventoryId": {
+              "type": "integer"
+            },
+            "page": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "perPage": {
+              "maximum": 60,
+              "minimum": 10,
+              "type": "integer"
+            },
+            "startDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "inventoryId",
+            "startDate"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.getInventoryCogs",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.getImportInstructions"
+        },
+        "description": "Retrieve document upload instructions for a supported import type.",
+        "examples": [
+          {
+            "arguments": {
+              "type": "bill"
+            },
+            "name": "Import Instructions"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "enum": [
+                "bill"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.getImportInstructions",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "private",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "readOnlyHint": false,
+          "title": "neonpanel.createDocuments"
+        },
+        "description": "Create documents for a company using JSON payload data.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "data": {
+                "example": "payload"
+              },
+              "type": "bill"
+            },
+            "name": "Create Bill Document"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "data": {
+              "additionalProperties": {},
+              "description": "Document payload matching import instructions",
+              "type": "object"
+            },
+            "type": {
+              "enum": [
+                "bill"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        "isConsequential": true,
+        "is_consequential": true,
+        "name": "neonpanel.createDocuments",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": true
+      },
+      {
+        "_meta": {
+          "openai/visibility": "private",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "readOnlyHint": false,
+          "title": "neonpanel.createDocumentsByPdf"
+        },
+        "description": "Create documents for a company by providing a downloadable PDF link.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "file": {
+                "link": "https://example.com/invoice.pdf",
+                "name": "invoice.pdf"
+              },
+              "type": "bill"
+            },
+            "name": "Create Bill From PDF Link"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "file": {
+              "additionalProperties": false,
+              "properties": {
+                "link": {
+                  "format": "uri",
+                  "type": "string"
+                },
+                "name": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "link"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "enum": [
+                "bill"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "type",
+            "file"
+          ],
+          "type": "object"
+        },
+        "isConsequential": true,
+        "is_consequential": true,
+        "name": "neonpanel.createDocumentsByPdf",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": true
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.checkImportStatus"
+        },
+        "description": "Check the processing status of a previously uploaded document import.",
+        "examples": [
+          {
+            "arguments": {
+              "companyUuid": "company-uuid",
+              "requestId": "00000000-0000-0000-0000-000000000000",
+              "type": "bill"
+            },
+            "name": "Check Import Status"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuid": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "requestId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "bill"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "companyUuid",
+            "type",
+            "requestId"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.checkImportStatus",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      },
+      {
+        "_meta": {
+          "openai/visibility": "public",
+          "securitySchemes": [
+            {
+              "scopes": [
+                "neonpanel.mcp"
+              ],
+              "type": "oauth2"
+            }
+          ]
+        },
+        "annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "neonpanel.getRevenueAndCogs"
+        },
+        "description": "Retrieve revenue and COGS summary for the specified period.",
+        "examples": [
+          {
+            "arguments": {
+              "endDate": "2024-06-30",
+              "grouping": [
+                "company"
+              ],
+              "periodicity": "quarterly",
+              "startDate": "2024-01-01"
+            },
+            "name": "Quarterly by Company"
+          }
+        ],
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "companyUuids": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "countryCodes": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "endDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            },
+            "grouping": {
+              "items": {
+                "enum": [
+                  "company",
+                  "country",
+                  "invoice"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "periodicity": {
+              "enum": [
+                "total",
+                "yearly",
+                "quarterly",
+                "monthly"
+              ],
+              "type": "string"
+            },
+            "startDate": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "startDate"
+          ],
+          "type": "object"
+        },
+        "isConsequential": false,
+        "is_consequential": false,
+        "name": "neonpanel.getRevenueAndCogs",
+        "outputSchema": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "x-openai-isConsequential": false
+      }
+    ]
+  }
+}

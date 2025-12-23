@@ -214,7 +214,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.listCompanies',
       description: 'Retrieve companies the authenticated user can access.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: listCompaniesInputSchema,
       outputSchema: listCompaniesOutputSchema,
       examples: [
@@ -239,7 +239,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.listReports',
       description: 'Retrieve the list of reports with groups, descriptions, and URLs.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: z.object({}),
       outputSchema: listReportsOutputSchema,
       examples: [
@@ -258,7 +258,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.listInventoryItems',
       description: 'List inventory items for a company with optional filters.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: listInventoryItemsInputSchema,
       outputSchema: listInventoryItemsOutputSchema,
       examples: [
@@ -291,7 +291,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.listWarehouses',
       description: 'Retrieve warehouses for a company with optional search.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: listWarehousesInputSchema,
       outputSchema: listWarehousesOutputSchema,
       examples: [
@@ -318,7 +318,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.getWarehouseBalances',
       description: 'Retrieve paginated inventory balances for a warehouse.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: warehouseBalancesInputSchema,
       outputSchema: warehouseBalancesOutputSchema,
       examples: [
@@ -346,7 +346,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.getInventoryDetails',
       description: 'Retrieve inventory details including restock information and warehouse balances.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: inventoryDetailsInputSchema,
       outputSchema: inventoryDetailsOutputSchema,
       examples: [
@@ -372,7 +372,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.getInventoryLandedCost',
       description: 'Retrieve landed cost (manufacturing expenses) for an inventory item.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: inventoryLandedCostInputSchema,
       outputSchema: inventoryLandedCostOutputSchema,
       examples: [
@@ -405,7 +405,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.getInventoryCogs',
       description: 'Retrieve cost of goods sold (COGS) for an inventory item.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: inventoryCogsInputSchema,
       outputSchema: inventoryCogsOutputSchema,
       examples: [
@@ -435,7 +435,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.getImportInstructions',
       description: 'Retrieve document upload instructions for a supported import type.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: importInstructionsInputSchema,
       outputSchema: importInstructionsOutputSchema,
       examples: [
@@ -457,7 +457,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.createDocuments',
       description: 'Create documents for a company using JSON payload data.',
-      auth: 'user',
+      isConsequential: true,
       inputSchema: createDocumentsInputSchema,
       outputSchema: createDocumentsOutputSchema,
       examples: [
@@ -485,7 +485,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.createDocumentsByPdf',
       description: 'Create documents for a company by providing a downloadable PDF link.',
-      auth: 'user',
+      isConsequential: true,
       inputSchema: createDocumentsByPdfInputSchema,
       outputSchema: createDocumentsByPdfOutputSchema,
       examples: [
@@ -516,7 +516,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.checkImportStatus',
       description: 'Check the processing status of a previously uploaded document import.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: checkImportStatusInputSchema,
       outputSchema: checkImportStatusOutputSchema,
       examples: [
@@ -541,7 +541,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'neonpanel.getRevenueAndCogs',
       description: 'Retrieve revenue and COGS summary for the specified period.',
-      auth: 'user',
+      isConsequential: false,
       inputSchema: revenueAndCogsInputSchema,
       outputSchema: revenueAndCogsOutputSchema,
       examples: [

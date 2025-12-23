@@ -4,7 +4,7 @@ const RawConfigSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   BUILD_VERSION: z.string().default('dev'),
-  MCP_PROTOCOL_VERSION: z.string().default('2025-01-01'),
+  MCP_PROTOCOL_VERSION: z.string().default('2025-03-26'),
   LOG_LEVEL: z.string().default('info'),
   SSE_HEARTBEAT_MS: z.coerce.number().int().min(1000).default(15000),
   SSE_MAX_CONNECTIONS: z.coerce.number().int().min(1).default(1000),

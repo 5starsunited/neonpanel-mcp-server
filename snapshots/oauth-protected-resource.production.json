@@ -1,0 +1,12 @@
+{
+  "resource": "https://mcp.neonpanel.com",
+  "authorization_servers": [
+    "https://my.neonpanel.com"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "scopes_supported": [
+    "neonpanel.mcp"
+  ]
+}
