@@ -57,6 +57,30 @@ Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validatio
 
 **Production:** https://mcp.neonpanel.com
 
+## 📊 Athena (FBA Replenishment)
+
+The tool `neonpanel.fba_replenishment` reads rows from Athena using the Glue Data Catalog.
+
+**Config (environment variables)**
+- `ATHENA_CATALOG` (default `awsdatacatalog`)
+- `ATHENA_DATABASE` (default `inventory_planning`)
+- `ATHENA_TABLE_FBA_REPLENISHMENT` (default `fba_replenishment`)
+- `ATHENA_WORKGROUP` (default `primary`)
+- `ATHENA_OUTPUT_LOCATION` (optional; required if your workgroup doesn’t have a results location)
+- `ATHENA_ASSUME_ROLE_ARN` (optional; if set, the server will `sts:AssumeRole` before querying)
+- `AWS_REGION` (required for AWS SDK)
+
+**Local dev against prod data (uses your AWS profile)**
+```bash
+aws sso login --profile aap-prod-administrator
+
+AWS_PROFILE=aap-prod-administrator \
+AWS_REGION=us-east-1 \
+npm run dev
+```
+
+In production (ECS/Fargate), credentials come from the task role by default. If the dataset lives in a different AWS account, set `ATHENA_ASSUME_ROLE_ARN` to a role in that account that trusts the task role.
+
 ### Keepa MCP Server
 Amazon product tracking and price analysis via Keepa API.
 
@@ -104,6 +128,15 @@ npm start
 
 ### AWS Fargate (NeonPanel)
 ```bash
+aws sso login --profile app-dev-administrator
+
+# Option A: use the repo deploy script (recommended)
+./DEPLOY.sh
+
+# Override profile explicitly (script does not honor AWS_PROFILE)
+DEPLOY_AWS_PROFILE=app-dev-administrator ./DEPLOY.sh
+
+# Option B: deploy CDK directly
 cd infrastructure
 npm install
 cdk deploy --profile app-dev-administrator

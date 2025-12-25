@@ -35,6 +35,16 @@ const RawConfigSchema = z.object({
   NEONPANEL_API_BASE: z.string().default('https://api.neonpanel.com'),
   NEONPANEL_OPENAPI_URL: z.string().default('https://my.neonpanel.com/api/v1/scheme/3.1.0'),
   OPENAPI_CACHE_TTL_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
+
+  // Athena (optional; required only for Athena-backed tools)
+  ATHENA_REGION: z.string().optional(),
+  ATHENA_WORKGROUP: z.string().default('primary'),
+  ATHENA_OUTPUT_LOCATION: z.string().optional(),
+  ATHENA_CATALOG: z.string().default('awsdatacatalog'),
+  ATHENA_DATABASE: z.string().default('inventory_planning'),
+  ATHENA_TABLE_FBA_REPLENISHMENT: z.string().default('fba_replenishment'),
+  ATHENA_ASSUME_ROLE_ARN: z.string().optional(),
+  ATHENA_ASSUME_ROLE_SESSION_NAME: z.string().default('neonpanel-mcp-athena'),
 });
 
 export type AppConfig = ReturnType<typeof buildConfig>;
@@ -78,6 +88,18 @@ function buildConfig() {
     openApi: {
       cacheTtlMs: parsed.OPENAPI_CACHE_TTL_MS,
       localPath: 'openapi.json',
+    },
+    athena: {
+      region: parsed.ATHENA_REGION,
+      workgroup: parsed.ATHENA_WORKGROUP,
+      outputLocation: parsed.ATHENA_OUTPUT_LOCATION,
+      catalog: parsed.ATHENA_CATALOG,
+      database: parsed.ATHENA_DATABASE,
+      tables: {
+        fbaReplenishment: parsed.ATHENA_TABLE_FBA_REPLENISHMENT,
+      },
+      assumeRoleArn: parsed.ATHENA_ASSUME_ROLE_ARN,
+      assumeRoleSessionName: parsed.ATHENA_ASSUME_ROLE_SESSION_NAME,
     },
   } as const;
 }

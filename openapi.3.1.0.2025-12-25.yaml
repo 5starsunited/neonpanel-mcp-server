@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: NeonPanel GPT API
   version: 1.0.1
@@ -65,21 +65,18 @@ components:
           type: string
           example: Completed
         completed:
-          type: string
+          type: [string, "null"]
           format: date-time
           example: 2024-01-01T15:30:00Z
-          nullable: true
         ref_number:
-          type: string
+          type: [string, "null"]
           example: REF12345
           description: Reference number for COGS or Landed Costs related documents
-          nullable: true
         date:
-          type: string
+          type: [string, "null"]
           format: date
           example: 2024-01-01
           description: Date for COGS or Landed Costs related documents
-          nullable: true
 
     Warehouse:
       type: object
@@ -91,13 +88,11 @@ components:
           type: string
           example: Warehouse Name
         type:
-          type: string
+          type: [string, "null"]
           example: Asset
-          nullable: true
         country_code:
-          type: string
+          type: [string, "null"]
           example: US
-          nullable: true
 
     CogsDetailItem:
       type: object
@@ -279,7 +274,7 @@ components:
                     $ref: '#/components/schemas/InventoryItem'
                   balance:
                     type: number
-                    example: 0
+                    example: 100
 
     InventoryListResponse:
       allOf:
@@ -623,6 +618,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CompanyListResponse'
 
+
   /api/v1/permissions/{permission}/companies:
     get:
       tags: [Companies]
@@ -825,7 +821,6 @@ paths:
             type: string
             format: date
             example: 2024-01-01
-            nullable: true
           description: Set a date if you need a balances in a past. Defaults to current date if not provided
       responses:
         '200':
@@ -927,7 +922,6 @@ paths:
             type: string
             format: date
             example: 2024-01-01
-            nullable: true
           description: Set a date if you need a balances information in a past. Defaults to current date if not provided
       responses:
         '200':
