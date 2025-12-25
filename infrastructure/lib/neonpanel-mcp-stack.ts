@@ -23,14 +23,14 @@ export class NeonpanelMcpStack extends cdk.Stack {
 
     // Get the SSL certificates for both domains
     const mcpCertificate = acm.Certificate.fromCertificateArn(
-      this, 
-      'McpCertificate', 
+      this,
+      'McpCertificate',
       'arn:aws:acm:us-east-1:303498144074:certificate/2fee2d20-5b9c-42df-9538-a98df4867097'
     );
     
     const apiCertificate = acm.Certificate.fromCertificateArn(
-      this, 
-      'ApiCertificate', 
+      this,
+      'ApiCertificate',
       'arn:aws:acm:us-east-1:303498144074:certificate/a38e88c3-526f-44c2-a76c-a5cef1222a64'
     );
 

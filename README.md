@@ -104,6 +104,15 @@ npm start
 
 ### AWS Fargate (NeonPanel)
 ```bash
+aws sso login --profile app-dev-administrator
+
+# Option A: use the repo deploy script (recommended)
+./DEPLOY.sh
+
+# Override profile explicitly (script does not honor AWS_PROFILE)
+DEPLOY_AWS_PROFILE=app-dev-administrator ./DEPLOY.sh
+
+# Option B: deploy CDK directly
 cd infrastructure
 npm install
 cdk deploy --profile app-dev-administrator
