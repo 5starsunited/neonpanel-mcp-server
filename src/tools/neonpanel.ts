@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { runAthenaQuery } from '../clients/athena';
 import { neonPanelRequest } from '../clients/neonpanel-api';
+import { config } from '../config';
 import { AppError } from '../lib/errors';
 import { PeriodInputSchema, resolvePeriod } from '../lib/period/resolve-period';
 import type { ToolRegistry } from './types';
@@ -26,6 +28,20 @@ const listCompaniesOutputSchema = {
 };
 
 const listReportsOutputSchema = {
+  type: 'object',
+  additionalProperties: true,
+};
+
+const companiesWithPermissionInputSchema = z.object({
+  permission: z.string().min(1, 'permission is required'),
+  companyUuids: z
+    .array(z.string().min(1))
+    .nonempty()
+    .optional()
+    .describe('Optional: limit results to a set of company UUIDs.'),
+});
+
+const companiesWithPermissionOutputSchema = {
   type: 'object',
   additionalProperties: true,
 };
@@ -272,6 +288,26 @@ const fbsReplenishmentOutputSchema = {
       },
       additionalProperties: true,
     },
+    queryExecutionId: { type: 'string', nullable: true },
+    query: { type: 'string', nullable: true },
+    columns: {
+      nullable: true,
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          type: { type: 'string', nullable: true },
+        },
+        required: ['name'],
+        additionalProperties: false,
+      },
+    },
+    rows: {
+      nullable: true,
+      type: 'array',
+      items: { type: 'object', additionalProperties: { type: ['string', 'null'] } },
+    },
   },
   required: ['message', 'report'],
 };
@@ -328,9 +364,42 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       },
     })
     .register({
+      name: 'neonpanel.getCompaniesWithPermission',
+      description:
+        'Test access: return companies the authenticated user can access for a given permission (NeonPanel: GET /api/v1/permissions/{permission}/companies).',
+      isConsequential: false,
+      inputSchema: companiesWithPermissionInputSchema,
+      outputSchema: companiesWithPermissionOutputSchema,
+      examples: [
+        {
+          name: 'Business planning permission (all permitted companies)',
+          arguments: {
+            permission: 'view:quicksight_group.business_planning_new',
+          },
+        },
+        {
+          name: 'Check permission for one company',
+          arguments: {
+            permission: 'view:quicksight_group.business_planning_new',
+            companyUuids: ['company-uuid'],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = companiesWithPermissionInputSchema.parse(args);
+        return neonPanelRequest({
+          token: context.userToken,
+          path: `/api/v1/permissions/${encodeURIComponent(parsed.permission)}/companies`,
+          query: {
+            company_uuids: parsed.companyUuids,
+          },
+        });
+      },
+    })
+    .register({
       name: 'neonpanel.fba_replenishment',
       description:
-        'TESTING: Verify whether the user has access to business planning data, and provide a reference link to the inventory planning report. (Replenishment rows via Athena SQL will be added next.)',
+        'Return FBA replenishment rows from Athena (Glue Data Catalog: inventory_planning.fba_replenishment).',
       isConsequential: false,
       inputSchema: fbsReplenishmentInputSchema,
       outputSchema: fbsReplenishmentOutputSchema,
@@ -475,9 +544,28 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
             .map((item) => ({ item, score: scoreReport(item) }))
             .sort((a, b) => b.score - a.score)[0]?.item;
 
+        const topN = parsed.topN ?? 10;
+        const catalog = config.athena.catalog;
+        const database = config.athena.database;
+        const table = config.athena.tables.fbaReplenishment;
+
+        const query = `SELECT * FROM "${catalog}"."${database}"."${table}" LIMIT ${topN}`;
+
+        const athenaResult = await runAthenaQuery({
+          query,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: Math.min(1000, topN + 1),
+        });
+
         return {
           message: accessMessage,
           report: bestReport ?? null,
+          queryExecutionId: athenaResult.queryExecutionId,
+          query: athenaResult.query,
+          columns: athenaResult.columns,
+          rows: athenaResult.rows,
         };
       },
     })
