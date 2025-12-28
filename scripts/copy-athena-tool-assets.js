@@ -22,11 +22,6 @@ async function main() {
     return;
   }
 
-  // Avoid stale tool assets in dist when tools are renamed/removed.
-  if (fs.existsSync(DST)) {
-    await fsp.rm(DST, { recursive: true, force: true });
-  }
-
   const files = await walk(SRC);
   const assets = files.filter((p) => p.endsWith('tool.json') || p.endsWith('query.sql'));
 
