@@ -38,7 +38,7 @@ function getRowValue(row: Record<string, unknown>, key: string): unknown {
 }
 
 const skuSelectorSchema = z.object({
-  planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']).default('all'),
+  planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']).default('actively_sold_only'),
   target_skus: z.array(z.string()).optional(),
   target_inventory_ids: z.array(z.number().int().min(1)).optional(),
   target_asins: z.array(z.string()).optional(),
