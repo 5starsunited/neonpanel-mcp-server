@@ -1,114 +1,123 @@
 {
   "name": "amazon_supply_chain.inventory_sku_deep_dive",
-  "description": "Deep dive for a specific item: coverage drivers, inbound, constraints, and key metrics for decisioning.",
+  "description": "Inventory SKU deep dive (raw snapshot inspection). Fetches the latest inventory_planning_snapshot row(s) for a specific SKU + marketplace and returns the raw snapshot columns.\n\nBefore calling this tool:\n1) Ask the user for the required parameters: sku and marketplace (US/UK).\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n3) Remind the user where to view the same data in the NeonPanel UI.\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
-      "inventory_id": {
-        "type": "integer"
-      },
       "sku": {
-        "type": "string"
+        "type": "string",
+        "description": "Required. The SKU to inspect."
       },
-      "asin": {
-        "type": "string"
-      },
-      "include_inbound": {
-        "type": "boolean",
-        "default": true
-      },
-      "include_costs": {
-        "type": "boolean",
-        "default": false
+      "marketplace": {
+        "type": "string",
+        "enum": [
+          "US",
+          "UK"
+        ],
+        "description": "Required. Marketplace/country (maps to snapshot column pil.country)."
       },
       "company_id": {
         "type": "integer",
         "minimum": 1,
-        "description": "Optional: restrict to a specific company_id (must be permitted)."
+        "description": "Optional: restrict to a specific company_id (must be permitted). Recommended if you have access to multiple companies."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 25,
+        "default": 5,
+        "description": "Optional. Max rows to return if multiple rows match the SKU+marketplace. Recommended default: 5."
       }
     },
-    "required": [],
-    "description": "Provide at least one identifier: inventory_id OR sku OR asin."
+    "required": [
+      "sku",
+      "marketplace"
+    ]
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "item_ref": {
-        "type": "object",
-        "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
-        "properties": {
-          "inventory_id": {
-            "type": "integer"
-          },
-          "sku": {
-            "type": "string"
-          },
-          "asin": {
-            "type": "string"
-          },
-          "marketplace": {
-            "type": "string",
-            "enum": [
-              "US",
-              "UK"
-            ]
-          },
-          "item_name": {
-            "type": "string"
-          },
-          "item_icon_url": {
-            "type": "string",
-            "description": "Small icon/image URL for item; include in datasets when possible."
-          }
-        }
-      },
-      "metrics": {
-        "type": "object",
-        "properties": {
-          "days_to_oos": {
-            "type": "number"
-          },
-          "days_of_supply": {
-            "type": "number"
-          },
-          "fba_on_hand": {
-            "type": "integer"
-          },
-          "fba_inbound": {
-            "type": "integer"
-          },
-          "network_on_hand": {
-            "type": "integer"
-          },
-          "supplier_lead_time_days": {
-            "type": "integer"
-          },
-          "safety_stock_days": {
-            "type": "integer"
-          },
-          "current_units_per_day": {
-            "type": "number"
-          },
-          "planned_units_per_day": {
-            "type": "number"
-          }
-        }
-      },
-      "drivers": {
+      "items": {
         "type": "array",
         "items": {
-          "type": "string"
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "properties": {
+                "company_id": {
+                  "type": "integer"
+                },
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; render as an image when presenting results."
+                }
+              },
+              "required": [
+                "sku",
+                "marketplace"
+              ]
+            },
+            "snapshot_partition": {
+              "type": "object",
+              "properties": {
+                "year": {
+                  "type": "string"
+                },
+                "month": {
+                  "type": "string"
+                },
+                "day": {
+                  "type": "string"
+                }
+              }
+            },
+            "snapshot": {
+              "type": "object",
+              "description": "Raw inventory_planning_snapshot columns for this SKU+marketplace row. Shape depends on the snapshot schema.",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "item_ref",
+            "snapshot"
+          ]
         }
-      },
-      "notes": {
-        "type": "string"
       }
     },
     "required": [
-      "item_ref",
-      "metrics"
+      "items"
     ]
   },
-  "examples": []
+  "examples": [
+    {
+      "name": "Single SKU (US)",
+      "description": "Inspect the latest snapshot row for a SKU in US marketplace.",
+      "input": {
+        "sku": "SKU-EXAMPLE-1",
+        "marketplace": "US",
+        "limit": 5
+      }
+    }
+  ]
 }
