@@ -45,6 +45,7 @@ const inputSchema = z.object({
   marketplace: z.enum(['US', 'UK']),
   company_id: z.number().int().min(1).optional(),
   limit: z.number().int().min(1).max(25).default(5).optional(),
+  debug: z.boolean().default(false).optional(),
 });
 
 export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
@@ -121,7 +122,110 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
         maxRows: Math.min(2000, limit),
       });
 
-      const items = (athenaResult.rows ?? []).map((row) => {
+      const rows = athenaResult.rows ?? [];
+      const includeDiagnostics = parsed.debug === true || rows.length === 0;
+
+      let diagnostics:
+        | {
+            permitted_company_ids_count: number;
+            allowed_company_ids: number[];
+            selected_snapshot_partition?: { year?: string; month?: string; day?: string };
+            available_countries_for_sku?: string[];
+          }
+        | undefined;
+
+      if (includeDiagnostics) {
+        // 1) Determine selected snapshot partition for these allowed companies.
+        const latestSnapshotQuery = renderSqlTemplate(
+          `WITH params AS (
+  SELECT {{company_ids_array}} AS company_ids
+)
+SELECT pil.year, pil.month, pil.day
+FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+CROSS JOIN params p
+WHERE contains(p.company_ids, pil.company_id)
+GROUP BY 1, 2, 3
+ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+LIMIT 1`,
+          {
+            catalog,
+            database,
+            table,
+            company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+          },
+        );
+
+        const latestSnapshotResult = await runAthenaQuery({
+          query: latestSnapshotQuery,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: 5,
+        });
+
+        const latestRow = (latestSnapshotResult.rows ?? [])[0] as Record<string, unknown> | undefined;
+        const selected_snapshot_partition = latestRow
+          ? {
+              year: (latestRow.year ?? undefined) as string | undefined,
+              month: (latestRow.month ?? undefined) as string | undefined,
+              day: (latestRow.day ?? undefined) as string | undefined,
+            }
+          : undefined;
+
+        // 2) If we have a snapshot partition, list available countries for this SKU (ignoring marketplace filter).
+        let available_countries_for_sku: string[] | undefined;
+        if (selected_snapshot_partition?.year && selected_snapshot_partition?.month && selected_snapshot_partition?.day) {
+          const skuCountriesQuery = renderSqlTemplate(
+            `WITH params AS (
+  SELECT
+    {{company_ids_array}} AS company_ids,
+    UPPER(TRIM(regexp_replace({{sku_sql}}, '[‐‑‒–—−]', '-'))) AS sku_norm,
+    {{year_sql}} AS y,
+    {{month_sql}} AS m,
+    {{day_sql}} AS d
+)
+SELECT DISTINCT pil.country AS country
+FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+CROSS JOIN params p
+WHERE
+  contains(p.company_ids, pil.company_id)
+  AND pil.year = p.y AND pil.month = p.m AND pil.day = p.d
+  AND UPPER(TRIM(regexp_replace(pil.sku, '[‐‑‒–—−]', '-'))) = p.sku_norm
+LIMIT 50`,
+            {
+              catalog,
+              database,
+              table,
+              company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+              sku_sql: sqlStringLiteral(parsed.sku),
+              year_sql: sqlStringLiteral(selected_snapshot_partition.year),
+              month_sql: sqlStringLiteral(selected_snapshot_partition.month),
+              day_sql: sqlStringLiteral(selected_snapshot_partition.day),
+            },
+          );
+
+          const skuCountriesResult = await runAthenaQuery({
+            query: skuCountriesQuery,
+            database,
+            workGroup: config.athena.workgroup,
+            outputLocation: config.athena.outputLocation,
+            maxRows: 100,
+          });
+
+          available_countries_for_sku = (skuCountriesResult.rows ?? [])
+            .map((r) => (r as Record<string, unknown>).country)
+            .filter((c): c is string => typeof c === 'string' && c.length > 0);
+        }
+
+        diagnostics = {
+          permitted_company_ids_count: permittedCompanyIds.length,
+          allowed_company_ids: allowedCompanyIds.slice(0, 50),
+          selected_snapshot_partition,
+          available_countries_for_sku,
+        };
+      }
+
+      const items = rows.map((row) => {
         const record = row as Record<string, unknown>;
 
         const item_ref = {
@@ -147,7 +251,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
         };
       });
 
-      return { items };
+      return diagnostics ? { items, diagnostics } : { items };
     },
   });
 }

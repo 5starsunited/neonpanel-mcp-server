@@ -15,7 +15,7 @@ WITH params AS (
 normalized_params AS (
   SELECT
     company_ids,
-    UPPER(TRIM(REPLACE(REPLACE(sku, '–', '-'), '—', '-'))) AS sku_norm,
+    UPPER(TRIM(regexp_replace(sku, '[‐‑‒–—−]', '-'))) AS sku_norm,
     UPPER(TRIM(marketplace)) AS marketplace_norm,
     top_results
   FROM params
@@ -57,7 +57,7 @@ WHERE
   AND pil.month = s.month
   AND pil.day = s.day
 
-  AND UPPER(TRIM(REPLACE(REPLACE(pil.sku, '–', '-'), '—', '-'))) = p.sku_norm
+  AND UPPER(TRIM(regexp_replace(pil.sku, '[‐‑‒–—−]', '-'))) = p.sku_norm
   AND UPPER(TRIM(pil.country)) = p.marketplace_norm
 
 LIMIT {{limit_top_n}};

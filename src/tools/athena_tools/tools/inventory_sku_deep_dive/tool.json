@@ -28,6 +28,11 @@
         "maximum": 25,
         "default": 5,
         "description": "Optional. Max rows to return if multiple rows match the SKU+marketplace. Recommended default: 5."
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Optional. If true, include diagnostics to explain why rows might be missing (authorized company_ids, chosen snapshot partition, available countries for the SKU)."
       }
     },
     "required": [
@@ -102,6 +107,41 @@
             "item_ref",
             "snapshot"
           ]
+        }
+      },
+      "diagnostics": {
+        "type": "object",
+        "description": "Included when debug=true or when no rows are found. Helps troubleshoot authorization / snapshot partition / marketplace mismatches.",
+        "properties": {
+          "permitted_company_ids_count": {
+            "type": "integer"
+          },
+          "allowed_company_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "selected_snapshot_partition": {
+            "type": "object",
+            "properties": {
+              "year": {
+                "type": "string"
+              },
+              "month": {
+                "type": "string"
+              },
+              "day": {
+                "type": "string"
+              }
+            }
+          },
+          "available_countries_for_sku": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
