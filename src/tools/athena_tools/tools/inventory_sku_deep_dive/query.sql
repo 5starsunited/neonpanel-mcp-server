@@ -12,10 +12,19 @@ WITH params AS (
     {{limit_top_n}} AS top_results
 ),
 
+normalized_params AS (
+  SELECT
+    company_ids,
+    UPPER(TRIM(REPLACE(REPLACE(sku, '–', '-'), '—', '-'))) AS sku_norm,
+    UPPER(TRIM(marketplace)) AS marketplace_norm,
+    top_results
+  FROM params
+),
+
 latest_snapshot AS (
   SELECT pil.year, pil.month, pil.day
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-  CROSS JOIN params p
+  CROSS JOIN normalized_params p
   WHERE contains(p.company_ids, pil.company_id)
   GROUP BY 1, 2, 3
   ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
@@ -38,7 +47,7 @@ SELECT
   pil.day AS snapshot_day
 
 FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-CROSS JOIN params p
+CROSS JOIN normalized_params p
 CROSS JOIN latest_snapshot s
 
 WHERE
@@ -48,7 +57,7 @@ WHERE
   AND pil.month = s.month
   AND pil.day = s.day
 
-  AND pil.sku = p.sku
-  AND pil.country = p.marketplace
+  AND UPPER(TRIM(REPLACE(REPLACE(pil.sku, '–', '-'), '—', '-'))) = p.sku_norm
+  AND UPPER(TRIM(pil.country)) = p.marketplace_norm
 
 LIMIT {{limit_top_n}};
