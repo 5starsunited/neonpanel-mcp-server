@@ -9,6 +9,8 @@ WITH params AS (
     {{company_ids_array}} AS company_ids,
     {{sku_sql}} AS sku,
     {{marketplace_sql}} AS marketplace,
+    {{apply_sku_filter_sql}} AS apply_sku_filter,
+    {{apply_marketplace_filter_sql}} AS apply_marketplace_filter,
     {{limit_top_n}} AS top_results
 ),
 
@@ -17,6 +19,8 @@ normalized_params AS (
     company_ids,
     UPPER(TRIM(regexp_replace(sku, '[‐‑‒–—−]', '-'))) AS sku_norm,
     UPPER(TRIM(marketplace)) AS marketplace_norm,
+    apply_sku_filter,
+    apply_marketplace_filter,
     top_results
   FROM params
 ),
@@ -57,7 +61,13 @@ WHERE
   AND pil.month = s.month
   AND pil.day = s.day
 
-  AND UPPER(TRIM(regexp_replace(pil.sku, '[‐‑‒–—−]', '-'))) = p.sku_norm
-  AND UPPER(TRIM(pil.country)) = p.marketplace_norm
+  AND (
+    NOT p.apply_sku_filter
+    OR UPPER(TRIM(regexp_replace(pil.sku, '[‐‑‒–—−]', '-'))) = p.sku_norm
+  )
+  AND (
+    NOT p.apply_marketplace_filter
+    OR UPPER(TRIM(pil.country)) = p.marketplace_norm
+  )
 
 LIMIT {{limit_top_n}};

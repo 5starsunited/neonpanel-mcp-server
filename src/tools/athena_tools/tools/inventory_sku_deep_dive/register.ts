@@ -41,8 +41,8 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
 }
 
 const inputSchema = z.object({
-  sku: z.string().min(1),
-  marketplace: z.enum(['US', 'UK']),
+  sku: z.string().min(1).optional(),
+  marketplace: z.enum(['US', 'UK']).optional(),
   company_id: z.number().int().min(1).optional(),
   limit: z.number().int().min(1).max(25).default(5).optional(),
   debug: z.boolean().default(false).optional(),
@@ -105,8 +105,10 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
         database,
         table,
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-        sku_sql: sqlStringLiteral(parsed.sku),
-        marketplace_sql: sqlStringLiteral(parsed.marketplace),
+        sku_sql: sqlStringLiteral(parsed.sku ?? ''),
+        marketplace_sql: sqlStringLiteral(parsed.marketplace ?? ''),
+        apply_sku_filter_sql: parsed.sku ? 'TRUE' : 'FALSE',
+        apply_marketplace_filter_sql: parsed.marketplace ? 'TRUE' : 'FALSE',
         limit_top_n: Number(limit),
 
         // Back-compat for older draft templates
@@ -174,7 +176,12 @@ LIMIT 1`,
 
         // 2) If we have a snapshot partition, list available countries for this SKU (ignoring marketplace filter).
         let available_countries_for_sku: string[] | undefined;
-        if (selected_snapshot_partition?.year && selected_snapshot_partition?.month && selected_snapshot_partition?.day) {
+        if (
+          parsed.sku &&
+          selected_snapshot_partition?.year &&
+          selected_snapshot_partition?.month &&
+          selected_snapshot_partition?.day
+        ) {
           const skuCountriesQuery = renderSqlTemplate(
             `WITH params AS (
   SELECT

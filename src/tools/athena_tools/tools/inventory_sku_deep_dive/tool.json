@@ -1,13 +1,13 @@
 {
   "name": "amazon_supply_chain.inventory_sku_deep_dive",
-  "description": "Inventory SKU deep dive (raw snapshot inspection). Fetches the latest inventory_planning_snapshot row(s) for a specific SKU + marketplace and returns the raw snapshot columns.\n\nBefore calling this tool:\n1) Ask the user for the required parameters: sku and marketplace (US/UK).\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n3) Remind the user where to view the same data in the NeonPanel UI.\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
+  "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for the authorized company_id(s).\n\nHow to use:\n- Best: provide sku + marketplace (US/UK) to inspect a specific item.\n- If you omit sku and/or marketplace, the tool will return a small sample of rows (useful to confirm snapshot data exists and to see exact country labels / SKU formatting).\n\nBefore calling this tool:\n1) Ask the user if they want a specific SKU + marketplace or just a sample row for validation.\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
       "sku": {
         "type": "string",
-        "description": "Required. The SKU to inspect."
+        "description": "Optional. The SKU to inspect. If omitted, returns sample rows."
       },
       "marketplace": {
         "type": "string",
@@ -15,7 +15,7 @@
           "US",
           "UK"
         ],
-        "description": "Required. Marketplace/country (maps to snapshot column pil.country)."
+        "description": "Optional. Marketplace/country (maps to snapshot column pil.country). If omitted, returns sample rows and lets you see available country labels."
       },
       "company_id": {
         "type": "integer",
@@ -35,10 +35,7 @@
         "description": "Optional. If true, include diagnostics to explain why rows might be missing (authorized company_ids, chosen snapshot partition, available countries for the SKU)."
       }
     },
-    "required": [
-      "sku",
-      "marketplace"
-    ]
+    "required": []
   },
   "outputSchema": {
     "type": "object",
