@@ -1,0 +1,168 @@
+{
+  "name": "amazon_supply_chain.inventory_health_scorecard",
+  "description": "Catalog-level inventory health: coverage, stockout exposure, overstock exposure, and summary KPIs.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current"
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true
+      },
+      "lookahead_days": {
+        "type": "integer",
+        "minimum": 7,
+        "default": 60
+      },
+      "group_by": {
+        "type": "string",
+        "enum": [
+          "none",
+          "brand",
+          "category",
+          "marketplace"
+        ],
+        "default": "none"
+      }
+    },
+    "required": [
+      "sku_selector"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "kpis": {
+        "type": "object",
+        "properties": {
+          "sku_count": {
+            "type": "integer"
+          },
+          "stockout_risk_sku_count": {
+            "type": "integer"
+          },
+          "overstock_risk_sku_count": {
+            "type": "integer"
+          },
+          "median_days_of_supply": {
+            "type": "number"
+          },
+          "total_units_on_hand": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sku_count",
+          "median_days_of_supply"
+        ]
+      },
+      "breakdown": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "group": {
+              "type": "string"
+            },
+            "sku_count": {
+              "type": "integer"
+            },
+            "stockout_risk_sku_count": {
+              "type": "integer"
+            },
+            "overstock_risk_sku_count": {
+              "type": "integer"
+            },
+            "median_days_of_supply": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "group",
+            "sku_count"
+          ]
+        }
+      }
+    },
+    "required": [
+      "kpis"
+    ]
+  },
+  "examples": []
+}

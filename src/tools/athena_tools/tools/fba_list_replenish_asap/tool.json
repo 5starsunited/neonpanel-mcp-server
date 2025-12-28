@@ -1,0 +1,216 @@
+{
+  "name": "amazon_supply_chain.fba_list_replenish_asap",
+  "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional: explicit country/marketplace filter (Athena: pil.country). If provided, this takes precedence over marketplaces."
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "time_window": {
+        "type": "object",
+        "properties": {
+          "lookahead_days": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 14
+          },
+          "as_of_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current"
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true
+      },
+      "override_default": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, use fba_lead_time_days_override and fba_safety_stock_days_override instead of table defaults."
+      },
+      "fba_lead_time_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 12
+      },
+      "fba_safety_stock_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 60
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200
+      },
+      "stockout_threshold_days": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 7
+      }
+    },
+    "required": [
+      "sku_selector"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "days_to_oos": {
+              "type": "number"
+            },
+            "fba_on_hand": {
+              "type": "integer"
+            },
+            "fba_inbound": {
+              "type": "integer"
+            },
+            "recommended_ship_units": {
+              "type": "integer"
+            },
+            "priority": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "default": "high"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ref",
+            "days_to_oos",
+            "recommended_ship_units",
+            "priority"
+          ]
+        }
+      }
+    },
+    "required": [
+      "items"
+    ]
+  },
+  "examples": []
+}

@@ -1,0 +1,193 @@
+{
+  "name": "amazon_supply_chain.monitor_sales_vs_plan_alerts",
+  "description": "Compare current sales dynamics vs plan/target and alert on unexpected behavior (spikes/drops) per item.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "comparison_window_days": {
+        "type": "integer",
+        "minimum": 7,
+        "default": 14
+      },
+      "baseline": {
+        "type": "string",
+        "enum": [
+          "planned",
+          "target"
+        ],
+        "default": "planned"
+      },
+      "deviation_pct_threshold": {
+        "type": "number",
+        "minimum": 0,
+        "default": 25
+      },
+      "min_units_per_day": {
+        "type": "number",
+        "minimum": 0,
+        "default": 1
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 300
+      }
+    },
+    "required": [
+      "sku_selector"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "alerts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "current_units_per_day": {
+              "type": "number"
+            },
+            "baseline_units_per_day": {
+              "type": "number"
+            },
+            "deviation_pct": {
+              "type": "number"
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "spike",
+                "drop"
+              ]
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "default": "high"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ref",
+            "deviation_pct",
+            "direction",
+            "severity"
+          ]
+        }
+      }
+    },
+    "required": [
+      "alerts"
+    ]
+  },
+  "examples": []
+}

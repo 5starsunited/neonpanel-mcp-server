@@ -36,6 +36,15 @@ export interface ToolExample {
   arguments: unknown;
 }
 
+export interface ToolSpecJson {
+  name: string;
+  description: string;
+  isConsequential?: boolean;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  examples?: ToolExample[];
+}
+
 export interface ToolDefinition<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string;
   description: string;
@@ -48,6 +57,12 @@ export interface ToolDefinition<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   inputSchema: TSchema;
   outputSchema: Record<string, unknown>;
   examples?: ToolExample[];
+  /**
+   * Optional: override the JSON emitted by tools/list (stored in versioned JSON files).
+   * This enables a "JSON is the source of truth" workflow while keeping Zod-based
+   * runtime validation for tools/call.
+   */
+  specJson?: ToolSpecJson;
   execute: (args: z.infer<TSchema>, context: ToolExecutionContext) => Promise<unknown>;
 }
 
@@ -105,26 +120,31 @@ export class ToolRegistry {
 
   list(): ToolListEntry[] {
     return Array.from(this.tools.values()).map((tool) => {
-      const jsonSchema = zodToJsonSchema(tool.inputSchema, {
-        name: `${tool.name}Input`,
-        target: 'openApi3',
-      }) as any;
-      
+      const spec = tool.specJson;
+
+      const jsonSchema =
+        spec?.inputSchema ??
+        (zodToJsonSchema(tool.inputSchema, {
+          name: `${tool.name}Input`,
+          target: 'openApi3',
+        }) as any);
+
       // Flatten the schema - extract the actual schema from $ref if present
       let inputSchema: Record<string, unknown>;
-      if (jsonSchema.$ref && jsonSchema.definitions) {
-        const refKey = jsonSchema.$ref.replace('#/definitions/', '');
-        inputSchema = jsonSchema.definitions[refKey] || jsonSchema;
+      if ((jsonSchema as any).$ref && (jsonSchema as any).definitions) {
+        const refKey = (jsonSchema as any).$ref.replace('#/definitions/', '');
+        inputSchema = (jsonSchema as any).definitions[refKey] || (jsonSchema as any);
       } else {
-        inputSchema = jsonSchema;
+        inputSchema = jsonSchema as Record<string, unknown>;
       }
 
-      const isConsequential = tool.isConsequential ?? this.inferConsequentiality(tool.name);
+      const isConsequential =
+        spec?.isConsequential ?? tool.isConsequential ?? this.inferConsequentiality(tool.name);
       const oauthScopes = getAdvertisedOauthScopes();
       
       return {
         name: tool.name,
-        description: tool.description,
+        description: spec?.description ?? tool.description,
         _meta: {
           'openai/visibility': isConsequential ? 'private' : 'public',
           securitySchemes: [{ type: 'oauth2', scopes: oauthScopes }],
@@ -140,8 +160,8 @@ export class ToolRegistry {
         isConsequential,
         'x-openai-isConsequential': isConsequential,
         inputSchema,
-        outputSchema: tool.outputSchema,
-        examples: tool.examples,
+        outputSchema: spec?.outputSchema ?? tool.outputSchema,
+        examples: spec?.examples ?? tool.examples,
       };
     });
   }

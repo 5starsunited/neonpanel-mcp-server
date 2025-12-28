@@ -1,0 +1,194 @@
+{
+  "name": "amazon_supply_chain.risk_out_of_stock_list",
+  "description": "List items at risk of going out of stock within a specified horizon across FBA and optionally total network inventory.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "time_window": {
+        "type": "object",
+        "properties": {
+          "lookahead_days": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 14
+          },
+          "as_of_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current"
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true
+      },
+      "risk_horizon_days": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 21
+      },
+      "include_network_inventory": {
+        "type": "boolean",
+        "default": true
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 300
+      }
+    },
+    "required": [
+      "sku_selector"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "days_to_oos": {
+              "type": "number"
+            },
+            "available_units": {
+              "type": "integer"
+            },
+            "inbound_units": {
+              "type": "integer"
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "default": "high"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ref",
+            "days_to_oos",
+            "severity"
+          ]
+        }
+      }
+    },
+    "required": [
+      "items"
+    ]
+  },
+  "examples": []
+}

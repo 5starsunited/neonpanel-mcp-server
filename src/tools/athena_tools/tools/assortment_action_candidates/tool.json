@@ -1,0 +1,184 @@
+{
+  "name": "amazon_supply_chain.assortment_action_candidates",
+  "description": "Identify items to pause/discontinue/liquidate/investigate based on low sell-through, repeated stockouts, or inventory inefficiency.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "evaluation_window_days": {
+        "type": "integer",
+        "minimum": 14,
+        "default": 90
+      },
+      "min_turns_per_year": {
+        "type": "number",
+        "minimum": 0,
+        "default": 2
+      },
+      "min_margin_pct": {
+        "type": "number",
+        "minimum": 0,
+        "default": 10
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 300
+      }
+    },
+    "required": [
+      "sku_selector"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "candidates": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "issue": {
+              "type": "string",
+              "enum": [
+                "low_sell_through",
+                "aging_risk",
+                "repeated_stockouts",
+                "low_margin",
+                "listing_issue_suspected"
+              ]
+            },
+            "recommended_action": {
+              "type": "string",
+              "enum": [
+                "pause_replenishment",
+                "discontinue",
+                "liquidate",
+                "remove_order",
+                "investigate"
+              ]
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "default": "high"
+            },
+            "supporting_metrics": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "item_ref",
+            "issue",
+            "recommended_action"
+          ]
+        }
+      }
+    },
+    "required": [
+      "candidates"
+    ]
+  },
+  "examples": []
+}

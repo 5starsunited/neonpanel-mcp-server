@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { config } from '../config';
 import { RpcDispatcher } from './rpc/dispatcher';
 import { ToolRegistry } from '../tools/types';
+import { registerAthenaTools } from '../tools/athena_tools';
 import { registerNeonPanelTools } from '../tools/neonpanel';
 import { userTokenProvider, type UserTokenProvider } from '../auth/user-token-provider';
 import { logger } from '../logging/logger';
@@ -36,6 +37,8 @@ export interface RpcFactoryOptions {
 
 export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatcher {
   const registry = new ToolRegistry();
+  // Register Athena-backed tools first to keep high-value tools early in tools/list.
+  registerAthenaTools(registry);
   registerNeonPanelTools(registry);
   const provider = options.userTokenProvider ?? userTokenProvider;
 
