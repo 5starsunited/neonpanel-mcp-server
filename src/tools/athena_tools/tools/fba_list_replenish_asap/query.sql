@@ -2,7 +2,7 @@
 -- Base SQL tested in Athena UI, templated for MCP runtime.
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
--- - Placeholder values are rendered by the server ({{var}}).
+-- - Placeholder values are rendered by the server (for example: catalog/database/table and filter params).
 
 WITH t AS (
   SELECT
