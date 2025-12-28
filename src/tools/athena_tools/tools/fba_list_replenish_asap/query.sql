@@ -4,7 +4,39 @@
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
 -- - Placeholder values are rendered by the server (for example: catalog/database/table and filter params).
 
-WITH t AS (
+WITH params AS (
+  SELECT
+    {{sales_velocity_sql}} AS sales_velocity,
+    {{planning_base_sql}} AS planning_base,
+    {{override_default_sql}} AS override_default,
+    {{use_seasonality_sql}} AS use_seasonality,
+    {{fba_lead_time_days_override}} AS fba_lead_time_days_override,
+    {{fba_safety_stock_days_override}} AS fba_safety_stock_days_override,
+    {{limit_top_n}} AS top_results,
+
+    -- REQUIRED (authorization + partition pruning)
+    {{company_ids_array}} AS company_ids,
+
+    -- OPTIONAL filters (empty array => no filter)
+    {{skus_array}} AS skus,
+    {{inventory_ids_array}} AS inventory_ids,
+    {{countries_array}} AS countries
+),
+
+latest_snapshot AS (
+  -- inventory_planning_snapshot is partitioned by: company_id, year, month, day (all strings).
+  -- This CTE selects the latest available (year,month,day) for the permitted company_ids.
+  -- Because we select only partition columns, Athena can satisfy this from metastore metadata (fast).
+  SELECT pil.year, pil.month, pil.day
+  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+  CROSS JOIN params p
+  WHERE contains(p.company_ids, pil.company_id)
+  GROUP BY 1, 2, 3
+  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  LIMIT 1
+),
+
+t AS (
   SELECT
     pil.company_id,
     pil.inventory_id,
@@ -38,28 +70,17 @@ WITH t AS (
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
 
-  CROSS JOIN (
-    SELECT
-      {{sales_velocity_sql}} AS sales_velocity,
-      {{planning_base_sql}} AS planning_base,
-      {{override_default_sql}} AS override_default,
-      {{use_seasonality_sql}} AS use_seasonality,
-      {{fba_lead_time_days_override}} AS fba_lead_time_days_override,
-      {{fba_safety_stock_days_override}} AS fba_safety_stock_days_override,
-      {{limit_top_n}} AS top_results,
-
-      -- REQUIRED (authorization + partition pruning)
-      {{company_ids_array}} AS company_ids,
-
-      -- OPTIONAL filters (empty array => no filter)
-      {{skus_array}} AS skus,
-      {{inventory_ids_array}} AS inventory_ids,
-      {{countries_array}} AS countries
-  ) p
+  CROSS JOIN params p
+  CROSS JOIN latest_snapshot s
 
   WHERE
     -- REQUIRED company filter
     contains(p.company_ids, pil.company_id)
+
+    -- REQUIRED snapshot filter (partition pruning)
+    AND pil.year = s.year
+    AND pil.month = s.month
+    AND pil.day = s.day
 
     -- OPTIONAL filters
     AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))

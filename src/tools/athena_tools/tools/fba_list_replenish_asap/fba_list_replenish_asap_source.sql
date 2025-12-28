@@ -60,6 +60,17 @@ FROM (
 
     FROM inventory_planning_snapshot pil
 
+    -- Latest snapshot only: inventory_planning_snapshot is partitioned by (company_id, year, month, day).
+    -- This picks the most recent (year,month,day) available for the requested company_ids.
+    CROSS JOIN (
+        SELECT year, month, day
+        FROM inventory_planning_snapshot
+        WHERE company_id IN ('106')
+        GROUP BY 1, 2, 3
+        ORDER BY CAST(year AS INTEGER) DESC, CAST(month AS INTEGER) DESC, CAST(day AS INTEGER) DESC
+        LIMIT 1
+    ) latest
+
     CROSS JOIN (
         SELECT
             'planned' AS sales_velocity,                 -- target | current | planned
@@ -81,6 +92,10 @@ FROM (
     WHERE
         -- REQUIRED company filter (no subquery)
         contains(p.company_ids, pil.company_id)
+
+        AND pil.year = latest.year
+        AND pil.month = latest.month
+        AND pil.day = latest.day
 
         -- OPTIONAL filters (no subqueries)
         AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
