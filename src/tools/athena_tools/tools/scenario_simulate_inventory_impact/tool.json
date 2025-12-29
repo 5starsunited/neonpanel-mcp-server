@@ -1,0 +1,210 @@
+{
+  "name": "amazon_supply_chain.scenario_simulate_inventory_impact",
+  "description": "Simulate inventory outcomes under different demand and lead-time assumptions (what-if analysis).",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "planning_horizon_days": {
+        "type": "integer",
+        "minimum": 7,
+        "default": 90
+      },
+      "base_sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current"
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true
+      },
+      "scenario": {
+        "type": "object",
+        "properties": {
+          "demand_multiplier": {
+            "type": "number",
+            "minimum": 0,
+            "default": 1
+          },
+          "lead_time_delta_days": {
+            "type": "integer",
+            "default": 0
+          },
+          "safety_stock_delta_days": {
+            "type": "integer",
+            "default": 0
+          }
+        },
+        "required": [
+          "demand_multiplier"
+        ]
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 300
+      }
+    },
+    "required": [
+      "sku_selector",
+      "scenario"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "object",
+        "properties": {
+          "baseline_stockout_count": {
+            "type": "integer"
+          },
+          "scenario_stockout_count": {
+            "type": "integer"
+          },
+          "baseline_overstock_count": {
+            "type": "integer"
+          },
+          "scenario_overstock_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "baseline_days_to_oos": {
+              "type": "number"
+            },
+            "scenario_days_to_oos": {
+              "type": "number"
+            },
+            "delta_days_to_oos": {
+              "type": "number"
+            },
+            "risk_change": {
+              "type": "string",
+              "enum": [
+                "worse",
+                "same",
+                "better"
+              ]
+            }
+          },
+          "required": [
+            "item_ref",
+            "risk_change"
+          ]
+        }
+      }
+    },
+    "required": [
+      "summary",
+      "items"
+    ]
+  },
+  "examples": []
+}

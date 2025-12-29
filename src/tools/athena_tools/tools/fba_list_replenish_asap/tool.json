@@ -1,0 +1,283 @@
+{
+  "name": "amazon_supply_chain.fba_list_replenish_asap",
+  "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.\n\nBefore calling this tool:\n1) Ask the user which filters/parameters they want to use (do not assume).\n2) Explicitly tell the user which parameters are available and what the recommended defaults are.\n3) Offer to open/read the supporting documentation and the NeonPanel Inventory Planning report.\n\nKnowledge base (methodology & definitions): https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nRecommended defaults (confirm with user):\n- sku_selector.planning_base: actively_sold_only\n- time_window.lookahead_days: 14\n- sales_velocity: current\n- use_seasonality: true\n- override_default: false (so table defaults are used)\n- stockout_threshold_days: 7\n- limit: 200\n\nCommon questions to ask the user:\n- Which marketplaces/countries should we include? (default: ALL)\n- Do you want actively sold only (default), all, or a targeted subset?\n- Do you want to override lead time / safety stock days, or use system defaults?\n- Should results be limited to a specific company_id (if you have multiple)?",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "actively_sold_only",
+            "description": "Which universe of SKUs/items to consider. Ask the user to choose one. Recommended default: actively_sold_only.\n- actively_sold_only: only actively sold items\n- all: consider all items\n- targeted_only: only explicitly targeted items (provide target_* filters)\n- planned_only: only items in plan"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional. Use when you want to target specific SKUs. Recommended when planning_base=targeted_only."
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Optional. Use when you want to target specific inventory IDs. Recommended when planning_base=targeted_only."
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional. Use when you want to target specific ASINs. Recommended when planning_base=targeted_only."
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional. Brand filter (exact match as stored in snapshot)."
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional. Category filter (exact match as stored in snapshot)."
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ],
+            "description": "Marketplace filter. Recommended default: [\"ALL\"]. If you set countries, countries takes precedence over marketplaces."
+          },
+          "countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional: explicit country/marketplace filter (Athena: pil.country). If provided, this takes precedence over marketplaces."
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted for the caller). Recommended default: omit (use all permitted companies)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "time_window": {
+        "type": "object",
+        "properties": {
+          "lookahead_days": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 14,
+            "description": "How many days ahead to evaluate stockout risk. Recommended default: 14. Ask the user if they want a different horizon (e.g., 7/14/30)."
+          },
+          "as_of_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Optional. Evaluate as of a specific date (YYYY-MM-DD). If omitted, the latest available snapshot date is used."
+          }
+        },
+        "description": "Time window settings. Ask the user to confirm lookahead_days and (optionally) as_of_date."
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current",
+        "description": "Which sales velocity to use for projections. Recommended default: current."
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to apply seasonality adjustments (if available in the snapshot). Recommended default: true."
+      },
+      "override_default": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, use fba_lead_time_days_override and fba_safety_stock_days_override instead of table defaults."
+      },
+      "fba_lead_time_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 12,
+        "description": "Only used when override_default=true. Lead time (days) to use for FBA replenishment planning. Recommended default: 12 (confirm with user)."
+      },
+      "fba_safety_stock_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 60,
+        "description": "Only used when override_default=true. Safety stock (days) to use for FBA replenishment planning. Recommended default: 60 (confirm with user)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200,
+        "description": "Max number of rows to return. Recommended default: 200."
+      },
+      "stockout_threshold_days": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 7,
+        "description": "Threshold (days to OOS) for classifying urgency. Recommended default: 7."
+      }
+    },
+    "required": [
+      "sku_selector",
+      "time_window",
+      "sales_velocity",
+      "use_seasonality",
+      "override_default",
+      "limit",
+      "stockout_threshold_days"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "days_to_oos": {
+              "type": "number"
+            },
+            "fba_on_hand": {
+              "type": "integer"
+            },
+            "fba_inbound": {
+              "type": "integer"
+            },
+            "recommended_ship_units": {
+              "type": "integer"
+            },
+            "priority": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "default": "high"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ref",
+            "days_to_oos",
+            "recommended_ship_units",
+            "priority"
+          ]
+        }
+      }
+    },
+    "required": [
+      "items"
+    ]
+  },
+  "examples": [
+    {
+      "name": "Recommended defaults (broad)",
+      "description": "Use recommended defaults and all marketplaces.",
+      "input": {
+        "sku_selector": {
+          "planning_base": "actively_sold_only",
+          "marketplaces": [
+            "ALL"
+          ]
+        },
+        "time_window": {
+          "lookahead_days": 14
+        },
+        "sales_velocity": "current",
+        "use_seasonality": true,
+        "override_default": false,
+        "limit": 200,
+        "stockout_threshold_days": 7
+      }
+    },
+    {
+      "name": "Targeted SKUs (US only)",
+      "description": "Target a small SKU list and restrict to US.",
+      "input": {
+        "sku_selector": {
+          "planning_base": "targeted_only",
+          "target_skus": [
+            "SKU-EXAMPLE-1",
+            "SKU-EXAMPLE-2"
+          ],
+          "marketplaces": [
+            "US"
+          ]
+        },
+        "time_window": {
+          "lookahead_days": 14
+        },
+        "sales_velocity": "current",
+        "use_seasonality": true,
+        "override_default": false,
+        "limit": 200,
+        "stockout_threshold_days": 7
+      }
+    }
+  ]
+}

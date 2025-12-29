@@ -96,7 +96,7 @@ else
   aws iam create-role \
     --role-name "$ROLE_NAME" \
     --assume-role-policy-document "file://$TRUST_JSON" \
-    --description "Athena/Glue read access for Neonpanel MCP fba_replenishment" \
+    --description "Athena/Glue read access for Neonpanel MCP" \
     --profile "$AWS_PROFILE" \
     >/dev/null
 fi

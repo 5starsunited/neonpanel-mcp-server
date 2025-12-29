@@ -57,14 +57,14 @@ Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validatio
 
 **Production:** https://mcp.neonpanel.com
 
-## 📊 Athena (FBA Replenishment)
+## 📊 Athena (FBA Planning)
 
-The tool `neonpanel.fba_replenishment` reads rows from Athena using the Glue Data Catalog.
+The tool `amazon_supply_chain.fba_list_replenish_asap` runs an Athena query against the Glue Data Catalog.
 
 **Config (environment variables)**
 - `ATHENA_CATALOG` (default `awsdatacatalog`)
 - `ATHENA_DATABASE` (default `inventory_planning`)
-- `ATHENA_TABLE_FBA_REPLENISHMENT` (default `fba_replenishment`)
+- `ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT` (default `inventory_planning_snapshot`)
 - `ATHENA_WORKGROUP` (default `primary`)
 - `ATHENA_OUTPUT_LOCATION` (optional; required if your workgroup doesn’t have a results location)
 - `ATHENA_ASSUME_ROLE_ARN` (optional; if set, the server will `sts:AssumeRole` before querying)

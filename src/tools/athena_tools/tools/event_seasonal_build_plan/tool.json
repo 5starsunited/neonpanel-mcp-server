@@ -1,0 +1,187 @@
+{
+  "name": "amazon_supply_chain.event_seasonal_build_plan",
+  "description": "Build an inventory plan for a specific event/season (Prime Day, Q4 holidays) including ramp-up and normalization.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "event_name": {
+        "type": "string"
+      },
+      "event_start_date": {
+        "type": "string",
+        "format": "date"
+      },
+      "event_end_date": {
+        "type": "string",
+        "format": "date"
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current"
+      },
+      "event_uplift_multiplier": {
+        "type": "number",
+        "minimum": 0,
+        "default": 1
+      },
+      "prebuild_days": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 30
+      },
+      "post_event_days": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 14
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 300
+      }
+    },
+    "required": [
+      "sku_selector",
+      "event_name",
+      "event_start_date",
+      "event_end_date"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "recommended_prebuild_units": {
+              "type": "integer"
+            },
+            "recommended_ship_by_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "expected_event_sell_units": {
+              "type": "integer"
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ref",
+            "recommended_prebuild_units",
+            "recommended_ship_by_date"
+          ]
+        }
+      }
+    },
+    "required": [
+      "plan"
+    ]
+  },
+  "examples": []
+}

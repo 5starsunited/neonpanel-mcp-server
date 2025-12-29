@@ -42,7 +42,7 @@ const RawConfigSchema = z.object({
   ATHENA_OUTPUT_LOCATION: z.string().optional(),
   ATHENA_CATALOG: z.string().default('awsdatacatalog'),
   ATHENA_DATABASE: z.string().default('inventory_planning'),
-  ATHENA_TABLE_FBA_REPLENISHMENT: z.string().default('fba_replenishment'),
+  ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT: z.string().default('inventory_planning_snapshot'),
   ATHENA_ASSUME_ROLE_ARN: z.string().optional(),
   ATHENA_ASSUME_ROLE_SESSION_NAME: z.string().default('neonpanel-mcp-athena'),
 });
@@ -96,7 +96,7 @@ function buildConfig() {
       catalog: parsed.ATHENA_CATALOG,
       database: parsed.ATHENA_DATABASE,
       tables: {
-        fbaReplenishment: parsed.ATHENA_TABLE_FBA_REPLENISHMENT,
+        inventoryPlanningSnapshot: parsed.ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT,
       },
       assumeRoleArn: parsed.ATHENA_ASSUME_ROLE_ARN,
       assumeRoleSessionName: parsed.ATHENA_ASSUME_ROLE_SESSION_NAME,

@@ -26,6 +26,7 @@ function isTokenValidationError(error) {
 }
 const jwks = (0, jwks_rsa_1.default)({
     jwksUri: config_1.config.neonpanel.jwksUri,
+    timeout: toPositiveInt(process.env.NEONPANEL_JWKS_TIMEOUT_MS, 5000),
     cache: true,
     cacheMaxEntries: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MAX_ENTRIES, 10),
     cacheMaxAge: toPositiveInt(process.env.NEONPANEL_JWKS_CACHE_MS, 10 * 60 * 1000),
@@ -54,9 +55,8 @@ async function validateAccessToken(token) {
         });
     });
     const scopes = extractScopes(payload);
-    // Note: The OAuth server currently only supports 'dcr.create' scope
-    // We accept any valid token from the trusted issuer for now
-    // TODO: Update when OAuth server supports additional scopes like mcp.read, mcp.tools, etc.
+    // Note: Scope enforcement is currently handled at the MCP layer.
+    // We accept any valid token from the trusted issuer here.
     return {
         token,
         payload,
@@ -73,8 +73,23 @@ function getSigningKey(header, callback) {
         callback(new TokenValidationError('Token header missing key identifier (kid).'));
         return;
     }
+    const timeoutMs = toPositiveInt(process.env.NEONPANEL_JWKS_TIMEOUT_MS, 5000);
+    let settled = false;
+    const timer = setTimeout(() => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        callback(new TokenValidationError('JWKS request timed out.', 'jwks_timeout', 503));
+    }, timeoutMs);
+    timer.unref?.();
     jwks.getSigningKey(header.kid)
         .then(key => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        clearTimeout(timer);
         const signingKey = typeof key.getPublicKey === 'function'
             ? key.getPublicKey()
             : key.rsaPublicKey;
@@ -85,6 +100,11 @@ function getSigningKey(header, callback) {
         callback(null, signingKey);
     })
         .catch(err => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        clearTimeout(timer);
         callback(normalizeJwtError(err));
     });
 }

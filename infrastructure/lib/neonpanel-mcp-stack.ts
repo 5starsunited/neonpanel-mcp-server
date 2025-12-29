@@ -60,7 +60,6 @@ export class NeonpanelMcpStack extends cdk.Stack {
           // Athena-backed planning tools (defaults match current prod mock dataset)
           ATHENA_CATALOG: 'awsdatacatalog',
           ATHENA_DATABASE: 'inventory_planning',
-          ATHENA_TABLE_FBA_REPLENISHMENT: 'fba_replenishment',
           // Optional: set these if you use a non-default workgroup or need an explicit results bucket.
           ATHENA_WORKGROUP: 'neonpanel-prod',
           // ATHENA_OUTPUT_LOCATION: 's3://your-athena-results-prefix/',

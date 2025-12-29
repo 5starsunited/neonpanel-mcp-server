@@ -15,6 +15,7 @@ cdk.out/
 keepa-mcp/
 tests/
 scripts/
+!scripts/copy-athena-tool-assets.js
 *.test.ts
 *.test.js
 .DS_Store

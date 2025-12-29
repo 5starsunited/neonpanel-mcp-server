@@ -1,0 +1,168 @@
+{
+  "name": "amazon_supply_chain.inventory_sku_deep_dive",
+  "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for the authorized company_id(s).\n\nHow to use:\n- Best: provide sku + marketplace (US/UK) to inspect a specific item.\n- If you omit sku and/or marketplace, the tool will return a small sample of rows (useful to confirm snapshot data exists and to see exact country labels / SKU formatting).\n\nBefore calling this tool:\n1) Ask the user if they want a specific SKU + marketplace or just a sample row for validation.\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku": {
+        "type": "string",
+        "description": "Optional. The SKU to inspect. If omitted, returns sample rows."
+      },
+      "marketplace": {
+        "type": "string",
+        "enum": [
+          "US",
+          "UK"
+        ],
+        "description": "Optional. Marketplace/country (maps to snapshot column pil.country). If omitted, returns sample rows and lets you see available country labels."
+      },
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional: restrict to a specific company_id (must be permitted). Recommended if you have access to multiple companies."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 25,
+        "default": 5,
+        "description": "Optional. Max rows to return if multiple rows match the SKU+marketplace. Recommended default: 5."
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Optional. If true, include diagnostics to explain why rows might be missing (authorized company_ids, chosen snapshot partition, available countries for the SKU)."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "properties": {
+                "company_id": {
+                  "type": "integer"
+                },
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; render as an image when presenting results."
+                }
+              },
+              "required": [
+                "sku",
+                "marketplace"
+              ]
+            },
+            "snapshot_partition": {
+              "type": "object",
+              "properties": {
+                "year": {
+                  "type": "string"
+                },
+                "month": {
+                  "type": "string"
+                },
+                "day": {
+                  "type": "string"
+                }
+              }
+            },
+            "snapshot": {
+              "type": "object",
+              "description": "Raw inventory_planning_snapshot columns for this SKU+marketplace row. Shape depends on the snapshot schema.",
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "item_ref",
+            "snapshot"
+          ]
+        }
+      },
+      "diagnostics": {
+        "type": "object",
+        "description": "Included when debug=true or when no rows are found. Helps troubleshoot authorization / snapshot partition / marketplace mismatches.",
+        "properties": {
+          "permitted_company_ids_count": {
+            "type": "integer"
+          },
+          "allowed_company_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "selected_snapshot_partition": {
+            "type": "object",
+            "properties": {
+              "year": {
+                "type": "string"
+              },
+              "month": {
+                "type": "string"
+              },
+              "day": {
+                "type": "string"
+              }
+            }
+          },
+          "sample_row_present": {
+            "type": "boolean",
+            "description": "Whether the selected latest snapshot partition contains any rows for the authorized company_ids."
+          },
+          "sample_country": {
+            "type": "string",
+            "description": "A sample country value from the selected partition (helps confirm expected marketplace labels)."
+          },
+          "available_countries_for_sku": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "required": [
+      "items"
+    ]
+  },
+  "examples": [
+    {
+      "name": "Single SKU (US)",
+      "description": "Inspect the latest snapshot row for a SKU in US marketplace.",
+      "input": {
+        "sku": "SKU-EXAMPLE-1",
+        "marketplace": "US",
+        "limit": 5
+      }
+    }
+  ]
+}

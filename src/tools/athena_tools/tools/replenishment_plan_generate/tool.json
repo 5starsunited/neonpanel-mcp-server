@@ -1,0 +1,201 @@
+{
+  "name": "amazon_supply_chain.replenishment_plan_generate",
+  "description": "Generate a replenishment plan (what to send/order and when) for the next N days, including recommended quantities and dates.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": [
+              "all",
+              "targeted_only",
+              "actively_sold_only",
+              "planned_only"
+            ],
+            "default": "all"
+          },
+          "target_skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "target_asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "US",
+                "UK",
+                "ALL"
+              ]
+            },
+            "default": [
+              "ALL"
+            ]
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific company_id (must be permitted)."
+          }
+        },
+        "required": [
+          "planning_base"
+        ]
+      },
+      "planning_horizon_days": {
+        "type": "integer",
+        "minimum": 7,
+        "default": 60
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": [
+          "current",
+          "target",
+          "planned"
+        ],
+        "default": "current"
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true
+      },
+      "service_level": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 0.99,
+        "default": 0.9
+      },
+      "constraints": {
+        "type": "object",
+        "properties": {
+          "max_cash_outlay": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_units_per_shipment": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_skus_per_shipment": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "required": [
+      "sku_selector"
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+              "properties": {
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string",
+                  "enum": [
+                    "US",
+                    "UK"
+                  ]
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string",
+                  "description": "Small icon/image URL for item; include in datasets when possible."
+                }
+              }
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "ship_to_fba",
+                "place_po",
+                "both"
+              ]
+            },
+            "recommended_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "recommended_units": {
+              "type": "integer"
+            },
+            "priority": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ],
+              "default": "high"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ref",
+            "action",
+            "recommended_date",
+            "recommended_units"
+          ]
+        }
+      }
+    },
+    "required": [
+      "plan"
+    ]
+  },
+  "examples": []
+}

@@ -4,7 +4,7 @@
   "description": "NeonPanel MCP server with OAuth bearer validation, JSON-RPC tools, and SSE transport.",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-athena-tool-assets.js",
     "dev": "tsx --watch src/main.ts",
     "start": "node dist/main.js",
     "test": "tsx --test tests/**/*.test.ts",
