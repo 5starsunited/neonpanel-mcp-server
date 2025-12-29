@@ -146,6 +146,12 @@
         "minimum": 0,
         "default": 7,
         "description": "Threshold (days to OOS) for classifying urgency. Recommended default: 7."
+      },
+      "active_sold_min_units_per_day": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.0333333333,
+        "description": "Only affects sku_selector.planning_base=actively_sold_only. Minimum average daily units (30-day basis) required to include an item as 'actively sold'. Default 0.0333333333 ≈ 1 unit sold in the last 30 days. Example: 100 means only items selling ~100/day or more are considered actively sold."
       }
     },
     "required": [
@@ -155,7 +161,8 @@
       "use_seasonality",
       "override_default",
       "limit",
-      "stockout_threshold_days"
+      "stockout_threshold_days",
+      "active_sold_min_units_per_day"
     ]
   },
   "outputSchema": {

@@ -12,6 +12,7 @@ WITH params AS (
     {{use_seasonality_sql}} AS use_seasonality,
     {{fba_lead_time_days_override}} AS fba_lead_time_days_override,
     {{fba_safety_stock_days_override}} AS fba_safety_stock_days_override,
+    CAST({{active_sold_min_units_per_day}} AS DOUBLE) AS active_sold_min_units_per_day,
     {{limit_top_n}} AS top_results,
 
     -- REQUIRED (authorization + partition pruning)
@@ -96,7 +97,7 @@ t AS (
     AND CASE
       WHEN p.planning_base = 'all' THEN TRUE
       WHEN p.planning_base = 'targeted only' AND pil.daily_unit_sales_target > 0 THEN TRUE
-      WHEN p.planning_base = 'actively sold only' AND pil.units_sold_last_30_days > 0 THEN TRUE
+      WHEN p.planning_base = 'actively sold only' AND COALESCE(pil.avg_units_30d, (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0), 0.0) >= p.active_sold_min_units_per_day THEN TRUE
       WHEN p.planning_base = 'planned only' AND pil.next_12_month_sales_plan_units IS NOT NULL THEN TRUE
       ELSE FALSE
     END

@@ -66,6 +66,7 @@ const inputSchema = z.object({
   fba_safety_stock_days_override: z.number().int().min(0).default(60).optional(),
   limit: z.number().int().min(1).default(200).optional(),
   stockout_threshold_days: z.number().int().min(0).default(7).optional(),
+  active_sold_min_units_per_day: z.number().min(0).default(1 / 30).optional(),
 });
 
 function sqlEscapeString(value: string): string {
@@ -215,6 +216,7 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
         fba_safety_stock_days_override: Math.trunc(parsed.fba_safety_stock_days_override ?? 60),
         limit_top_n: Number(limit),
         stockout_threshold_days: Math.trunc(parsed.stockout_threshold_days ?? 7),
+        active_sold_min_units_per_day: Number(parsed.active_sold_min_units_per_day ?? 1 / 30),
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         skus_array: sqlVarcharArrayExpr(skus),
