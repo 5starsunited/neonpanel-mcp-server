@@ -106,23 +106,34 @@ function planningBaseSql(value: 'all' | 'targeted_only' | 'actively_sold_only' |
   }
 }
 
-function normalizeCountryLabel(value: string): string {
+function normalizeCountryTokens(value: string): string[] {
   const normalized = value.trim();
-  const upper = normalized.toUpperCase();
+  if (!normalized) return [];
 
-  // Snapshot uses human-readable country names in pil.country.
-  if (upper === 'US' || upper === 'USA' || upper === 'UNITED STATES' || upper === 'UNITEDSTATES') return 'United States';
-  if (upper === 'UK' || upper === 'GB' || upper === 'UNITED KINGDOM' || upper === 'UNITEDKINGDOM') return 'United Kingdom';
+  const upper = normalized.toUpperCase().replace(/\s+/g, ' ');
 
-  return normalized;
+  // Snapshot includes both pil.country (label) and pil.country_code (2-letter code).
+  // Emit *both* tokens so the SQL can match either column.
+  if (upper === 'US' || upper === 'USA' || upper === 'UNITED STATES' || upper === 'UNITEDSTATES') {
+    return ['United States', 'US'];
+  }
+  if (upper === 'UK' || upper === 'GB' || upper === 'GREAT BRITAIN' || upper === 'GREATBRITAIN' || upper === 'UNITED KINGDOM' || upper === 'UNITEDKINGDOM') {
+    return ['United Kingdom', 'UK'];
+  }
+
+  // If the user passes a 2-letter code (e.g., AE), include both original and uppercased.
+  if (/^[A-Z]{2}$/.test(upper)) return [upper, normalized];
+
+  return [normalized];
 }
 
 function normalizeCountries(values: string[]): string[] {
   const out: string[] = [];
   for (const v of values) {
-    const mapped = normalizeCountryLabel(v);
-    if (!mapped) continue;
-    if (!out.includes(mapped)) out.push(mapped);
+    for (const token of normalizeCountryTokens(v)) {
+      if (!token) continue;
+      if (!out.includes(token)) out.push(token);
+    }
   }
   return out;
 }

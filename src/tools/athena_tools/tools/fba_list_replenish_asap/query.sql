@@ -42,6 +42,7 @@ t AS (
     pil.inventory_id,
     pil.sku,
     pil.country,
+    pil.country_code,
     pil.asin_img_path,
     pil.product_name,
     pil.recommended_replenishment_qty,
@@ -85,7 +86,11 @@ t AS (
     -- OPTIONAL filters
     AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
     AND (cardinality(p.inventory_ids) = 0 OR contains(p.inventory_ids, pil.inventory_id))
-    AND (cardinality(p.countries) = 0 OR contains(p.countries, pil.country))
+    AND (
+      cardinality(p.countries) = 0
+      OR contains(p.countries, pil.country)
+      OR contains(p.countries, pil.country_code)
+    )
 
     -- planning_base behavior
     AND CASE
@@ -102,7 +107,7 @@ SELECT
   t.inventory_id AS item_ref_inventory_id,
   t.sku AS item_ref_sku,
   CAST(NULL AS VARCHAR) AS item_ref_asin,
-  t.country AS item_ref_marketplace,
+  t.country_code AS item_ref_marketplace,
   t.product_name AS item_ref_item_name,
   t.asin_img_path AS item_ref_item_icon_url,
 
