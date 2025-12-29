@@ -160,10 +160,6 @@
             "recommended_prebuild_units": {
               "type": "integer"
             },
-            "recommended_ship_by_date": {
-              "type": "string",
-              "format": "date"
-            },
             "expected_event_sell_units": {
               "type": "integer"
             },
@@ -173,8 +169,7 @@
           },
           "required": [
             "item_ref",
-            "recommended_prebuild_units",
-            "recommended_ship_by_date"
+            "recommended_prebuild_units"
           ]
         }
       }

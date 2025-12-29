@@ -11,7 +11,7 @@ SELECT
     t.fba_safety_stock_days,
     t.asin_img_path,
     t.product_name,
-    t.recommended_replenishment_qty,
+    t.recommended_replenishment_qty AS recommended_by_amazon_replenishment_quantity,
 
     CASE
         WHEN t.sales_velocity > 0
@@ -56,7 +56,7 @@ FROM (
 
         pil.asin_img_path,
         pil.product_name,
-        pil.recommended_replenishment_qty
+        pil.recommended_replenishment_qty AS recommended_by_amazon_replenishment_quantity
 
     FROM inventory_planning_snapshot pil
 
