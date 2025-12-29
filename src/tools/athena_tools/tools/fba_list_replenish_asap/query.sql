@@ -118,11 +118,24 @@ SELECT
     ELSE NULL
   END AS fba_days_of_supply,
 
-  -- days_to_oos (draft): days_of_supply - (lead_time + safety_stock)
+  -- shipment_due_in_days: when you should ship/replenish next to maintain lead_time+safety_stock buffer.
+  -- negative => overdue, positive => due in future.
   CASE
     WHEN t.sales_velocity > 0 THEN (ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days)
     ELSE NULL
-  END AS days_to_oos,
+  END AS shipment_due_in_days,
+
+  -- shipment_overdue_days: positive days overdue, else 0.
+  CASE
+    WHEN t.sales_velocity > 0 THEN GREATEST(0, -(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days))
+    ELSE NULL
+  END AS shipment_overdue_days,
+
+  -- shipment_due_date: clamped to today if overdue.
+  CASE
+    WHEN t.sales_velocity > 0 THEN date_add('day', GREATEST(0, (ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days)), CURRENT_DATE)
+    ELSE NULL
+  END AS shipment_due_date,
 
   CAST(t.total_fba_available_units AS BIGINT) AS fba_on_hand,
   CAST(NULL AS BIGINT) AS fba_inbound,
@@ -134,9 +147,9 @@ SELECT
     WHEN (ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days) <= {{stockout_threshold_days}} THEN 'critical'
     ELSE 'high'
   END AS priority,
-  CAST('Draft: based on days_of_supply vs lead_time+safety_stock.' AS VARCHAR) AS reason
+  CAST('Based on buffer coverage: days_of_supply vs lead_time+safety_stock. shipment_overdue_days > 0 means replenishment was due in the past.' AS VARCHAR) AS reason
 
 FROM t
 
-ORDER BY days_to_oos ASC
+ORDER BY shipment_overdue_days DESC
 LIMIT {{limit_top_n}};
