@@ -185,7 +185,7 @@ SELECT
     ) <= CAST({{stockout_threshold_days}} AS BIGINT) THEN 'critical'
     ELSE 'high'
   END AS priority,
-  CAST('Based on buffer coverage: days_of_supply vs lead_time+safety_stock. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon\'s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
+  CAST('Based on buffer coverage: days_of_supply vs lead_time+safety_stock. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon''s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
 
 FROM t
 
