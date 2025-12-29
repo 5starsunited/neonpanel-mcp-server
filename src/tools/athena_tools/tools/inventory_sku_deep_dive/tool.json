@@ -133,6 +133,14 @@
               }
             }
           },
+          "sample_row_present": {
+            "type": "boolean",
+            "description": "Whether the selected latest snapshot partition contains any rows for the authorized company_ids."
+          },
+          "sample_country": {
+            "type": "string",
+            "description": "A sample country value from the selected partition (helps confirm expected marketplace labels)."
+          },
           "available_countries_for_sku": {
             "type": "array",
             "items": {

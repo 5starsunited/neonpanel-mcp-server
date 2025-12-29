@@ -89,15 +89,24 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
       const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
       const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
-      if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
-        return { items: [] };
-      }
-
       const catalog = config.athena.catalog;
       const database = config.athena.database;
       const table = config.athena.tables.inventoryPlanningSnapshot;
 
       const limit = parsed.limit ?? 5;
+
+      const includeDiagnostics = parsed.debug === true;
+
+      // If auth yields no companies, return diagnostics (do not attempt Athena).
+      if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
+        return {
+          items: [],
+          diagnostics: {
+            permitted_company_ids_count: permittedCompanyIds.length,
+            allowed_company_ids: allowedCompanyIds.slice(0, 50),
+          },
+        };
+      }
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
@@ -125,7 +134,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
       });
 
       const rows = athenaResult.rows ?? [];
-      const includeDiagnostics = parsed.debug === true || rows.length === 0;
+      const shouldComputeDiagnostics = includeDiagnostics || rows.length === 0;
 
       let diagnostics:
         | {
@@ -133,10 +142,12 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
             allowed_company_ids: number[];
             selected_snapshot_partition?: { year?: string; month?: string; day?: string };
             available_countries_for_sku?: string[];
+            sample_row_present?: boolean;
+            sample_country?: string;
           }
         | undefined;
 
-      if (includeDiagnostics) {
+      if (shouldComputeDiagnostics) {
         // 1) Determine selected snapshot partition for these allowed companies.
         const latestSnapshotQuery = renderSqlTemplate(
           `WITH params AS (
@@ -173,6 +184,49 @@ LIMIT 1`,
               day: (latestRow.day ?? undefined) as string | undefined,
             }
           : undefined;
+
+        // 1b) Probe whether that partition has any rows for allowed companies (fast existence check).
+        let sample_row_present: boolean | undefined;
+        let sample_country: string | undefined;
+        if (selected_snapshot_partition?.year && selected_snapshot_partition?.month && selected_snapshot_partition?.day) {
+          const sampleRowQuery = renderSqlTemplate(
+            `WITH params AS (
+  SELECT
+    {{company_ids_array}} AS company_ids,
+    {{year_sql}} AS y,
+    {{month_sql}} AS m,
+    {{day_sql}} AS d
+)
+SELECT pil.country AS country
+FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+CROSS JOIN params p
+WHERE
+  contains(p.company_ids, pil.company_id)
+  AND pil.year = p.y AND pil.month = p.m AND pil.day = p.d
+LIMIT 1`,
+            {
+              catalog,
+              database,
+              table,
+              company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+              year_sql: sqlStringLiteral(selected_snapshot_partition.year),
+              month_sql: sqlStringLiteral(selected_snapshot_partition.month),
+              day_sql: sqlStringLiteral(selected_snapshot_partition.day),
+            },
+          );
+
+          const sampleRowResult = await runAthenaQuery({
+            query: sampleRowQuery,
+            database,
+            workGroup: config.athena.workgroup,
+            outputLocation: config.athena.outputLocation,
+            maxRows: 5,
+          });
+
+          const sr = (sampleRowResult.rows ?? [])[0] as Record<string, unknown> | undefined;
+          sample_row_present = !!sr;
+          sample_country = (sr?.country ?? undefined) as string | undefined;
+        }
 
         // 2) If we have a snapshot partition, list available countries for this SKU (ignoring marketplace filter).
         let available_countries_for_sku: string[] | undefined;
@@ -229,6 +283,8 @@ LIMIT 50`,
           allowed_company_ids: allowedCompanyIds.slice(0, 50),
           selected_snapshot_partition,
           available_countries_for_sku,
+          sample_row_present,
+          sample_country,
         };
       }
 
