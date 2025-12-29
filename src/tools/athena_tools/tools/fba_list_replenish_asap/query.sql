@@ -114,26 +114,45 @@ SELECT
 
   -- metrics
   CASE
-    WHEN t.sales_velocity > 0 THEN ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity)
+    WHEN t.sales_velocity > 0 THEN CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
     ELSE NULL
   END AS fba_days_of_supply,
 
   -- shipment_due_in_days: when you should ship/replenish next to maintain lead_time+safety_stock buffer.
   -- negative => overdue, positive => due in future.
   CASE
-    WHEN t.sales_velocity > 0 THEN (ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days)
+    WHEN t.sales_velocity > 0 THEN (
+      CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
+      - CAST(t.target_coverage_days AS BIGINT)
+    )
     ELSE NULL
   END AS shipment_due_in_days,
 
   -- shipment_overdue_days: positive days overdue, else 0.
   CASE
-    WHEN t.sales_velocity > 0 THEN GREATEST(0, -(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days))
+    WHEN t.sales_velocity > 0 THEN GREATEST(
+      CAST(0 AS BIGINT),
+      -(
+        CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
+        - CAST(t.target_coverage_days AS BIGINT)
+      )
+    )
     ELSE NULL
   END AS shipment_overdue_days,
 
   -- shipment_due_date: clamped to today if overdue.
   CASE
-    WHEN t.sales_velocity > 0 THEN date_add('day', GREATEST(0, (ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days)), CURRENT_DATE)
+    WHEN t.sales_velocity > 0 THEN date_add(
+      'day',
+      GREATEST(
+        CAST(0 AS BIGINT),
+        (
+          CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
+          - CAST(t.target_coverage_days AS BIGINT)
+        )
+      ),
+      CURRENT_DATE
+    )
     ELSE NULL
   END AS shipment_due_date,
 
