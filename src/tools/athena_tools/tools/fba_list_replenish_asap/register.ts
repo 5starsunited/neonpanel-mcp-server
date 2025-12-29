@@ -106,6 +106,27 @@ function planningBaseSql(value: 'all' | 'targeted_only' | 'actively_sold_only' |
   }
 }
 
+function normalizeCountryLabel(value: string): string {
+  const normalized = value.trim();
+  const upper = normalized.toUpperCase();
+
+  // Snapshot uses human-readable country names in pil.country.
+  if (upper === 'US' || upper === 'USA' || upper === 'UNITED STATES' || upper === 'UNITEDSTATES') return 'United States';
+  if (upper === 'UK' || upper === 'GB' || upper === 'UNITED KINGDOM' || upper === 'UNITEDKINGDOM') return 'United Kingdom';
+
+  return normalized;
+}
+
+function normalizeCountries(values: string[]): string[] {
+  const out: string[] = [];
+  for (const v of values) {
+    const mapped = normalizeCountryLabel(v);
+    if (!mapped) continue;
+    if (!out.includes(mapped)) out.push(mapped);
+  }
+  return out;
+}
+
 export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
@@ -163,8 +184,11 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
       const inventoryIds = parsed.sku_selector.target_inventory_ids ?? [];
 
       const marketplaces = parsed.sku_selector.marketplaces ?? ['ALL'];
-      const marketplacesNormalized = marketplaces.includes('ALL') ? [] : marketplaces;
-      const countries = parsed.sku_selector.countries ?? marketplacesNormalized;
+      // Treat ALL as "no filter" only when it's the only selection.
+      // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
+      const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
+      const countriesRaw = parsed.sku_selector.countries ?? marketplacesNormalized;
+      const countries = normalizeCountries(countriesRaw);
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {

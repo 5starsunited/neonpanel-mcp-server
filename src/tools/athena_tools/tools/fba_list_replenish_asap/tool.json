@@ -67,7 +67,7 @@
             "default": [
               "ALL"
             ],
-            "description": "Marketplace filter. Recommended default: [\"ALL\"]. If you set countries, countries takes precedence over marketplaces."
+            "description": "Marketplace filter. Recommended default: [\"ALL\"]. If you provide both \"ALL\" and specific marketplaces (e.g. [\"ALL\",\"UK\"]), \"ALL\" is ignored and the specific marketplaces are used. If you set countries, countries takes precedence over marketplaces. Note: the snapshot uses country labels like \"United Kingdom\"/\"United States\"; the tool maps UK/US automatically."
           },
           "countries": {
             "type": "array",
