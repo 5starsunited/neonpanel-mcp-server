@@ -15,7 +15,7 @@
           "US",
           "UK"
         ],
-        "description": "Optional. Marketplace/country (maps to snapshot column pil.country). If omitted, returns sample rows and lets you see available country labels."
+        "description": "Optional. Marketplace/country code (maps to snapshot column pil.country_code). If omitted, returns sample rows and lets you see available country labels."
       },
       "company_id": {
         "type": "integer",
@@ -79,6 +79,15 @@
                 "sku",
                 "marketplace"
               ]
+            },
+            "sales_forecast_scenario": {
+              "type": "object",
+              "description": "Sales forecast scenario metadata for this snapshot row.",
+              "properties": {
+                "id": { "type": "integer", "description": "Scenario id (snapshot column sales_forecast_scenario_id)." },
+                "name": { "type": "string", "description": "Scenario name (snapshot column sales_forecast_scenario_name)." },
+                "uuid": { "type": "string", "description": "Scenario uuid (snapshot column sales_forecast_scenario_uuid)." }
+              }
             },
             "presentation": {
               "type": "object",

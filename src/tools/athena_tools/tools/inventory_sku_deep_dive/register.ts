@@ -41,12 +41,6 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
   return `CAST(ARRAY[${values.map((n) => sqlStringLiteral(String(Math.trunc(n)))).join(',')}] AS ARRAY(VARCHAR))`;
 }
 
-function mapMarketplaceToSnapshotCountry(marketplace: 'US' | 'UK'): string {
-  // The snapshot column pil.country commonly stores human-readable country names.
-  // Normalize our input to match typical values.
-  return marketplace === 'US' ? 'United States' : 'United Kingdom';
-}
-
 const inputSchema = z.object({
   sku: z.string().min(1).optional(),
   marketplace: z.enum(['US', 'UK']).optional(),
@@ -122,7 +116,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
         table,
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         sku_sql: sqlStringLiteral(parsed.sku ?? ''),
-        marketplace_sql: sqlStringLiteral(parsed.marketplace ? mapMarketplaceToSnapshotCountry(parsed.marketplace) : ''),
+        marketplace_sql: sqlStringLiteral(parsed.marketplace ?? ''),
         apply_sku_filter_sql: parsed.sku ? 'TRUE' : 'FALSE',
         apply_marketplace_filter_sql: parsed.marketplace ? 'TRUE' : 'FALSE',
         limit_top_n: Number(limit),
@@ -314,6 +308,12 @@ LIMIT 50`,
           day: (record.snapshot_day ?? record.day ?? undefined) as string | undefined,
         };
 
+        const sales_forecast_scenario = {
+          id: toInt(record.sales_forecast_scenario_id) ?? undefined,
+          name: (record.sales_forecast_scenario_name ?? undefined) as string | undefined,
+          uuid: (record.sales_forecast_scenario_uuid ?? undefined) as string | undefined,
+        };
+
         return {
           item_ref,
           presentation: buildItemPresentation({
@@ -324,6 +324,7 @@ LIMIT 50`,
             image_url: item_ref.item_icon_url,
             image_source_field: 'item_ref.item_icon_url',
           }),
+          sales_forecast_scenario,
           snapshot_partition,
           snapshot: record,
         };
