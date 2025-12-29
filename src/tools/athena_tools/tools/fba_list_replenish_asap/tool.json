@@ -281,6 +281,10 @@
             "recommended_ship_units": {
               "type": "integer"
             },
+            "recommended_by_amazon_replenishment_quantity": {
+              "type": "integer",
+              "description": "Raw recommendation from Amazon (snapshot field recommended_replenishment_qty), renamed for clarity. This is NOT the tool's computed recommendation." 
+            },
             "priority": {
               "type": "string",
               "enum": [

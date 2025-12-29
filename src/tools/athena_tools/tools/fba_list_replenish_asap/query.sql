@@ -46,7 +46,7 @@ t AS (
     pil.country_code,
     pil.asin_img_path,
     pil.product_name,
-    pil.recommended_replenishment_qty,
+    pil.recommended_replenishment_qty AS recommended_by_amazon_replenishment_quantity,
 
     CAST(
       CASE p.sales_velocity
@@ -158,15 +158,34 @@ SELECT
 
   CAST(t.total_fba_available_units AS BIGINT) AS fba_on_hand,
   CAST(NULL AS BIGINT) AS fba_inbound,
-  CAST(t.recommended_replenishment_qty AS BIGINT) AS recommended_ship_units,
+
+  -- recommended_ship_units: our recommendation (not Amazon's), based on target coverage (lead_time + safety_stock).
+  CASE
+    WHEN t.sales_velocity > 0 THEN GREATEST(
+      CAST(0 AS BIGINT),
+      CAST(
+        CEIL(
+          (CAST(t.target_coverage_days AS DOUBLE) * t.sales_velocity)
+          - CAST(t.total_fba_available_units AS DOUBLE)
+        )
+      AS BIGINT)
+    )
+    ELSE CAST(0 AS BIGINT)
+  END AS recommended_ship_units,
+
+  -- recommended_by_amazon_replenishment_quantity: raw field from the snapshot (Amazon recommendation).
+  CAST(t.recommended_by_amazon_replenishment_quantity AS BIGINT) AS recommended_by_amazon_replenishment_quantity,
 
   -- priority/reason (draft)
   CASE
     WHEN t.sales_velocity <= 0 THEN 'low'
-    WHEN (ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) - t.target_coverage_days) <= {{stockout_threshold_days}} THEN 'critical'
+    WHEN (
+      CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
+      - CAST(t.target_coverage_days AS BIGINT)
+    ) <= CAST({{stockout_threshold_days}} AS BIGINT) THEN 'critical'
     ELSE 'high'
   END AS priority,
-  CAST('Based on buffer coverage: days_of_supply vs lead_time+safety_stock. shipment_overdue_days > 0 means replenishment was due in the past.' AS VARCHAR) AS reason
+  CAST('Based on buffer coverage: days_of_supply vs lead_time+safety_stock. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon\'s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
 
 FROM t
 

@@ -27,6 +27,28 @@ function toInt(value: unknown): number | null {
   return Math.trunc(n);
 }
 
+function sanitizeSnapshot(record: Record<string, unknown>): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = { ...record };
+
+  // Drop Amazon-provided ship-by dates from the dataset output. They are often forward-looking
+  // even when the item is overdue, which creates UX confusion.
+  delete snapshot.recommended_ship_by_date;
+  delete snapshot.recommended_ship_date;
+  delete snapshot.recommendedShipByDate;
+  delete snapshot.recommendedShipDate;
+
+  // Rename Amazon-provided replenishment quantity for clarity.
+  if (
+    snapshot.recommended_by_amazon_replenishment_quantity === undefined &&
+    snapshot.recommended_replenishment_qty !== undefined
+  ) {
+    snapshot.recommended_by_amazon_replenishment_quantity = snapshot.recommended_replenishment_qty;
+    delete snapshot.recommended_replenishment_qty;
+  }
+
+  return snapshot;
+}
+
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -326,7 +348,7 @@ LIMIT 50`,
           }),
           sales_forecast_scenario,
           snapshot_partition,
-          snapshot: record,
+          snapshot: sanitizeSnapshot(record),
         };
       });
 
