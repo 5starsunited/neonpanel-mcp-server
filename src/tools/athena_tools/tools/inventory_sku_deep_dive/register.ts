@@ -7,6 +7,7 @@ import { config } from '../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../types';
 import { loadTextFile } from '../../runtime/load-assets';
 import { renderSqlTemplate } from '../../runtime/render-sql';
+import { buildItemPresentation } from '../../runtime/presentation';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -315,6 +316,14 @@ LIMIT 50`,
 
         return {
           item_ref,
+          presentation: buildItemPresentation({
+            sku: item_ref.sku,
+            asin: item_ref.asin,
+            inventory_id: item_ref.inventory_id,
+            marketplace_code: item_ref.marketplace,
+            image_url: item_ref.item_icon_url,
+            image_source_field: 'item_ref.item_icon_url',
+          }),
           snapshot_partition,
           snapshot: record,
         };

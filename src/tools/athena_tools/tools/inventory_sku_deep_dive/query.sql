@@ -18,11 +18,7 @@ normalized_params AS (
   SELECT
     company_ids,
     UPPER(TRIM(regexp_replace(sku, '[‐‑‒–—−]', '-'))) AS sku_norm,
-    CASE
-      WHEN UPPER(TRIM(marketplace)) IN ('US', 'USA', 'UNITED STATES', 'UNITEDSTATES') THEN 'UNITED STATES'
-      WHEN UPPER(TRIM(marketplace)) IN ('UK', 'GB', 'GREAT BRITAIN', 'GREATBRITAIN', 'UNITED KINGDOM', 'UNITEDKINGDOM') THEN 'UNITED KINGDOM'
-      ELSE UPPER(TRIM(marketplace))
-    END AS marketplace_norm,
+    UPPER(TRIM(marketplace)) AS marketplace_norm,
     apply_sku_filter,
     apply_marketplace_filter,
     top_results
@@ -46,7 +42,7 @@ SELECT
   pil.inventory_id AS item_ref_inventory_id,
   pil.sku AS item_ref_sku,
   CAST(NULL AS VARCHAR) AS item_ref_asin,
-  pil.country AS item_ref_marketplace,
+  pil.country_code AS item_ref_marketplace,
   pil.product_name AS item_ref_item_name,
   pil.asin_img_path AS item_ref_item_icon_url,
 
@@ -71,13 +67,7 @@ WHERE
   )
   AND (
     NOT p.apply_marketplace_filter
-    OR (
-      CASE
-        WHEN UPPER(TRIM(pil.country)) IN ('US', 'USA', 'UNITED STATES', 'UNITEDSTATES') THEN 'UNITED STATES'
-        WHEN UPPER(TRIM(pil.country)) IN ('UK', 'GB', 'GREAT BRITAIN', 'GREATBRITAIN', 'UNITED KINGDOM', 'UNITEDKINGDOM') THEN 'UNITED KINGDOM'
-        ELSE UPPER(TRIM(pil.country))
-      END
-    ) = p.marketplace_norm
+    OR UPPER(TRIM(pil.country_code)) = p.marketplace_norm
   )
 
 LIMIT {{limit_top_n}};

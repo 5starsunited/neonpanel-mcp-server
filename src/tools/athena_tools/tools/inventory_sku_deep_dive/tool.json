@@ -80,6 +80,63 @@
                 "marketplace"
               ]
             },
+            "presentation": {
+              "type": "object",
+              "description": "UI-agnostic presentation payload. Clients can render links/images consistently. Links specify which identifier they are derived from.",
+              "properties": {
+                "identity": {
+                  "type": "object",
+                  "properties": {
+                    "sku": { "type": "string" },
+                    "asin": { "type": "string" },
+                    "inventory_id": { "type": "integer" },
+                    "marketplace_code": { "type": "string" }
+                  }
+                },
+                "media": {
+                  "type": "object",
+                  "properties": {
+                    "primary_image": {
+                      "type": "object",
+                      "properties": {
+                        "url": { "type": "string" },
+                        "derived_from": { "type": "string", "enum": ["sku"] },
+                        "source_field": { "type": "string" },
+                        "sku": { "type": "string" }
+                      },
+                      "required": ["derived_from"]
+                    }
+                  },
+                  "required": ["primary_image"]
+                },
+                "links": {
+                  "type": "object",
+                  "properties": {
+                    "neonpanel_inventory": {
+                      "type": "object",
+                      "properties": {
+                        "url": { "type": "string" },
+                        "derived_from": { "type": "string", "enum": ["inventory_id"] },
+                        "inventory_id": { "type": "integer" }
+                      },
+                      "required": ["derived_from"]
+                    },
+                    "amazon_storefront": {
+                      "type": "object",
+                      "properties": {
+                        "url": { "type": "string" },
+                        "derived_from": { "type": "string", "enum": ["asin"] },
+                        "asin": { "type": "string" },
+                        "marketplace_code": { "type": "string" }
+                      },
+                      "required": ["derived_from"]
+                    }
+                  },
+                  "required": ["neonpanel_inventory", "amazon_storefront"]
+                }
+              },
+              "required": ["identity", "media", "links"]
+            },
             "snapshot_partition": {
               "type": "object",
               "properties": {
