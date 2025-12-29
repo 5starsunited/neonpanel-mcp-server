@@ -18,7 +18,11 @@ normalized_params AS (
   SELECT
     company_ids,
     UPPER(TRIM(regexp_replace(sku, '[‐‑‒–—−]', '-'))) AS sku_norm,
-    UPPER(TRIM(marketplace)) AS marketplace_norm,
+    CASE
+      WHEN UPPER(TRIM(marketplace)) IN ('US', 'USA', 'UNITED STATES', 'UNITEDSTATES') THEN 'UNITED STATES'
+      WHEN UPPER(TRIM(marketplace)) IN ('UK', 'GB', 'GREAT BRITAIN', 'GREATBRITAIN', 'UNITED KINGDOM', 'UNITEDKINGDOM') THEN 'UNITED KINGDOM'
+      ELSE UPPER(TRIM(marketplace))
+    END AS marketplace_norm,
     apply_sku_filter,
     apply_marketplace_filter,
     top_results
@@ -67,7 +71,13 @@ WHERE
   )
   AND (
     NOT p.apply_marketplace_filter
-    OR UPPER(TRIM(pil.country)) = p.marketplace_norm
+    OR (
+      CASE
+        WHEN UPPER(TRIM(pil.country)) IN ('US', 'USA', 'UNITED STATES', 'UNITEDSTATES') THEN 'UNITED STATES'
+        WHEN UPPER(TRIM(pil.country)) IN ('UK', 'GB', 'GREAT BRITAIN', 'GREATBRITAIN', 'UNITED KINGDOM', 'UNITEDKINGDOM') THEN 'UNITED KINGDOM'
+        ELSE UPPER(TRIM(pil.country))
+      END
+    ) = p.marketplace_norm
   )
 
 LIMIT {{limit_top_n}};

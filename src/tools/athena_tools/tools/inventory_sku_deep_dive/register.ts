@@ -40,6 +40,12 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
   return `CAST(ARRAY[${values.map((n) => sqlStringLiteral(String(Math.trunc(n)))).join(',')}] AS ARRAY(VARCHAR))`;
 }
 
+function mapMarketplaceToSnapshotCountry(marketplace: 'US' | 'UK'): string {
+  // The snapshot column pil.country commonly stores human-readable country names.
+  // Normalize our input to match typical values.
+  return marketplace === 'US' ? 'United States' : 'United Kingdom';
+}
+
 const inputSchema = z.object({
   sku: z.string().min(1).optional(),
   marketplace: z.enum(['US', 'UK']).optional(),
@@ -115,7 +121,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
         table,
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         sku_sql: sqlStringLiteral(parsed.sku ?? ''),
-        marketplace_sql: sqlStringLiteral(parsed.marketplace ?? ''),
+        marketplace_sql: sqlStringLiteral(parsed.marketplace ? mapMarketplaceToSnapshotCountry(parsed.marketplace) : ''),
         apply_sku_filter_sql: parsed.sku ? 'TRUE' : 'FALSE',
         apply_marketplace_filter_sql: parsed.marketplace ? 'TRUE' : 'FALSE',
         limit_top_n: Number(limit),
