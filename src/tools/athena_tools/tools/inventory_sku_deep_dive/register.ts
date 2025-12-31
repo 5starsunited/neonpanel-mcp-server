@@ -58,9 +58,9 @@ function sqlStringLiteral(value: string): string {
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  // company_id is a STRING partition column in Athena, so we filter using ARRAY(VARCHAR).
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map((n) => sqlStringLiteral(String(Math.trunc(n)))).join(',')}] AS ARRAY(VARCHAR))`;
+  // Iceberg snapshot uses BIGINT company_id, so filter using ARRAY(BIGINT).
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
+  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
 const inputSchema = z.object({

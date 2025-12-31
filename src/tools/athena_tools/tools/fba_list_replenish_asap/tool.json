@@ -1,6 +1,6 @@
 {
   "name": "amazon_supply_chain.fba_list_replenish_asap",
-  "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.\n\nBefore calling this tool:\n1) Ask the user which filters/parameters they want to use (do not assume).\n2) Explicitly tell the user which parameters are available and what the recommended defaults are.\n3) Offer to open/read the supporting documentation and the NeonPanel Inventory Planning report.\n\nKnowledge base (methodology & definitions): https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nRecommended defaults (confirm with user):\n- sku_selector.planning_base: actively_sold_only\n- time_window.lookahead_days: 14\n- sales_velocity: current\n- use_seasonality: true\n- override_default: false (so table defaults are used)\n- stockout_threshold_days: 7\n- limit: 200\n\nCommon questions to ask the user:\n- Which marketplaces/countries should we include? (default: ALL)\n- Do you want actively sold only (default), all, or a targeted subset?\n- Do you want to override lead time / safety stock days, or use system defaults?\n- Should results be limited to a specific company_id (if you have multiple)?",
+  "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.\n\nBefore calling this tool:\n1) Ask the user which filters/parameters they want to use (do not assume).\n2) Explicitly tell the user which parameters are available and what the recommended defaults are.\n3) Offer to open/read the supporting documentation and the NeonPanel Inventory Planning report.\n\nKnowledge base (methodology & definitions): https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nRecommended defaults (confirm with user):\n- sku_selector.planning_base: actively_sold_only\n- time_window.lookahead_days: 14\n- sales_velocity: current\n- use_seasonality: true\n- override_default: false (so table defaults are used)\n- days_between_shipments: 14 (aka reorder cadence)\n- stockout_threshold_days: 7\n- limit: 50\n\nCommon questions to ask the user:\n- Which marketplaces/countries should we include? (default: ALL)\n- Do you want actively sold only (default), all, or a targeted subset?\n- What is your reorder cadence (days_between_shipments)? (default: 14)\n- Do you want to override lead time / safety stock days, or use system defaults?\n- Should results be limited to a specific company_id (if you have multiple)?",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -133,13 +133,19 @@
         "type": "integer",
         "minimum": 0,
         "default": 60,
-        "description": "Only used when override_default=true. Safety stock (days) to use for FBA replenishment planning. Recommended default: 60 (confirm with user)."
+        "description": "Only used when override_default=true. Safety stock buffer expressed in days of coverage. This is treated as a MINIMUM required buffer (higher = more conservative). Recommended default: 60 (confirm with user)."
+      },
+      "days_between_shipments": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 14,
+        "description": "Reorder cadence (synonym: days_between_shipments). Used to ensure inventory stays covered until the next replenishment cycle. This is added to lead_time + safety_stock coverage when computing shipment_due_* and recommended_ship_units. Recommended default: 14 (confirm with user)."
       },
       "limit": {
         "type": "integer",
         "minimum": 1,
-        "default": 200,
-        "description": "Max number of rows to return. Recommended default: 200."
+        "default": 50,
+        "description": "Max number of rows to return. Recommended default: 50."
       },
       "stockout_threshold_days": {
         "type": "integer",
@@ -160,6 +166,7 @@
       "sales_velocity",
       "use_seasonality",
       "override_default",
+      "days_between_shipments",
       "limit",
       "stockout_threshold_days",
       "active_sold_min_units_per_day"
@@ -259,6 +266,14 @@
               },
               "required": ["identity", "media", "links"]
             },
+            "sales_velocity": {
+              "type": "number",
+              "description": "Units/day used for planning and recommendations (based on the selected sales_velocity input)."
+            },
+            "fba_days_of_supply": {
+              "type": "number",
+              "description": "Computed days of supply at the selected sales velocity (fba_available / sales_velocity)."
+            },
             "shipment_due_date": {
               "type": "string",
               "description": "Date the replenishment shipment is due (clamped to today if overdue). Based on CURRENT_DATE + shipment_due_in_days.",
@@ -271,6 +286,10 @@
             "shipment_overdue_days": {
               "type": "number",
               "description": "Days overdue (>= 0). 0 means not overdue."
+            },
+            "days_overdue": {
+              "type": "number",
+              "description": "Synonym for shipment_overdue_days (>= 0)."
             },
             "fba_on_hand": {
               "type": "integer"
@@ -330,7 +349,7 @@
         "sales_velocity": "current",
         "use_seasonality": true,
         "override_default": false,
-        "limit": 200,
+        "limit": 50,
         "stockout_threshold_days": 7
       }
     },

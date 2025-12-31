@@ -165,6 +165,30 @@
     "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/TaskRole/Resource"
    }
   },
+  "NeonpanelMcpServiceTaskDefTaskRoleDefaultPolicyE97FE69E": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Resource": "arn:aws:iam::451729026804:role/NeonpanelMcpAthenaReadRole"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "NeonpanelMcpServiceTaskDefTaskRoleDefaultPolicyE97FE69E",
+    "Roles": [
+     {
+      "Ref": "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/TaskRole/DefaultPolicy/Resource"
+   }
+  },
   "NeonpanelMcpServiceTaskDefDBB9B587": {
    "Type": "AWS::ECS::TaskDefinition",
    "Properties": {
@@ -180,8 +204,16 @@
         "Value": "3030"
        },
        {
+        "Name": "AWS_REGION",
+        "Value": "us-east-1"
+       },
+       {
         "Name": "NEONPANEL_API_BASE",
         "Value": "https://my.neonpanel.com"
+       },
+       {
+        "Name": "NEONPANEL_OPENAPI_URL",
+        "Value": "https://my.neonpanel.com/api/v1/scheme/3.1.0"
        },
        {
         "Name": "NEONPANEL_OAUTH_ISSUER",
@@ -192,13 +224,33 @@
         "Value": "https://my.neonpanel.com/.well-known/jwks.json"
        },
        {
+        "Name": "NEONPANEL_OAUTH_REQUIRED_SCOPES",
+        "Value": "neonpanel.mcp"
+       },
+       {
+        "Name": "ATHENA_CATALOG",
+        "Value": "awsdatacatalog"
+       },
+       {
+        "Name": "ATHENA_DATABASE",
+        "Value": "inventory_planning"
+       },
+       {
+        "Name": "ATHENA_WORKGROUP",
+        "Value": "neonpanel-prod"
+       },
+       {
+        "Name": "ATHENA_ASSUME_ROLE_ARN",
+        "Value": "arn:aws:iam::451729026804:role/NeonpanelMcpAthenaReadRole"
+       },
+       {
         "Name": "BUILD_VERSION",
         "Value": "v3.1.1"
        }
       ],
       "Essential": true,
       "Image": {
-       "Fn::Sub": "303498144074.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-303498144074-us-east-1:7a52f3d1bc46f9613c1476e22e9d630b568c00276cb2c1280b94058c7f67c87a"
+       "Fn::Sub": "303498144074.dkr.ecr.us-east-1.${AWS::URLSuffix}/cdk-hnb659fds-container-assets-303498144074-us-east-1:1ccfa26f6547e989fd8867016cbbf1db73db01a44c21b3b0ebc0b0d79e6202b5"
       },
       "LogConfiguration": {
        "LogDriver": "awslogs",
@@ -376,6 +428,7 @@
    "DependsOn": [
     "NeonpanelMcpServiceLBPublicListenerECSGroup21CD6E82",
     "NeonpanelMcpServiceLBPublicListener68FFC455",
+    "NeonpanelMcpServiceTaskDefTaskRoleDefaultPolicyE97FE69E",
     "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
    ],
    "Metadata": {
@@ -396,6 +449,7 @@
     "VpcId": "vpc-096409c6e5077aa8d"
    },
    "DependsOn": [
+    "NeonpanelMcpServiceTaskDefTaskRoleDefaultPolicyE97FE69E",
     "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
    ],
    "Metadata": {
@@ -423,6 +477,7 @@
     "ToPort": 3030
    },
    "DependsOn": [
+    "NeonpanelMcpServiceTaskDefTaskRoleDefaultPolicyE97FE69E",
     "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
    ],
    "Metadata": {

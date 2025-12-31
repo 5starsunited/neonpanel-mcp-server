@@ -1,0 +1,86 @@
+{
+  "name": "amazon_supply_chain.product_list_logistic_parameters",
+  "description": "List product logistics parameters (vendor, product spec/name for POs, dimensions, box params, MOQ) from the latest inventory planning snapshot.\n\nInputs (choose one):\n- Provide inventory_ids (best when you already know the inventory IDs), OR\n- Provide sku + company_id (best when you only know the SKU).\n\nNotes:\n- Data is read from the latest available inventory_planning_snapshot partition for the caller’s permitted companies.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "inventory_ids": {
+        "type": "array",
+        "items": { "type": "integer", "minimum": 1 },
+        "description": "Provide a list of inventory_id values to look up logistics parameters for. Use this OR sku+company_id."
+      },
+      "sku": {
+        "type": "string",
+        "description": "Provide a SKU to look up logistics parameters for. Requires company_id. Use this OR inventory_ids."
+      },
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Required when using sku. Must be a company_id permitted for the caller."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200,
+        "description": "Safety limit for returned rows. If sku matches multiple marketplaces/rows, this caps the result size. Default: 200."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "properties": {
+                "inventory_id": { "type": "integer" },
+                "sku": { "type": "string" },
+                "asin": { "type": "string" },
+                "marketplace": { "type": "string" },
+                "item_name": { "type": "string" },
+                "item_icon_url": { "type": "string" }
+              }
+            },
+            "presentation": { "type": "object", "additionalProperties": true },
+
+            "company_id": { "type": "integer" },
+            "vendor": { "type": "string" },
+            "brand": { "type": "string" },
+            "product_family": { "type": "string" },
+            "product_spec": {
+              "type": "string",
+              "description": "Vendor-facing product specification/name used for purchase orders (often sourced from vendor_product_specs in NeonPanel)."
+            },
+            "optional_product_code": { "type": "string" },
+            "optional_product_code_type": { "type": "string" },
+
+            "product_weight": { "type": "number" },
+            "product_length": { "type": "number" },
+            "product_depth": { "type": "number" },
+            "product_height": { "type": "number" },
+            "length_and_girth": { "type": "number" },
+
+            "box_quantity": { "type": "integer" },
+            "box_length": { "type": "number" },
+            "box_depth": { "type": "number" },
+            "box_height": { "type": "number" },
+            "box_weight": { "type": "number" },
+            "moq": { "type": "integer" },
+
+            "snapshot_year": { "type": "string" },
+            "snapshot_month": { "type": "string" },
+            "snapshot_day": { "type": "string" }
+          },
+          "required": ["item_ref"]
+        }
+      }
+    },
+    "required": ["items"]
+  }
+}

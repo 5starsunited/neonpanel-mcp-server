@@ -12,6 +12,7 @@ WITH params AS (
     {{use_seasonality_sql}} AS use_seasonality,
     {{fba_lead_time_days_override}} AS fba_lead_time_days_override,
     {{fba_safety_stock_days_override}} AS fba_safety_stock_days_override,
+    {{days_between_shipments}} AS days_between_shipments,
     CAST({{active_sold_min_units_per_day}} AS DOUBLE) AS active_sold_min_units_per_day,
     {{limit_top_n}} AS top_results,
 
@@ -51,12 +52,22 @@ t AS (
     CAST(
       CASE p.sales_velocity
         WHEN 'target' THEN COALESCE(pil.daily_unit_sales_target, 0)
-        WHEN 'current' THEN COALESCE(pil.avg_units_30d, pil.units_sold_last_30_days, 0)
-        WHEN 'planned' THEN COALESCE(
-          CAST(json_extract_scalar(pil.next_12_month_sales_plan_units, '$[0].units_sold') AS DOUBLE),
-          0.0
+        WHEN 'current' THEN COALESCE(
+          COALESCE(pil.avg_units_30d, 0.0),
+          (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
+          0
         )
-        ELSE COALESCE(pil.avg_units_30d, pil.units_sold_last_30_days, 0)
+        WHEN 'planned' THEN (
+          COALESCE(
+            CAST(json_extract_scalar(pil.next_12_month_sales_plan_units, '$[0].units_sold') AS DOUBLE),
+            0.0
+          ) / 30.0
+        )
+        ELSE COALESCE(
+          COALESCE(pil.avg_units_30d, 0.0),
+          (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
+          0
+        )
       END
     AS DOUBLE) AS sales_velocity,
 
@@ -66,8 +77,8 @@ t AS (
     IF(p.override_default, p.fba_safety_stock_days_override, pil.fba_safety_stock_days) AS fba_safety_stock_days,
 
     CASE
-      WHEN p.override_default THEN p.fba_lead_time_days_override + p.fba_safety_stock_days_override
-      ELSE pil.fba_lead_time_days + pil.fba_safety_stock_days
+      WHEN p.override_default THEN p.fba_lead_time_days_override + p.fba_safety_stock_days_override + p.days_between_shipments
+      ELSE pil.fba_lead_time_days + pil.fba_safety_stock_days + p.days_between_shipments
     END AS target_coverage_days
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
@@ -97,7 +108,11 @@ t AS (
     AND CASE
       WHEN p.planning_base = 'all' THEN TRUE
       WHEN p.planning_base = 'targeted only' AND pil.daily_unit_sales_target > 0 THEN TRUE
-      WHEN p.planning_base = 'actively sold only' AND COALESCE(pil.avg_units_30d, (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0), 0.0) >= p.active_sold_min_units_per_day THEN TRUE
+      WHEN p.planning_base = 'actively sold only' AND COALESCE(
+        COALESCE(pil.avg_units_30d, 0.0),
+        (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
+        0.0
+      ) >= p.active_sold_min_units_per_day THEN TRUE
       WHEN p.planning_base = 'planned only' AND pil.next_12_month_sales_plan_units IS NOT NULL THEN TRUE
       ELSE FALSE
     END
@@ -113,6 +128,7 @@ SELECT
   t.asin_img_path AS item_ref_item_icon_url,
 
   -- metrics
+  t.sales_velocity AS sales_velocity,
   CASE
     WHEN t.sales_velocity > 0 THEN CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
     ELSE NULL
@@ -139,6 +155,18 @@ SELECT
     )
     ELSE NULL
   END AS shipment_overdue_days,
+
+  -- days_overdue: synonym for shipment_overdue_days.
+  CASE
+    WHEN t.sales_velocity > 0 THEN GREATEST(
+      CAST(0 AS BIGINT),
+      -(
+        CAST(ROUND(t.total_fba_available_units * 1.0 / t.sales_velocity) AS BIGINT)
+        - CAST(t.target_coverage_days AS BIGINT)
+      )
+    )
+    ELSE NULL
+  END AS days_overdue,
 
   -- shipment_due_date: clamped to today if overdue.
   CASE
@@ -185,7 +213,7 @@ SELECT
     ) <= CAST({{stockout_threshold_days}} AS BIGINT) THEN 'critical'
     ELSE 'high'
   END AS priority,
-  CAST('Based on buffer coverage: days_of_supply vs lead_time+safety_stock. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon''s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
+  CAST('Based on buffer coverage: days_of_supply vs (lead_time + safety_stock + reorder cadence). reorder cadence = days_between_shipments. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon''s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
 
 FROM t
 

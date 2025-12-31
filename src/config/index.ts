@@ -42,7 +42,7 @@ const RawConfigSchema = z.object({
   ATHENA_OUTPUT_LOCATION: z.string().optional(),
   ATHENA_CATALOG: z.string().default('awsdatacatalog'),
   ATHENA_DATABASE: z.string().default('inventory_planning'),
-  ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT: z.string().default('inventory_planning_snapshot'),
+  ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT: z.string().default('inventory_planning_snapshot_iceberg'),
   ATHENA_ASSUME_ROLE_ARN: z.string().optional(),
   ATHENA_ASSUME_ROLE_SESSION_NAME: z.string().default('neonpanel-mcp-athena'),
 });

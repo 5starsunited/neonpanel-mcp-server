@@ -18,7 +18,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::303498144074:role/cdk-hnb659fds-deploy-role-303498144074-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::303498144074:role/cdk-hnb659fds-cfn-exec-role-303498144074-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-303498144074-us-east-1/cd1b2ce0ed47d66dfb8fdfa2cb26a43d9fd532bd0a193a0616a40624c0f4eb8d.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-303498144074-us-east-1/f891719b5e380b71dc113ec7bd4c80e7ee6f20370ce451ec1b4aed5ccaef1360.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -94,6 +94,12 @@
             "data": "NeonpanelMcpServiceTaskDefTaskRole8959A12B"
           }
         ],
+        "/NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/TaskRole/DefaultPolicy/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "NeonpanelMcpServiceTaskDefTaskRoleDefaultPolicyE97FE69E"
+          }
+        ],
         "/NeonpanelMcpStackV3/NeonpanelMcpService/TaskDef/Resource": [
           {
             "type": "aws:cdk:logicalId",
@@ -124,7 +130,7 @@
               "new FargateService2 (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:488)",
               "new ApplicationLoadBalancedFargateService2 (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/node_modules/aws-cdk-lib/aws-ecs-patterns/lib/fargate/application-load-balanced-fargate-service.js:1:4035)",
               "new ApplicationLoadBalancedFargateService2 (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:488)",
-              "new NeonpanelMcpStack (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/lib/neonpanel-mcp-stack.ts:37:21)",
+              "new NeonpanelMcpStack (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/lib/neonpanel-mcp-stack.ts:38:21)",
               "Object.<anonymous> (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/bin/neonpanel-mcp.ts:6:1)",
               "Module._compile (node:internal/modules/cjs/loader:1692:14)",
               "Module.m._compile (/Users/mikesorochev/GitHub Projects/neonpanel-mcp-server/infrastructure/node_modules/ts-node/src/index.ts:1618:23)",

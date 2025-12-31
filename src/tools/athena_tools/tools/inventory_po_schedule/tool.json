@@ -1,0 +1,172 @@
+{
+  "name": "amazon_supply_chain.inventory_po_schedule",
+  "description": "Schedule purchase orders (POs) by estimating when an item needs a new PO to maintain coverage through lead time + safety stock + PO cadence. Uses the latest inventory planning snapshot partition.\n\nDefaults:\n- sales_velocity: planned (sales plan)\n- days_between_pos: 30\n- limit: 50\n\nAvailable inventory used for coverage:\n- available_inventory_units = total_balance_quantity + total_ordered_quantity + available\n- inbound is NOT counted.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sku_selector": {
+        "type": "object",
+        "properties": {
+          "planning_base": {
+            "type": "string",
+            "enum": ["all", "targeted_only", "actively_sold_only", "planned_only"],
+            "default": "actively_sold_only",
+            "description": "Which universe of items to consider. Recommended default: actively_sold_only. Use targeted_only with target_* filters."
+          },
+          "target_skus": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional: restrict to specific SKUs."
+          },
+          "target_inventory_ids": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Optional: restrict to specific inventory IDs."
+          },
+          "target_asins": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional: restrict to specific ASINs."
+          },
+          "brand": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional brand filter (exact match as stored in snapshot)."
+          },
+          "category": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional category filter (exact match as stored in snapshot)."
+          },
+          "marketplaces": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["US", "UK", "ALL"] },
+            "default": ["ALL"],
+            "description": "Marketplace filter. If you provide both ALL and specific marketplaces, ALL is ignored. If you set countries (non-empty), countries takes precedence over marketplaces."
+          },
+          "countries": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional explicit country/country_code filter. Takes precedence over marketplaces when non-empty."
+          },
+          "company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: restrict to a specific permitted company_id."
+          }
+        },
+        "required": ["planning_base"]
+      },
+      "time_window": {
+        "type": "object",
+        "properties": {
+          "lookahead_days": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 14,
+            "description": "Optional horizon (days)."
+          },
+          "as_of_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Optional evaluation date (YYYY-MM-DD)."
+          }
+        },
+        "description": "Optional time window settings."
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": ["current", "target", "planned"],
+        "default": "planned",
+        "description": "Which sales velocity to use for projections. Default: planned."
+      },
+      "use_seasonality": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to apply seasonality adjustments (reserved for future; currently not applied in SQL)."
+      },
+      "override_default": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, use lead_time_days_override and safety_stock_days_override instead of table defaults."
+      },
+      "lead_time_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 30,
+        "description": "Only used when override_default=true. Lead time (days) to use for PO planning."
+      },
+      "safety_stock_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 60,
+        "description": "Only used when override_default=true. Safety stock buffer expressed in days of coverage (minimum buffer)."
+      },
+      "days_between_pos": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 30,
+        "description": "PO cadence (days between POs). Added to lead_time + safety_stock coverage when computing po_due_* and recommended_order_units. Default: 30."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 50,
+        "description": "Max number of rows to return."
+      },
+      "stockout_threshold_days": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 7,
+        "description": "Threshold for classifying urgency (po_due_in_days <= threshold => critical)."
+      },
+      "active_sold_min_units_per_day": {
+        "type": "number",
+        "minimum": 0,
+        "default": 1,
+        "description": "Only affects planning_base=actively_sold_only. Minimum daily units to treat item as actively sold (30-day basis)."
+      }
+    },
+    "required": ["sku_selector"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "properties": {
+                "inventory_id": { "type": "integer" },
+                "sku": { "type": "string" },
+                "asin": { "type": "string" },
+                "marketplace": { "type": "string", "enum": ["US", "UK"] },
+                "item_name": { "type": "string" },
+                "item_icon_url": { "type": "string" }
+              }
+            },
+            "presentation": { "type": "object", "additionalProperties": true },
+            "sales_velocity": { "type": "number" },
+            "po_days_of_supply": { "type": "integer" },
+            "available_inventory_units": { "type": "integer" },
+            "lead_time_days": { "type": "integer" },
+            "safety_stock_days": { "type": "integer" },
+            "target_coverage_days": { "type": "integer" },
+            "po_due_in_days": { "type": "integer" },
+            "po_overdue_days": { "type": "integer" },
+            "po_due_date": { "type": "string" },
+            "recommended_order_units": { "type": "integer" },
+            "priority": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+            "reason": { "type": "string" }
+          },
+          "required": ["item_ref"]
+        }
+      }
+    },
+    "required": ["items"]
+  }
+}
