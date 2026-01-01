@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.assortment_action_candidates",
+  "name": "amazon_supply_chain_assortment_action_candidates",
   "description": "Identify items to pause/discontinue/liquidate/investigate based on low sell-through, repeated stockouts, or inventory inefficiency.",
   "isConsequential": false,
   "inputSchema": {

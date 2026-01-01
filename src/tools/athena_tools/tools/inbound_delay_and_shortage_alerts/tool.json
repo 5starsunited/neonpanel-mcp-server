@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.inbound_delay_and_shortage_alerts",
+  "name": "amazon_supply_chain_inbound_delay_and_shortage_alerts",
   "description": "Detect inbound shipment delays, partial receipts, and shortages impacting inventory coverage.",
   "isConsequential": false,
   "inputSchema": {

@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.fba_create_shipment_draft",
+  "name": "amazon_supply_chain_fba_create_shipment_draft",
   "description": "Create an FBA shipment draft from a list of items and quantities.",
   "isConsequential": false,
   "inputSchema": {

@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.assortment_action_plan_generate",
+  "name": "amazon_supply_chain_assortment_action_plan_generate",
   "description": "Generate a simple action plan (owners/dates/actions) for assortment candidates.",
   "isConsequential": false,
   "inputSchema": {

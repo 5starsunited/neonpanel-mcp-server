@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.scenario_simulate_inventory_impact",
+  "name": "amazon_supply_chain_scenario_simulate_inventory_impact",
   "description": "Simulate inventory outcomes under different demand and lead-time assumptions (what-if analysis).",
   "isConsequential": false,
   "inputSchema": {

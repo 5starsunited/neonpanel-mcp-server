@@ -155,7 +155,7 @@ export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
   }
 
   registry.register({
-    name: 'amazon_supply_chain.inventory_po_schedule',
+    name: 'amazon_supply_chain_inventory_po_schedule',
     description:
       'Schedule purchase orders (POs): compute when a PO is due to maintain coverage through lead time + safety stock + PO cadence.',
     isConsequential: false,

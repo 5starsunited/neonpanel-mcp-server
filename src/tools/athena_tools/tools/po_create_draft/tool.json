@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.po_create_draft",
+  "name": "amazon_supply_chain_po_create_draft",
   "description": "Create a purchase order draft from recommended items, optionally grouped by supplier.",
   "isConsequential": false,
   "inputSchema": {

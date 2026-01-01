@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.network_rebalance_recommendations",
+  "name": "amazon_supply_chain_network_rebalance_recommendations",
   "description": "Recommend rebalancing between FBA and non-FBA network inventory to reduce fees and improve availability.",
   "isConsequential": false,
   "inputSchema": {

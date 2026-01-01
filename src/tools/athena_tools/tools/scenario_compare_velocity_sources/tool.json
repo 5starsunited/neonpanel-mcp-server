@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.scenario_compare_velocity_sources",
+  "name": "amazon_supply_chain_scenario_compare_velocity_sources",
   "description": "Compare inventory outcomes under different sales velocity sources (current vs planned vs target) for the same horizon.",
   "isConsequential": false,
   "inputSchema": {

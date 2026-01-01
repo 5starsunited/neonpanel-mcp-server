@@ -113,7 +113,7 @@ export function registerProductListLogisticParametersTool(registry: ToolRegistry
   }
 
   registry.register({
-    name: 'amazon_supply_chain.product_list_logistic_parameters',
+    name: 'amazon_supply_chain_product_list_logistic_parameters',
     description: 'List product logistics parameters from the latest inventory planning snapshot.',
     isConsequential: false,
     inputSchema,

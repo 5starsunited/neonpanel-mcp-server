@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.risk_out_of_stock_list",
+  "name": "amazon_supply_chain_risk_out_of_stock_list",
   "description": "List items at risk of going out of stock within a specified horizon across FBA and optionally total network inventory.",
   "isConsequential": false,
   "inputSchema": {

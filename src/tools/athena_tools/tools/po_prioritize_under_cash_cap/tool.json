@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.po_prioritize_under_cash_cap",
+  "name": "amazon_supply_chain_po_prioritize_under_cash_cap",
   "description": "Prioritize PO recommendations under a max cash outlay constraint.",
   "isConsequential": false,
   "inputSchema": {

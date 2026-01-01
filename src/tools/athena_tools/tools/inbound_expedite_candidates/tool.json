@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.inbound_expedite_candidates",
+  "name": "amazon_supply_chain_inbound_expedite_candidates",
   "description": "Identify inbound shipments/items worth expediting based on stockout risk and impact.",
   "isConsequential": false,
   "inputSchema": {

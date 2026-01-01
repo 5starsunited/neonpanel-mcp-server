@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.product_list_logistic_parameters",
+  "name": "amazon_supply_chain_product_list_logistic_parameters",
   "description": "List product logistics parameters (vendor, product spec/name for POs, dimensions, box params, MOQ) from the latest inventory planning snapshot.\n\nInputs (choose one):\n- Provide inventory_ids (best when you already know the inventory IDs), OR\n- Provide sku + company_id (best when you only know the SKU).\n\nNotes:\n- Data is read from the latest available inventory_planning_snapshot partition for the caller’s permitted companies.",
   "isConsequential": false,
   "inputSchema": {

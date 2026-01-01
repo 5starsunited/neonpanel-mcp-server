@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.inventory_health_scorecard",
+  "name": "amazon_supply_chain_inventory_health_scorecard",
   "description": "Catalog-level inventory health: coverage, stockout exposure, overstock exposure, and summary KPIs.",
   "isConsequential": false,
   "inputSchema": {

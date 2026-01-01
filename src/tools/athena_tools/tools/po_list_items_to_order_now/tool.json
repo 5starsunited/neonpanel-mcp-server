@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.po_list_items_to_order_now",
+  "name": "amazon_supply_chain_po_list_items_to_order_now",
   "description": "List items that require a supplier PO to be placed now to avoid stockouts (considering supplier lead times and safety stock).",
   "isConsequential": false,
   "inputSchema": {

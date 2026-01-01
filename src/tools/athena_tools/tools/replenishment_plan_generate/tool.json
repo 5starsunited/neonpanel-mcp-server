@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.replenishment_plan_generate",
+  "name": "amazon_supply_chain_replenishment_plan_generate",
   "description": "Generate a replenishment plan (what to send/order and when) for the next N days, including recommended quantities and dates.",
   "isConsequential": false,
   "inputSchema": {

@@ -155,7 +155,7 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
   }
 
   registry.register({
-    name: 'amazon_supply_chain.fba_list_replenish_asap',
+    name: 'amazon_supply_chain_fba_list_replenish_asap',
     description:
       'List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.',
     isConsequential: false,

@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.overstock_and_aging_risk_list",
+  "name": "amazon_supply_chain_overstock_and_aging_risk_list",
   "description": "Identify items that are overstocked or at risk of aging fees (slow sell-through vs inventory).",
   "isConsequential": false,
   "inputSchema": {

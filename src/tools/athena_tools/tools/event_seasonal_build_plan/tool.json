@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.event_seasonal_build_plan",
+  "name": "amazon_supply_chain_event_seasonal_build_plan",
   "description": "Build an inventory plan for a specific event/season (Prime Day, Q4 holidays) including ramp-up and normalization.",
   "isConsequential": false,
   "inputSchema": {

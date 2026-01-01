@@ -85,7 +85,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
   }
 
   registry.register({
-    name: 'amazon_supply_chain.inventory_sku_deep_dive',
+    name: 'amazon_supply_chain_inventory_sku_deep_dive',
     description: 'Deep dive of the raw inventory_planning_snapshot row(s) for a specific SKU + marketplace.',
     isConsequential: false,
     inputSchema,

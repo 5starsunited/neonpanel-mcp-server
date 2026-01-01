@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.policy_lead_time_safety_stock_audit",
+  "name": "amazon_supply_chain_policy_lead_time_safety_stock_audit",
   "description": "Audit lead time and safety stock settings for items driving repeated stockout risk.",
   "isConsequential": false,
   "inputSchema": {
