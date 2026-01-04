@@ -38,38 +38,41 @@ function getRowValue(row: Record<string, unknown>, key: string): unknown {
   return row[key];
 }
 
-const skuSelectorSchema = z.object({
-  planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']).default('actively_sold_only'),
-  target_skus: z.array(z.string()).optional(),
-  target_inventory_ids: z.array(z.coerce.number().int().min(1)).optional(),
-  target_asins: z.array(z.string()).optional(),
-  brand: z.array(z.string()).optional(),
-  category: z.array(z.string()).optional(),
-  marketplaces: z.array(z.enum(['US', 'UK', 'ALL'])).default(['ALL']).optional(),
-  countries: z.array(z.string()).optional(),
-  company_id: z.coerce.number().int().min(1).optional(),
-});
-
-const timeWindowSchema = z
+export const timeWindowSchema = z
   .object({
     lookahead_days: z.coerce.number().int().min(1).default(14).optional(),
     as_of_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'as_of_date must be YYYY-MM-DD').optional(),
   })
   .optional();
 
-const inputSchema = z.object({
-  sku_selector: skuSelectorSchema,
-  time_window: timeWindowSchema,
-  sales_velocity: z.enum(['current', 'target', 'planned']).default('current').optional(),
-  use_seasonality: z.boolean().default(true).optional(),
-  override_default: z.boolean().default(false).optional(),
-  fba_lead_time_days_override: z.coerce.number().int().min(0).default(12).optional(),
-  fba_safety_stock_days_override: z.coerce.number().int().min(0).default(60).optional(),
-  days_between_shipments: z.coerce.number().int().min(0).default(14).optional(),
-  limit: z.coerce.number().int().min(1).default(50).optional(),
-  stockout_threshold_days: z.coerce.number().int().min(0).default(7).optional(),
-  active_sold_min_units_per_day: z.number().min(0).default(1).optional(),
-});
+export const fbaListReplenishAsapInputSchema = z
+  .object({
+    // Selector (top-level)
+    planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']),
+    target_skus: z.array(z.string()).optional(),
+    target_inventory_ids: z.array(z.coerce.number().int().min(1)).optional(),
+    target_asins: z.array(z.string()).optional(),
+    brand: z.array(z.string()).optional(),
+    category: z.array(z.string()).optional(),
+    marketplaces: z.array(z.enum(['US', 'UK', 'ALL'])).default(['ALL']).optional(),
+    countries: z.array(z.string()).optional(),
+    company_id: z.coerce.number().int().min(1).optional(),
+
+    // Planning window + knobs
+    time_window: timeWindowSchema,
+    sales_velocity: z.enum(['current', 'target', 'planned']).default('current').optional(),
+    use_seasonality: z.boolean().default(true).optional(),
+    override_default: z.boolean().default(false).optional(),
+    fba_lead_time_days_override: z.coerce.number().int().min(0).default(12).optional(),
+    fba_safety_stock_days_override: z.coerce.number().int().min(0).default(60).optional(),
+    days_between_shipments: z.coerce.number().int().min(0).default(14).optional(),
+    limit: z.coerce.number().int().min(1).default(50).optional(),
+    stockout_threshold_days: z.coerce.number().int().min(0).default(7).optional(),
+    active_sold_min_units_per_day: z.number().min(0).default(1).optional(),
+  })
+  .strict();
+
+const inputSchema = fbaListReplenishAsapInputSchema;
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -181,7 +184,7 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
         .map((c) => c.company_id ?? c.companyId ?? c.id)
         .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
 
-      const requestedCompanyIds = parsed.sku_selector.company_id ? [parsed.sku_selector.company_id] : permittedCompanyIds;
+      const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
       const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
@@ -194,17 +197,17 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
 
       const limit = parsed.limit ?? 200;
 
-      const skus = parsed.sku_selector.target_skus ?? [];
-      const inventoryIds = parsed.sku_selector.target_inventory_ids ?? [];
+      const skus = parsed.target_skus ?? [];
+      const inventoryIds = parsed.target_inventory_ids ?? [];
 
-      const marketplaces = parsed.sku_selector.marketplaces ?? ['ALL'];
+      const marketplaces = parsed.marketplaces ?? ['ALL'];
       // Treat ALL as "no filter" only when it's the only selection.
       // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
       const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
 
       // Some clients send `countries: []` by default. An empty array should NOT override marketplaces;
       // it should behave like "countries not provided".
-      const countriesFromSelector = (parsed.sku_selector.countries ?? [])
+      const countriesFromSelector = (parsed.countries ?? [])
         .map((c) => (typeof c === 'string' ? c.trim() : ''))
         .filter((c) => c.length > 0);
 
@@ -218,7 +221,7 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
         table,
         // Athena UI SQL parameter equivalents
         sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'current'),
-        planning_base_sql: planningBaseSql(parsed.sku_selector.planning_base),
+        planning_base_sql: planningBaseSql(parsed.planning_base),
         override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
         use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
         fba_lead_time_days_override: Math.trunc(parsed.fba_lead_time_days_override ?? 12),
@@ -247,8 +250,10 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
         maxRows: Math.min(2000, limit),
       });
 
-      const items = (athenaResult.rows ?? []).map((row) => {
+      let items = (athenaResult.rows ?? []).map((row) => {
         const record = row;
+
+        const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;
 
         const item_ref = {
           inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
@@ -266,6 +271,7 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
             : 'high';
 
         return {
+          company_id,
           item_ref,
           presentation: buildItemPresentation({
             sku: item_ref.sku,
@@ -290,6 +296,13 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
           reason: (getRowValue(record, 'reason') ?? '') as string,
         };
       });
+
+      // Defensive: if caller requests a specific company_id, enforce it client-side as well.
+      // This protects against any upstream data/view bugs.
+      if (parsed.company_id) {
+        const requestedCompanyId = parsed.company_id;
+        items = items.filter((it) => (it as any).company_id === requestedCompanyId);
+      }
 
       return { items };
     },

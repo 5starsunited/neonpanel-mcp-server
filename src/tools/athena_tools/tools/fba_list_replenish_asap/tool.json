@@ -1,90 +1,82 @@
 {
   "name": "amazon_supply_chain_fba_list_replenish_asap",
-  "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.\n\nBefore calling this tool:\n1) Ask the user which filters/parameters they want to use (do not assume).\n2) Explicitly tell the user which parameters are available and what the recommended defaults are.\n3) Offer to open/read the supporting documentation and the NeonPanel Inventory Planning report.\n\nKnowledge base (methodology & definitions): https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nRecommended defaults (confirm with user):\n- sku_selector.planning_base: actively_sold_only\n- time_window.lookahead_days: 14\n- sales_velocity: current\n- use_seasonality: true\n- override_default: false (so table defaults are used)\n- days_between_shipments: 14 (aka reorder cadence)\n- stockout_threshold_days: 7\n- limit: 50\n\nCommon questions to ask the user:\n- Which marketplaces/countries should we include? (default: ALL)\n- Do you want actively sold only (default), all, or a targeted subset?\n- What is your reorder cadence (days_between_shipments)? (default: 14)\n- Do you want to override lead time / safety stock days, or use system defaults?\n- Should results be limited to a specific company_id (if you have multiple)?",
+  "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.\n\nInputs are a flat JSON object (no nested sku_selector).\n\nRecommended defaults (confirm with user):\n- planning_base: actively_sold_only\n- time_window.lookahead_days: 14\n- sales_velocity: current\n- use_seasonality: true\n- override_default: false (so table defaults are used)\n- days_between_shipments: 14 (aka reorder cadence)\n- stockout_threshold_days: 7\n- limit: 50\n\nCommon questions to ask the user:\n- Which marketplaces/countries should we include? (default: ALL)\n- Do you want actively sold only (default), all, or a targeted subset?\n- Should results be limited to a specific company_id (if you have multiple)?\n\nKnowledge base (methodology & definitions): https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
-      "sku_selector": {
-        "type": "object",
-        "properties": {
-          "planning_base": {
-            "type": "string",
-            "enum": [
-              "all",
-              "targeted_only",
-              "actively_sold_only",
-              "planned_only"
-            ],
-            "default": "actively_sold_only",
-            "description": "Which universe of SKUs/items to consider. Ask the user to choose one. Recommended default: actively_sold_only.\n- actively_sold_only: only actively sold items\n- all: consider all items\n- targeted_only: only explicitly targeted items (provide target_* filters)\n- planned_only: only items in plan"
-          },
-          "target_skus": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional. Use when you want to target specific SKUs. Recommended when planning_base=targeted_only."
-          },
-          "target_inventory_ids": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            },
-            "description": "Optional. Use when you want to target specific inventory IDs. Recommended when planning_base=targeted_only."
-          },
-          "target_asins": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional. Use when you want to target specific ASINs. Recommended when planning_base=targeted_only."
-          },
-          "brand": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional. Brand filter (exact match as stored in snapshot)."
-          },
-          "category": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional. Category filter (exact match as stored in snapshot)."
-          },
-          "marketplaces": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "US",
-                "UK",
-                "ALL"
-              ]
-            },
-            "default": [
-              "ALL"
-            ],
-            "description": "Marketplace filter. Recommended default: [\"ALL\"]. If you provide both \"ALL\" and specific marketplaces (e.g. [\"ALL\",\"UK\"]), \"ALL\" is ignored and the specific marketplaces are used. If you set countries, countries takes precedence over marketplaces. Note: the snapshot uses country labels like \"United Kingdom\"/\"United States\"; the tool maps UK/US automatically."
-          },
-          "countries": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional: explicit country/marketplace filter (Athena: pil.country). If provided, this takes precedence over marketplaces."
-          },
-          "company_id": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Optional: restrict to a specific company_id (must be permitted for the caller). Recommended default: omit (use all permitted companies)."
-          }
+      "planning_base": {
+        "type": "string",
+        "enum": [
+          "all",
+          "targeted_only",
+          "actively_sold_only",
+          "planned_only"
+        ],
+        "default": "actively_sold_only",
+        "description": "Which universe of SKUs/items to consider. Recommended default: actively_sold_only. Use targeted_only with target_* filters."
+      },
+      "target_skus": {
+        "type": "array",
+        "items": {
+          "type": "string"
         },
-        "required": [
-          "planning_base"
-        ]
+        "description": "Optional: restrict to specific SKUs. Recommended when planning_base=targeted_only."
+      },
+      "target_inventory_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "description": "Optional: restrict to specific inventory IDs. Recommended when planning_base=targeted_only."
+      },
+      "target_asins": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional: restrict to specific ASINs. Recommended when planning_base=targeted_only."
+      },
+      "brand": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional brand filter (exact match as stored in snapshot)."
+      },
+      "category": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional category filter (exact match as stored in snapshot)."
+      },
+      "marketplaces": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "US",
+            "UK",
+            "ALL"
+          ]
+        },
+        "default": [
+          "ALL"
+        ],
+        "description": "Marketplace filter. If you provide both ALL and specific marketplaces, ALL is ignored. If you set countries, countries takes precedence over marketplaces."
+      },
+      "countries": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional explicit country/country_code filter. Takes precedence over marketplaces when non-empty."
+      },
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional: restrict to a specific permitted company_id. If omitted, uses all permitted companies."
       },
       "time_window": {
         "type": "object",
@@ -157,19 +149,11 @@
         "type": "number",
         "minimum": 0,
         "default": 1,
-        "description": "Only affects sku_selector.planning_base=actively_sold_only. Minimum average daily units (30-day basis) required to include an item as 'actively sold'. Default 1 means ~1 unit/day. Example: 100 means only items selling ~100/day or more are considered actively sold."
+        "description": "Only affects planning_base=actively_sold_only. Minimum average daily units (30-day basis) required to include an item as 'actively sold'. Default 1 means ~1 unit/day. Example: 100 means only items selling ~100/day or more are considered actively sold."
       }
     },
     "required": [
-      "sku_selector",
-      "time_window",
-      "sales_velocity",
-      "use_seasonality",
-      "override_default",
-      "days_between_shipments",
-      "limit",
-      "stockout_threshold_days",
-      "active_sold_min_units_per_day"
+      "planning_base"
     ]
   },
   "outputSchema": {
@@ -180,6 +164,10 @@
         "items": {
           "type": "object",
           "properties": {
+            "company_id": {
+              "type": "integer",
+              "description": "Company id for the row (helps validate filtering and client-side rendering)."
+            },
             "item_ref": {
               "type": "object",
               "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
@@ -337,12 +325,10 @@
       "name": "Recommended defaults (broad)",
       "description": "Use recommended defaults and all marketplaces.",
       "input": {
-        "sku_selector": {
-          "planning_base": "actively_sold_only",
-          "marketplaces": [
-            "ALL"
-          ]
-        },
+        "planning_base": "actively_sold_only",
+        "marketplaces": [
+          "ALL"
+        ],
         "time_window": {
           "lookahead_days": 14
         },
@@ -357,16 +343,14 @@
       "name": "Targeted SKUs (US only)",
       "description": "Target a small SKU list and restrict to US.",
       "input": {
-        "sku_selector": {
-          "planning_base": "targeted_only",
-          "target_skus": [
-            "SKU-EXAMPLE-1",
-            "SKU-EXAMPLE-2"
-          ],
-          "marketplaces": [
-            "US"
-          ]
-        },
+        "planning_base": "targeted_only",
+        "target_skus": [
+          "SKU-EXAMPLE-1",
+          "SKU-EXAMPLE-2"
+        ],
+        "marketplaces": [
+          "US"
+        ],
         "time_window": {
           "lookahead_days": 14
         },

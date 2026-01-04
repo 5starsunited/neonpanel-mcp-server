@@ -147,10 +147,43 @@ export class OpenApiService {
       return;
     }
 
-    const document = await response.json().catch((error) => {
-      logger.error({ err: error }, 'Failed to parse OpenAPI schema JSON');
-      throw error;
-    });
+    // Be defensive: the remote endpoint may intermittently return non-JSON payloads
+    // (e.g. HTML error pages behind a CDN) while still being a 2xx response.
+    const rawBody = await response.text().catch(() => '<unavailable>');
+    let document: unknown;
+    try {
+      document = JSON.parse(rawBody);
+    } catch (error) {
+      logger.error(
+        {
+          err: error,
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+          bodySnippet: rawBody === '<unavailable>' ? rawBody : rawBody.slice(0, 500),
+        },
+        'Failed to parse OpenAPI schema JSON; keeping existing cache',
+      );
+
+      if (!this.cache) {
+        await this.loadFromDisk();
+      }
+
+      // If we still have no schema at all, return a minimal placeholder instead of throwing.
+      if (!this.cache) {
+        this.cache = {
+          openapi: '3.1.0',
+          info: {
+            title: 'NeonPanel API',
+            version: 'unknown',
+          },
+          paths: {},
+        };
+        this.lastFetchedAt = Date.now();
+        this.source = 'unknown';
+      }
+
+      return;
+    }
 
     this.cache = document;
     this.lastFetchedAt = Date.now();

@@ -82,5 +82,27 @@
       }
     },
     "required": ["items"]
-  }
+  },
+  "examples": [
+    {
+      "name": "Lookup by inventory_ids",
+      "description": "Fetch logistics parameters for a known inventory_id set.",
+      "input": {
+        "inventory_ids": [
+          12345,
+          67890
+        ],
+        "limit": 200
+      }
+    },
+    {
+      "name": "Lookup by sku + company_id",
+      "description": "Fetch logistics parameters when you only know the SKU (requires company_id).",
+      "input": {
+        "sku": "SKU-EXAMPLE-1",
+        "company_id": 106,
+        "limit": 200
+      }
+    }
+  ]
 }

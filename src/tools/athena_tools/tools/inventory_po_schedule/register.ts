@@ -38,18 +38,6 @@ function getRowValue(row: Record<string, unknown>, key: string): unknown {
   return row[key];
 }
 
-const skuSelectorSchema = z.object({
-  planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']).default('actively_sold_only'),
-  target_skus: z.array(z.string()).optional(),
-  target_inventory_ids: z.array(z.coerce.number().int().min(1)).optional(),
-  target_asins: z.array(z.string()).optional(),
-  brand: z.array(z.string()).optional(),
-  category: z.array(z.string()).optional(),
-  marketplaces: z.array(z.enum(['US', 'UK', 'ALL'])).default(['ALL']).optional(),
-  countries: z.array(z.string()).optional(),
-  company_id: z.coerce.number().int().min(1).optional(),
-});
-
 const timeWindowSchema = z
   .object({
     lookahead_days: z.coerce.number().int().min(1).default(14).optional(),
@@ -57,19 +45,34 @@ const timeWindowSchema = z
   })
   .optional();
 
-const inputSchema = z.object({
-  sku_selector: skuSelectorSchema,
-  time_window: timeWindowSchema,
-  sales_velocity: z.enum(['current', 'target', 'planned']).default('planned').optional(),
-  use_seasonality: z.boolean().default(true).optional(),
-  override_default: z.boolean().default(false).optional(),
-  lead_time_days_override: z.coerce.number().int().min(0).default(30).optional(),
-  safety_stock_days_override: z.coerce.number().int().min(0).default(60).optional(),
-  days_between_pos: z.coerce.number().int().min(0).default(30).optional(),
-  limit: z.coerce.number().int().min(1).default(50).optional(),
-  stockout_threshold_days: z.coerce.number().int().min(0).default(7).optional(),
-  active_sold_min_units_per_day: z.number().min(0).default(1).optional(),
-});
+export const inventoryPoScheduleInputSchema = z
+  .object({
+    // Selector (top-level)
+    planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']),
+    target_skus: z.array(z.string()).optional(),
+    target_inventory_ids: z.array(z.coerce.number().int().min(1)).optional(),
+    target_asins: z.array(z.string()).optional(),
+    brand: z.array(z.string()).optional(),
+    category: z.array(z.string()).optional(),
+    marketplaces: z.array(z.enum(['US', 'UK', 'ALL'])).default(['ALL']).optional(),
+    countries: z.array(z.string()).optional(),
+    company_id: z.coerce.number().int().min(1).optional(),
+
+    // Planning window + knobs
+    time_window: timeWindowSchema,
+    sales_velocity: z.enum(['current', 'target', 'planned']).default('planned').optional(),
+    use_seasonality: z.boolean().default(true).optional(),
+    override_default: z.boolean().default(false).optional(),
+    lead_time_days_override: z.coerce.number().int().min(0).default(30).optional(),
+    safety_stock_days_override: z.coerce.number().int().min(0).default(60).optional(),
+    days_between_pos: z.coerce.number().int().min(0).default(30).optional(),
+    limit: z.coerce.number().int().min(1).default(50).optional(),
+    stockout_threshold_days: z.coerce.number().int().min(0).default(7).optional(),
+    active_sold_min_units_per_day: z.number().min(0).default(1).optional(),
+  })
+  .strict();
+
+const inputSchema = inventoryPoScheduleInputSchema;
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -181,7 +184,7 @@ export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
         .map((c) => c.company_id ?? c.companyId ?? c.id)
         .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
 
-      const requestedCompanyIds = parsed.sku_selector.company_id ? [parsed.sku_selector.company_id] : permittedCompanyIds;
+      const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
       const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
@@ -194,17 +197,17 @@ export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
 
       const limit = parsed.limit ?? 200;
 
-      const skus = parsed.sku_selector.target_skus ?? [];
-      const inventoryIds = parsed.sku_selector.target_inventory_ids ?? [];
+      const skus = parsed.target_skus ?? [];
+      const inventoryIds = parsed.target_inventory_ids ?? [];
 
-      const marketplaces = parsed.sku_selector.marketplaces ?? ['ALL'];
+      const marketplaces = parsed.marketplaces ?? ['ALL'];
       // Treat ALL as "no filter" only when it's the only selection.
       // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
       const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
 
       // Some clients send `countries: []` by default. An empty array should NOT override marketplaces;
       // it should behave like "countries not provided".
-      const countriesFromSelector = (parsed.sku_selector.countries ?? [])
+      const countriesFromSelector = (parsed.countries ?? [])
         .map((c) => (typeof c === 'string' ? c.trim() : ''))
         .filter((c) => c.length > 0);
 
@@ -218,7 +221,7 @@ export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
         table,
         // Athena UI SQL parameter equivalents
         sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'planned'),
-        planning_base_sql: planningBaseSql(parsed.sku_selector.planning_base),
+        planning_base_sql: planningBaseSql(parsed.planning_base),
         override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
         use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
         lead_time_days_override: Math.trunc(parsed.lead_time_days_override ?? 30),

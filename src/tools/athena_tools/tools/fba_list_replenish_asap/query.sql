@@ -119,6 +119,9 @@ t AS (
 )
 
 SELECT
+  -- company
+  t.company_id AS company_id,
+
   -- item_ref
   t.inventory_id AS item_ref_inventory_id,
   t.sku AS item_ref_sku,

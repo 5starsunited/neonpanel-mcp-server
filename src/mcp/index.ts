@@ -31,6 +31,40 @@ function toText(value: unknown): string {
   }
 }
 
+export function unwrapToolArguments(raw: unknown): unknown {
+  // Some MCP/OpenAPI clients wrap tool arguments like: { params: { ...actualArgs } }.
+  // To keep tool schemas focused on the actual payload, unwrap this single wrapper.
+  let current: unknown = raw;
+
+  const tryParseJsonString = (value: unknown): unknown => {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    // Only attempt JSON.parse when it looks like JSON to avoid surprising coercion.
+    const looksJsonObject = trimmed.startsWith('{') && trimmed.endsWith('}');
+    const looksJsonArray = trimmed.startsWith('[') && trimmed.endsWith(']');
+    if (!looksJsonObject && !looksJsonArray) return value;
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      return value;
+    }
+  };
+
+  for (let i = 0; i < 5; i++) {
+    current = tryParseJsonString(current);
+    if (!current || typeof current !== 'object') return current;
+    const record = current as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.length === 1 && keys[0] === 'params' && record.params && typeof record.params === 'object') {
+      current = record.params;
+      continue;
+    }
+    return current;
+  }
+
+  return current;
+}
+
 export interface RpcFactoryOptions {
   userTokenProvider?: UserTokenProvider;
 }
@@ -110,7 +144,8 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
           return result;
         }
 
-        const args = tool.inputSchema.parse(parsed.arguments ?? {});
+        const normalizedArguments = unwrapToolArguments(parsed.arguments ?? {});
+        const args = tool.inputSchema.parse(normalizedArguments);
         const userToken = await provider.getToken(context.validatedToken);
         const toolResult = await tool.execute(args, {
           accessToken: context.token,
