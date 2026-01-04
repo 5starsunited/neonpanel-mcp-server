@@ -38,14 +38,14 @@ function getRowValue(row: Record<string, unknown>, key: string): unknown {
   return row[key];
 }
 
-export const timeWindowSchema = z
+const timeWindowSchema = z
   .object({
     lookahead_days: z.coerce.number().int().min(1).default(14).optional(),
     as_of_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'as_of_date must be YYYY-MM-DD').optional(),
   })
   .optional();
 
-export const fbaListReplenishAsapInputSchema = z
+export const inventoryPoScheduleInputSchema = z
   .object({
     // Selector (top-level)
     planning_base: z.enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only']),
@@ -60,19 +60,19 @@ export const fbaListReplenishAsapInputSchema = z
 
     // Planning window + knobs
     time_window: timeWindowSchema,
-    sales_velocity: z.enum(['current', 'target', 'planned']).default('current').optional(),
+    sales_velocity: z.enum(['current', 'target', 'planned']).default('planned').optional(),
     use_seasonality: z.boolean().default(true).optional(),
     override_default: z.boolean().default(false).optional(),
-    fba_lead_time_days_override: z.coerce.number().int().min(0).default(12).optional(),
-    fba_safety_stock_days_override: z.coerce.number().int().min(0).default(60).optional(),
-    days_between_shipments: z.coerce.number().int().min(0).default(14).optional(),
+    lead_time_days_override: z.coerce.number().int().min(0).default(30).optional(),
+    safety_stock_days_override: z.coerce.number().int().min(0).default(60).optional(),
+    days_between_pos: z.coerce.number().int().min(0).default(30).optional(),
     limit: z.coerce.number().int().min(1).default(50).optional(),
     stockout_threshold_days: z.coerce.number().int().min(0).default(7).optional(),
     active_sold_min_units_per_day: z.number().min(0).default(1).optional(),
   })
   .strict();
 
-const inputSchema = fbaListReplenishAsapInputSchema;
+const inputSchema = inventoryPoScheduleInputSchema;
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -144,7 +144,7 @@ function normalizeCountries(values: string[]): string[] {
   return out;
 }
 
-export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
+export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -158,9 +158,9 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
   }
 
   registry.register({
-    name: 'amazon_supply_chain_fba_list_replenish_asap',
+    name: 'amazon_supply_chain_inventory_po_schedule',
     description:
-      'List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.',
+      'Schedule purchase orders (POs): compute when a PO is due to maintain coverage through lead time + safety stock + PO cadence.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -220,13 +220,13 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
         database,
         table,
         // Athena UI SQL parameter equivalents
-        sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'current'),
+        sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'planned'),
         planning_base_sql: planningBaseSql(parsed.planning_base),
         override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
         use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
-        fba_lead_time_days_override: Math.trunc(parsed.fba_lead_time_days_override ?? 12),
-        fba_safety_stock_days_override: Math.trunc(parsed.fba_safety_stock_days_override ?? 60),
-        days_between_shipments: Math.trunc(parsed.days_between_shipments ?? 14),
+        lead_time_days_override: Math.trunc(parsed.lead_time_days_override ?? 30),
+        safety_stock_days_override: Math.trunc(parsed.safety_stock_days_override ?? 60),
+        days_between_pos: Math.trunc(parsed.days_between_pos ?? 30),
         limit_top_n: Number(limit),
         stockout_threshold_days: Math.trunc(parsed.stockout_threshold_days ?? 7),
         active_sold_min_units_per_day: Number(parsed.active_sold_min_units_per_day ?? 1),
@@ -250,10 +250,8 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
         maxRows: Math.min(2000, limit),
       });
 
-      let items = (athenaResult.rows ?? []).map((row) => {
+      const items = (athenaResult.rows ?? []).map((row) => {
         const record = row;
-
-        const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;
 
         const item_ref = {
           inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
@@ -271,7 +269,6 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
             : 'high';
 
         return {
-          company_id,
           item_ref,
           presentation: buildItemPresentation({
             sku: item_ref.sku,
@@ -281,28 +278,25 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
             image_url: item_ref.item_icon_url,
             image_source_field: 'item_ref.item_icon_url',
           }),
-          sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? 0,
-          fba_days_of_supply: toNumber(getRowValue(record, 'fba_days_of_supply')) ?? 0,
-          shipment_due_date: (getRowValue(record, 'shipment_due_date') ?? undefined) as string | undefined,
-          shipment_due_in_days: toNumber(getRowValue(record, 'shipment_due_in_days')) ?? 0,
-          shipment_overdue_days: toNumber(getRowValue(record, 'shipment_overdue_days')) ?? 0,
-          days_overdue: toNumber(getRowValue(record, 'days_overdue')) ?? 0,
-          fba_on_hand: toInt(getRowValue(record, 'fba_on_hand')) ?? 0,
-          fba_inbound: toInt(getRowValue(record, 'fba_inbound')) ?? 0,
-          recommended_ship_units: toInt(getRowValue(record, 'recommended_ship_units')) ?? 0,
-          recommended_by_amazon_replenishment_quantity:
-            toInt(getRowValue(record, 'recommended_by_amazon_replenishment_quantity')) ?? 0,
+
+          sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? undefined,
+
+          po_days_of_supply: toInt(getRowValue(record, 'po_days_of_supply')) ?? undefined,
+          available_inventory_units: toInt(getRowValue(record, 'available_inventory_units')) ?? undefined,
+
+          lead_time_days: toInt(getRowValue(record, 'lead_time_days')) ?? undefined,
+          safety_stock_days: toInt(getRowValue(record, 'safety_stock_days')) ?? undefined,
+          target_coverage_days: toInt(getRowValue(record, 'target_coverage_days')) ?? undefined,
+
+          po_due_in_days: toInt(getRowValue(record, 'po_due_in_days')) ?? undefined,
+          po_overdue_days: toInt(getRowValue(record, 'po_overdue_days')) ?? undefined,
+          po_due_date: (getRowValue(record, 'po_due_date') ?? undefined) as string | undefined,
+
+          recommended_order_units: toInt(getRowValue(record, 'recommended_order_units')) ?? undefined,
           priority,
           reason: (getRowValue(record, 'reason') ?? '') as string,
         };
       });
-
-      // Defensive: if caller requests a specific company_id, enforce it client-side as well.
-      // This protects against any upstream data/view bugs.
-      if (parsed.company_id) {
-        const requestedCompanyId = parsed.company_id;
-        items = items.filter((it) => (it as any).company_id === requestedCompanyId);
-      }
 
       return { items };
     },

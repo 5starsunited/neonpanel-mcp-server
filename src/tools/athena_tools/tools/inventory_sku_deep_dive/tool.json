@@ -1,5 +1,5 @@
 {
-  "name": "amazon_supply_chain.inventory_sku_deep_dive",
+  "name": "amazon_supply_chain_inventory_sku_deep_dive",
   "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for the authorized company_id(s).\n\nHow to use:\n- Best: provide sku + marketplace (US/UK) to inspect a specific item.\n- If you omit sku and/or marketplace, the tool will return a small sample of rows (useful to confirm snapshot data exists and to see exact country labels / SKU formatting).\n\nBefore calling this tool:\n1) Ask the user if they want a specific SKU + marketplace or just a sample row for validation.\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
   "isConsequential": false,
   "inputSchema": {
@@ -15,7 +15,7 @@
           "US",
           "UK"
         ],
-        "description": "Optional. Marketplace/country (maps to snapshot column pil.country). If omitted, returns sample rows and lets you see available country labels."
+        "description": "Optional. Marketplace/country code (maps to snapshot column pil.country_code). If omitted, returns sample rows and lets you see available country labels."
       },
       "company_id": {
         "type": "integer",
@@ -79,6 +79,72 @@
                 "sku",
                 "marketplace"
               ]
+            },
+            "sales_forecast_scenario": {
+              "type": "object",
+              "description": "Sales forecast scenario metadata for this snapshot row.",
+              "properties": {
+                "id": { "type": "integer", "description": "Scenario id (snapshot column sales_forecast_scenario_id)." },
+                "name": { "type": "string", "description": "Scenario name (snapshot column sales_forecast_scenario_name)." },
+                "uuid": { "type": "string", "description": "Scenario uuid (snapshot column sales_forecast_scenario_uuid)." }
+              }
+            },
+            "presentation": {
+              "type": "object",
+              "description": "UI-agnostic presentation payload. Clients can render links/images consistently. Links specify which identifier they are derived from.",
+              "properties": {
+                "identity": {
+                  "type": "object",
+                  "properties": {
+                    "sku": { "type": "string" },
+                    "asin": { "type": "string" },
+                    "inventory_id": { "type": "integer" },
+                    "marketplace_code": { "type": "string" }
+                  }
+                },
+                "media": {
+                  "type": "object",
+                  "properties": {
+                    "primary_image": {
+                      "type": "object",
+                      "properties": {
+                        "url": { "type": "string" },
+                        "derived_from": { "type": "string", "enum": ["sku"] },
+                        "source_field": { "type": "string" },
+                        "sku": { "type": "string" }
+                      },
+                      "required": ["derived_from"]
+                    }
+                  },
+                  "required": ["primary_image"]
+                },
+                "links": {
+                  "type": "object",
+                  "properties": {
+                    "neonpanel_inventory": {
+                      "type": "object",
+                      "properties": {
+                        "url": { "type": "string" },
+                        "derived_from": { "type": "string", "enum": ["inventory_id"] },
+                        "inventory_id": { "type": "integer" }
+                      },
+                      "required": ["derived_from"]
+                    },
+                    "amazon_storefront": {
+                      "type": "object",
+                      "properties": {
+                        "url": { "type": "string" },
+                        "derived_from": { "type": "string", "enum": ["asin"] },
+                        "asin": { "type": "string" },
+                        "marketplace_code": { "type": "string" }
+                      },
+                      "required": ["derived_from"]
+                    }
+                  },
+                  "required": ["neonpanel_inventory", "amazon_storefront"]
+                }
+              },
+              "required": ["identity", "media", "links"]
             },
             "snapshot_partition": {
               "type": "object",

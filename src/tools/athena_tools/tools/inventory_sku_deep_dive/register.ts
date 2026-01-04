@@ -7,6 +7,7 @@ import { config } from '../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../types';
 import { loadTextFile } from '../../runtime/load-assets';
 import { renderSqlTemplate } from '../../runtime/render-sql';
+import { buildItemPresentation } from '../../runtime/presentation';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -26,6 +27,28 @@ function toInt(value: unknown): number | null {
   return Math.trunc(n);
 }
 
+function sanitizeSnapshot(record: Record<string, unknown>): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = { ...record };
+
+  // Drop Amazon-provided ship-by dates from the dataset output. They are often forward-looking
+  // even when the item is overdue, which creates UX confusion.
+  delete snapshot.recommended_ship_by_date;
+  delete snapshot.recommended_ship_date;
+  delete snapshot.recommendedShipByDate;
+  delete snapshot.recommendedShipDate;
+
+  // Rename Amazon-provided replenishment quantity for clarity.
+  if (
+    snapshot.recommended_by_amazon_replenishment_quantity === undefined &&
+    snapshot.recommended_replenishment_qty !== undefined
+  ) {
+    snapshot.recommended_by_amazon_replenishment_quantity = snapshot.recommended_replenishment_qty;
+    delete snapshot.recommended_replenishment_qty;
+  }
+
+  return snapshot;
+}
+
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -35,15 +58,9 @@ function sqlStringLiteral(value: string): string {
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  // company_id is a STRING partition column in Athena, so we filter using ARRAY(VARCHAR).
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map((n) => sqlStringLiteral(String(Math.trunc(n)))).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function mapMarketplaceToSnapshotCountry(marketplace: 'US' | 'UK'): string {
-  // The snapshot column pil.country commonly stores human-readable country names.
-  // Normalize our input to match typical values.
-  return marketplace === 'US' ? 'United States' : 'United Kingdom';
+  // Iceberg snapshot uses BIGINT company_id, so filter using ARRAY(BIGINT).
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
+  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
 const inputSchema = z.object({
@@ -68,7 +85,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
   }
 
   registry.register({
-    name: 'amazon_supply_chain.inventory_sku_deep_dive',
+    name: 'amazon_supply_chain_inventory_sku_deep_dive',
     description: 'Deep dive of the raw inventory_planning_snapshot row(s) for a specific SKU + marketplace.',
     isConsequential: false,
     inputSchema,
@@ -121,7 +138,7 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
         table,
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         sku_sql: sqlStringLiteral(parsed.sku ?? ''),
-        marketplace_sql: sqlStringLiteral(parsed.marketplace ? mapMarketplaceToSnapshotCountry(parsed.marketplace) : ''),
+        marketplace_sql: sqlStringLiteral(parsed.marketplace ?? ''),
         apply_sku_filter_sql: parsed.sku ? 'TRUE' : 'FALSE',
         apply_marketplace_filter_sql: parsed.marketplace ? 'TRUE' : 'FALSE',
         limit_top_n: Number(limit),
@@ -313,10 +330,25 @@ LIMIT 50`,
           day: (record.snapshot_day ?? record.day ?? undefined) as string | undefined,
         };
 
+        const sales_forecast_scenario = {
+          id: toInt(record.sales_forecast_scenario_id) ?? undefined,
+          name: (record.sales_forecast_scenario_name ?? undefined) as string | undefined,
+          uuid: (record.sales_forecast_scenario_uuid ?? undefined) as string | undefined,
+        };
+
         return {
           item_ref,
+          presentation: buildItemPresentation({
+            sku: item_ref.sku,
+            asin: item_ref.asin,
+            inventory_id: item_ref.inventory_id,
+            marketplace_code: item_ref.marketplace,
+            image_url: item_ref.item_icon_url,
+            image_source_field: 'item_ref.item_icon_url',
+          }),
+          sales_forecast_scenario,
           snapshot_partition,
-          snapshot: record,
+          snapshot: sanitizeSnapshot(record),
         };
       });
 

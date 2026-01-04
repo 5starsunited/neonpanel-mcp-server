@@ -65,9 +65,6 @@ export class SseSessionManager {
     // We send this immediately to avoid client-side timeouts during action refresh.
     writeSseEvent(response, 'endpoint', `/messages?sessionId=${session.id}`);
 
-    // Back-compat: also send a structured ready payload for existing clients.
-    writeSseMessage(response, { data: { event: 'ready', sessionId: session.id } });
-
     return session;
   }
 
