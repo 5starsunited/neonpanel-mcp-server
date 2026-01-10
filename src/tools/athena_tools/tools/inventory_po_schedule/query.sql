@@ -24,6 +24,10 @@ WITH params AS (
     -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
     {{inventory_ids_array}} AS inventory_ids,
+    {{asins_array}} AS asins,
+    {{parent_asins_array}} AS parent_asins,
+    {{brands_array}} AS brands,
+    {{product_families_array}} AS product_families,
     {{countries_array}} AS countries,
     {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
@@ -46,6 +50,10 @@ t_base AS (
     pil.sku,
     pil.country,
     pil.country_code,
+    pil.child_asin,
+    pil.parent_asin,
+    pil.brand,
+    pil.product_family,
     pil.asin_img_path,
     pil.product_name,
 
@@ -104,6 +112,10 @@ t_base AS (
     -- OPTIONAL filters
     AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
     AND (cardinality(p.inventory_ids) = 0 OR contains(p.inventory_ids, pil.inventory_id))
+    AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
+    AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
+    AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
+    AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
     AND (
       cardinality(p.countries) = 0
       OR contains(p.countries, pil.country)
@@ -131,6 +143,10 @@ t AS (
     b.sku,
     b.country,
     b.country_code,
+    b.child_asin,
+    b.parent_asin,
+    b.brand,
+    b.product_family,
     b.asin_img_path,
     b.product_name,
     b.selected_sales_velocity,
@@ -240,11 +256,15 @@ SELECT
   -- company
   t.company_id AS company_id,
   t.revenue_abcd_class AS revenue_abcd_class,
+  t.child_asin AS child_asin,
+  t.parent_asin AS parent_asin,
+  t.brand AS brand,
+  t.product_family AS product_family,
 
   -- item_ref
   t.inventory_id AS item_ref_inventory_id,
   t.sku AS item_ref_sku,
-  CAST(NULL AS VARCHAR) AS item_ref_asin,
+  t.child_asin AS item_ref_asin,
   t.country_code AS item_ref_marketplace,
   t.product_name AS item_ref_item_name,
   t.asin_img_path AS item_ref_item_icon_url,

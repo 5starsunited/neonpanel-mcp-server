@@ -52,7 +52,9 @@ export const fbaListReplenishAsapInputSchema = z
     target_skus: z.array(z.string()).optional(),
     target_inventory_ids: z.array(z.coerce.number().int().min(1)).optional(),
     target_asins: z.array(z.string()).optional(),
+    parent_asins: z.array(z.string()).optional(),
     brand: z.array(z.string()).optional(),
+    product_family: z.array(z.string()).optional(),
     category: z.array(z.string()).optional(),
     marketplaces: z.array(z.enum(['US', 'UK', 'ALL'])).default(['ALL']).optional(),
     countries: z.array(z.string()).optional(),
@@ -112,6 +114,12 @@ export async function executeFbaListReplenishAsap(
 
   const skus = parsed.target_skus ?? [];
   const inventoryIds = parsed.target_inventory_ids ?? [];
+  const asins = (parsed.target_asins ?? []).filter((v) => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  const parentAsins = (parsed.parent_asins ?? []).filter((v) => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  const brands = (parsed.brand ?? []).filter((v) => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  const productFamilies = (parsed.product_family ?? [])
+    .filter((v) => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => v.trim());
 
   const marketplaces = parsed.marketplaces ?? ['ALL'];
   // Treat ALL as "no filter" only when it's the only selection.
@@ -154,6 +162,10 @@ export async function executeFbaListReplenishAsap(
     company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
     skus_array: sqlVarcharArrayExpr(skus),
     inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
+    asins_array: sqlVarcharArrayExpr(asins),
+    parent_asins_array: sqlVarcharArrayExpr(parentAsins),
+    brands_array: sqlVarcharArrayExpr(brands),
+    product_families_array: sqlVarcharArrayExpr(productFamilies),
     countries_array: sqlVarcharArrayExpr(countries),
     revenue_abcd_classes_array: sqlVarcharArrayExpr(revenueAbcdClasses),
 
@@ -194,6 +206,10 @@ export async function executeFbaListReplenishAsap(
     return {
       company_id,
       revenue_abcd_class: (getRowValue(record, 'revenue_abcd_class') ?? undefined) as string | undefined,
+      child_asin: (getRowValue(record, 'child_asin') ?? undefined) as string | undefined,
+      parent_asin: (getRowValue(record, 'parent_asin') ?? undefined) as string | undefined,
+      brand: (getRowValue(record, 'brand') ?? undefined) as string | undefined,
+      product_family: (getRowValue(record, 'product_family') ?? undefined) as string | undefined,
       item_ref,
       presentation: buildItemPresentation({
         sku: item_ref.sku,

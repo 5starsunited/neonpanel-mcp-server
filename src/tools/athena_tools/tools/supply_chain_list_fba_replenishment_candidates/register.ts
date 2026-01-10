@@ -153,6 +153,23 @@ function mergeInputs(
     if (!hasOwn(toolSpecificRaw, 'planning_base') && merged.planning_base === undefined) merged.planning_base = 'targeted_only';
   }
 
+  if (
+    !hasOwn(toolSpecificRaw, 'parent_asins') &&
+    merged.parent_asins === undefined &&
+    Array.isArray((filters as any).parent_asin)
+  ) {
+    merged.parent_asins = (filters as any).parent_asin;
+    if (!hasOwn(toolSpecificRaw, 'planning_base') && merged.planning_base === undefined) merged.planning_base = 'targeted_only';
+  }
+
+  if (
+    !hasOwn(toolSpecificRaw, 'product_family') &&
+    merged.product_family === undefined &&
+    Array.isArray((filters as any).product_family)
+  ) {
+    merged.product_family = (filters as any).product_family;
+  }
+
   if (!hasOwn(toolSpecificRaw, 'marketplaces') && merged.marketplaces === undefined && Array.isArray((filters as any).marketplace)) {
     const raw = (filters as any).marketplace as unknown[];
     const normalized = raw
@@ -203,7 +220,7 @@ function mergeInputs(
   }
 
   // Warn on common unsupported filters when present.
-  const unsupportedFilterKeys = ['currency', 'product_family', 'parent_asin', 'pareto_abc_class', 'tags'];
+  const unsupportedFilterKeys = ['currency', 'pareto_abc_class', 'tags'];
   for (const key of unsupportedFilterKeys) {
     if ((filters as any)[key] !== undefined) {
       warnings.push(`query.filters.${key} is not supported for this tool yet.`);

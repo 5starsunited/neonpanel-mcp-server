@@ -37,12 +37,26 @@
         },
         "description": "Optional: restrict to specific ASINs. Recommended when planning_base=targeted_only."
       },
+      "parent_asins": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional: restrict to specific parent ASINs. Recommended when planning_base=targeted_only."
+      },
       "brand": {
         "type": "array",
         "items": {
           "type": "string"
         },
         "description": "Optional brand filter (exact match as stored in snapshot)."
+      },
+      "product_family": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional product_family filter (exact match as stored in snapshot)."
       },
       "category": {
         "type": "array",
