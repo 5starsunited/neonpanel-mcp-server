@@ -9,6 +9,9 @@ import { loadTextFile } from '../../runtime/load-assets';
 import { renderSqlTemplate } from '../../runtime/render-sql';
 import { buildItemPresentation } from '../../runtime/presentation';
 
+const toolJsonPath = path.join(__dirname, 'tool.json');
+const sqlPath = path.join(__dirname, 'query.sql');
+
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
     company_id?: number;
@@ -52,11 +55,16 @@ export const inventoryPoScheduleInputSchema = z
     target_skus: z.array(z.string()).optional(),
     target_inventory_ids: z.array(z.coerce.number().int().min(1)).optional(),
     target_asins: z.array(z.string()).optional(),
+    parent_asins: z.array(z.string()).optional(),
     brand: z.array(z.string()).optional(),
+    product_family: z.array(z.string()).optional(),
     category: z.array(z.string()).optional(),
     marketplaces: z.array(z.enum(['US', 'UK', 'ALL'])).default(['ALL']).optional(),
     countries: z.array(z.string()).optional(),
     company_id: z.coerce.number().int().min(1).optional(),
+
+    // Optional classification filters (computed from snapshot sales_last_30_days)
+    revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
 
     // Planning window + knobs
     time_window: timeWindowSchema,
@@ -73,6 +81,166 @@ export const inventoryPoScheduleInputSchema = z
   .strict();
 
 const inputSchema = inventoryPoScheduleInputSchema;
+
+export async function executeInventoryPoSchedule(
+  parsed: z.infer<typeof inventoryPoScheduleInputSchema>,
+  context: { userToken: string },
+): Promise<{ items: unknown[] }> {
+  // Permission gate: use NeonPanel permission endpoint, then filter Athena by company_id.
+  const permission = 'view:quicksight_group.business_planning_new';
+  const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+    token: context.userToken,
+    path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+  });
+
+  const permittedCompanies = (permissionResponse.companies ?? []).filter(
+    (c): c is { company_id?: number; companyId?: number; id?: number; name?: string; short_name?: string } =>
+      c !== null && typeof c === 'object',
+  );
+
+  const permittedCompanyIds = permittedCompanies
+    .map((c) => c.company_id ?? c.companyId ?? c.id)
+    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+
+  const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
+  const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
+
+  if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
+    return { items: [] };
+  }
+
+  const catalog = config.athena.catalog;
+  const database = config.athena.database;
+  const table = config.athena.tables.inventoryPlanningSnapshot;
+
+  const limit = parsed.limit ?? 200;
+
+  const skus = parsed.target_skus ?? [];
+  const inventoryIds = parsed.target_inventory_ids ?? [];
+  const asins = (parsed.target_asins ?? []).filter((v) => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  const parentAsins = (parsed.parent_asins ?? []).filter((v) => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  const brands = (parsed.brand ?? []).filter((v) => typeof v === 'string' && v.trim().length > 0).map((v) => v.trim());
+  const productFamilies = (parsed.product_family ?? [])
+    .filter((v) => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => v.trim());
+
+  const marketplaces = parsed.marketplaces ?? ['ALL'];
+  // Treat ALL as "no filter" only when it's the only selection.
+  // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
+  const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
+
+  // Some clients send `countries: []` by default. An empty array should NOT override marketplaces;
+  // it should behave like "countries not provided".
+  const countriesFromSelector = (parsed.countries ?? [])
+    .map((c) => (typeof c === 'string' ? c.trim() : ''))
+    .filter((c) => c.length > 0);
+
+  const countriesRaw = countriesFromSelector.length > 0 ? countriesFromSelector : marketplacesNormalized;
+  const countries = normalizeCountries(countriesRaw);
+
+  const revenueAbcdClasses = (parsed.revenue_abcd_class ?? [])
+    .map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
+    .filter((v): v is 'A' | 'B' | 'C' | 'D' => v === 'A' || v === 'B' || v === 'C' || v === 'D');
+
+  const template = await loadTextFile(sqlPath);
+  const query = renderSqlTemplate(template, {
+    catalog,
+    database,
+    table,
+    // Athena UI SQL parameter equivalents
+    sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'planned'),
+    planning_base_sql: planningBaseSql(parsed.planning_base),
+    override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
+    use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
+    lead_time_days_override: Math.trunc(parsed.lead_time_days_override ?? 30),
+    safety_stock_days_override: Math.trunc(parsed.safety_stock_days_override ?? 60),
+    days_between_pos: Math.trunc(parsed.days_between_pos ?? 30),
+    limit_top_n: Number(limit),
+    stockout_threshold_days: Math.trunc(parsed.stockout_threshold_days ?? 7),
+    active_sold_min_units_per_day: Number(parsed.active_sold_min_units_per_day ?? 1),
+
+    company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+    skus_array: sqlVarcharArrayExpr(skus),
+    inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
+    asins_array: sqlVarcharArrayExpr(asins),
+    parent_asins_array: sqlVarcharArrayExpr(parentAsins),
+    brands_array: sqlVarcharArrayExpr(brands),
+    product_families_array: sqlVarcharArrayExpr(productFamilies),
+    countries_array: sqlVarcharArrayExpr(countries),
+    revenue_abcd_classes_array: sqlVarcharArrayExpr(revenueAbcdClasses),
+
+    // Back-compat for older draft templates
+    companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
+    limit: Number(limit),
+    topN: Number(limit),
+  });
+
+  const athenaResult = await runAthenaQuery({
+    query,
+    database,
+    workGroup: config.athena.workgroup,
+    outputLocation: config.athena.outputLocation,
+    maxRows: Math.min(2000, limit),
+  });
+
+  const items = (athenaResult.rows ?? []).map((row) => {
+    const record = row;
+
+    const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;
+
+    const item_ref = {
+      inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
+      sku: (getRowValue(record, 'item_ref_sku') ?? undefined) as string | undefined,
+      asin: (getRowValue(record, 'item_ref_asin') ?? undefined) as string | undefined,
+      marketplace: (getRowValue(record, 'item_ref_marketplace') ?? undefined) as 'US' | 'UK' | undefined,
+      item_name: (getRowValue(record, 'item_ref_item_name') ?? undefined) as string | undefined,
+      item_icon_url: (getRowValue(record, 'item_ref_item_icon_url') ?? undefined) as string | undefined,
+    };
+
+    const priorityRaw = (getRowValue(record, 'priority') ?? undefined) as string | undefined;
+    const priority =
+      priorityRaw === 'low' || priorityRaw === 'medium' || priorityRaw === 'high' || priorityRaw === 'critical'
+        ? priorityRaw
+        : 'high';
+
+    return {
+      company_id,
+      revenue_abcd_class: (getRowValue(record, 'revenue_abcd_class') ?? undefined) as string | undefined,
+      child_asin: (getRowValue(record, 'child_asin') ?? undefined) as string | undefined,
+      parent_asin: (getRowValue(record, 'parent_asin') ?? undefined) as string | undefined,
+      brand: (getRowValue(record, 'brand') ?? undefined) as string | undefined,
+      product_family: (getRowValue(record, 'product_family') ?? undefined) as string | undefined,
+      item_ref,
+      presentation: buildItemPresentation({
+        sku: item_ref.sku,
+        asin: item_ref.asin,
+        inventory_id: item_ref.inventory_id,
+        marketplace_code: item_ref.marketplace,
+        image_url: item_ref.item_icon_url,
+        image_source_field: 'item_ref.item_icon_url',
+      }),
+
+      sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? undefined,
+
+      po_days_of_supply: toInt(getRowValue(record, 'po_days_of_supply')) ?? undefined,
+      available_inventory_units: toInt(getRowValue(record, 'available_inventory_units')) ?? undefined,
+
+      lead_time_days: toInt(getRowValue(record, 'lead_time_days')) ?? undefined,
+      safety_stock_days: toInt(getRowValue(record, 'safety_stock_days')) ?? undefined,
+      target_coverage_days: toInt(getRowValue(record, 'target_coverage_days')) ?? undefined,
+
+      po_due_in_days: toInt(getRowValue(record, 'po_due_in_days')) ?? undefined,
+      po_overdue_days: toInt(getRowValue(record, 'po_overdue_days')) ?? undefined,
+      po_due_date: (getRowValue(record, 'po_due_date') ?? undefined) as string | undefined,
+
+      recommended_order_units: toInt(getRowValue(record, 'recommended_order_units')) ?? undefined,
+      priority,
+      reason: (getRowValue(record, 'reason') ?? '') as string,
+    };
+  });
+
+  return { items };
+}
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -145,9 +313,6 @@ function normalizeCountries(values: string[]): string[] {
 }
 
 export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
-  const toolJsonPath = path.join(__dirname, 'tool.json');
-  const sqlPath = path.join(__dirname, 'query.sql');
-
   let specJson: ToolSpecJson | undefined;
   try {
     if (fs.existsSync(toolJsonPath)) {
@@ -168,137 +333,7 @@ export function registerInventoryPoScheduleTool(registry: ToolRegistry) {
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
 
-      // Permission gate: use NeonPanel permission endpoint, then filter Athena by company_id.
-      const permission = 'view:quicksight_group.business_planning_new';
-      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
-
-      const permittedCompanies = (permissionResponse.companies ?? []).filter(
-        (c): c is { company_id?: number; companyId?: number; id?: number; name?: string; short_name?: string } =>
-          c !== null && typeof c === 'object',
-      );
-
-      const permittedCompanyIds = permittedCompanies
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-
-      const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
-      const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
-
-      if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
-        return { items: [] };
-      }
-
-      const catalog = config.athena.catalog;
-      const database = config.athena.database;
-      const table = config.athena.tables.inventoryPlanningSnapshot;
-
-      const limit = parsed.limit ?? 200;
-
-      const skus = parsed.target_skus ?? [];
-      const inventoryIds = parsed.target_inventory_ids ?? [];
-
-      const marketplaces = parsed.marketplaces ?? ['ALL'];
-      // Treat ALL as "no filter" only when it's the only selection.
-      // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
-      const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
-
-      // Some clients send `countries: []` by default. An empty array should NOT override marketplaces;
-      // it should behave like "countries not provided".
-      const countriesFromSelector = (parsed.countries ?? [])
-        .map((c) => (typeof c === 'string' ? c.trim() : ''))
-        .filter((c) => c.length > 0);
-
-      const countriesRaw = countriesFromSelector.length > 0 ? countriesFromSelector : marketplacesNormalized;
-      const countries = normalizeCountries(countriesRaw);
-
-      const template = await loadTextFile(sqlPath);
-      const query = renderSqlTemplate(template, {
-        catalog,
-        database,
-        table,
-        // Athena UI SQL parameter equivalents
-        sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'planned'),
-        planning_base_sql: planningBaseSql(parsed.planning_base),
-        override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
-        use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
-        lead_time_days_override: Math.trunc(parsed.lead_time_days_override ?? 30),
-        safety_stock_days_override: Math.trunc(parsed.safety_stock_days_override ?? 60),
-        days_between_pos: Math.trunc(parsed.days_between_pos ?? 30),
-        limit_top_n: Number(limit),
-        stockout_threshold_days: Math.trunc(parsed.stockout_threshold_days ?? 7),
-        active_sold_min_units_per_day: Number(parsed.active_sold_min_units_per_day ?? 1),
-
-        company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-        skus_array: sqlVarcharArrayExpr(skus),
-        inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
-        countries_array: sqlVarcharArrayExpr(countries),
-
-        // Back-compat for older draft templates
-        companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
-        limit: Number(limit),
-        topN: Number(limit),
-      });
-
-      const athenaResult = await runAthenaQuery({
-        query,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: Math.min(2000, limit),
-      });
-
-      const items = (athenaResult.rows ?? []).map((row) => {
-        const record = row;
-
-        const item_ref = {
-          inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
-          sku: (getRowValue(record, 'item_ref_sku') ?? undefined) as string | undefined,
-          asin: (getRowValue(record, 'item_ref_asin') ?? undefined) as string | undefined,
-          marketplace: (getRowValue(record, 'item_ref_marketplace') ?? undefined) as 'US' | 'UK' | undefined,
-          item_name: (getRowValue(record, 'item_ref_item_name') ?? undefined) as string | undefined,
-          item_icon_url: (getRowValue(record, 'item_ref_item_icon_url') ?? undefined) as string | undefined,
-        };
-
-        const priorityRaw = (getRowValue(record, 'priority') ?? undefined) as string | undefined;
-        const priority =
-          priorityRaw === 'low' || priorityRaw === 'medium' || priorityRaw === 'high' || priorityRaw === 'critical'
-            ? priorityRaw
-            : 'high';
-
-        return {
-          item_ref,
-          presentation: buildItemPresentation({
-            sku: item_ref.sku,
-            asin: item_ref.asin,
-            inventory_id: item_ref.inventory_id,
-            marketplace_code: item_ref.marketplace,
-            image_url: item_ref.item_icon_url,
-            image_source_field: 'item_ref.item_icon_url',
-          }),
-
-          sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? undefined,
-
-          po_days_of_supply: toInt(getRowValue(record, 'po_days_of_supply')) ?? undefined,
-          available_inventory_units: toInt(getRowValue(record, 'available_inventory_units')) ?? undefined,
-
-          lead_time_days: toInt(getRowValue(record, 'lead_time_days')) ?? undefined,
-          safety_stock_days: toInt(getRowValue(record, 'safety_stock_days')) ?? undefined,
-          target_coverage_days: toInt(getRowValue(record, 'target_coverage_days')) ?? undefined,
-
-          po_due_in_days: toInt(getRowValue(record, 'po_due_in_days')) ?? undefined,
-          po_overdue_days: toInt(getRowValue(record, 'po_overdue_days')) ?? undefined,
-          po_due_date: (getRowValue(record, 'po_due_date') ?? undefined) as string | undefined,
-
-          recommended_order_units: toInt(getRowValue(record, 'recommended_order_units')) ?? undefined,
-          priority,
-          reason: (getRowValue(record, 'reason') ?? '') as string,
-        };
-      });
-
-      return { items };
+      return executeInventoryPoSchedule(parsed, context);
     },
   });
 }

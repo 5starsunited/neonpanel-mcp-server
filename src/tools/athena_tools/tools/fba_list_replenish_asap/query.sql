@@ -22,7 +22,12 @@ WITH params AS (
     -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
     {{inventory_ids_array}} AS inventory_ids,
-    {{countries_array}} AS countries
+    {{asins_array}} AS asins,
+    {{parent_asins_array}} AS parent_asins,
+    {{brands_array}} AS brands,
+    {{product_families_array}} AS product_families,
+    {{countries_array}} AS countries,
+    {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
 
 latest_snapshot AS (
@@ -45,9 +50,16 @@ t AS (
     pil.sku,
     pil.country,
     pil.country_code,
+    pil.child_asin,
+    pil.parent_asin,
+    pil.brand,
+    pil.product_family,
     pil.asin_img_path,
     pil.product_name,
     pil.recommended_replenishment_qty AS recommended_by_amazon_replenishment_quantity,
+
+    -- Revenue proxy used for ABCD classification.
+    COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
 
     CAST(
       CASE p.sales_velocity
@@ -98,6 +110,10 @@ t AS (
     -- OPTIONAL filters
     AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
     AND (cardinality(p.inventory_ids) = 0 OR contains(p.inventory_ids, pil.inventory_id))
+    AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
+    AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
+    AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
+    AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
     AND (
       cardinality(p.countries) = 0
       OR contains(p.countries, pil.country)
@@ -116,16 +132,55 @@ t AS (
       WHEN p.planning_base = 'planned only' AND pil.next_12_month_sales_plan_units IS NOT NULL THEN TRUE
       ELSE FALSE
     END
+),
+
+t_classed AS (
+  SELECT
+    t.*,
+    CASE
+      WHEN SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code) <= 0 THEN 'D'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.80 THEN 'A'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.95 THEN 'B'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.99 THEN 'C'
+      ELSE 'D'
+    END AS revenue_abcd_class
+  FROM t
 )
 
 SELECT
   -- company
   t.company_id AS company_id,
+  t.revenue_abcd_class AS revenue_abcd_class,
+  t.child_asin AS child_asin,
+  t.parent_asin AS parent_asin,
+  t.brand AS brand,
+  t.product_family AS product_family,
 
   -- item_ref
   t.inventory_id AS item_ref_inventory_id,
   t.sku AS item_ref_sku,
-  CAST(NULL AS VARCHAR) AS item_ref_asin,
+  t.child_asin AS item_ref_asin,
   t.country_code AS item_ref_marketplace,
   t.product_name AS item_ref_item_name,
   t.asin_img_path AS item_ref_item_icon_url,
@@ -218,7 +273,11 @@ SELECT
   END AS priority,
   CAST('Based on buffer coverage: days_of_supply vs (lead_time + safety_stock + reorder cadence). reorder cadence = days_between_shipments. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon''s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
 
-FROM t
+FROM t_classed t
+CROSS JOIN params p
+
+WHERE
+  (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, t.revenue_abcd_class))
 
 ORDER BY shipment_overdue_days DESC
 LIMIT {{limit_top_n}};

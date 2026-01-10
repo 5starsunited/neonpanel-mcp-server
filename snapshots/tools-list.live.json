@@ -1,0 +1,2257 @@
+{
+    "jsonrpc": "2.0",
+    "id": "live",
+    "result": {
+        "tools": [
+            {
+                "name": "amazon_supply_chain_fba_list_replenish_asap",
+                "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.\n\nInputs are a flat JSON object (no nested sku_selector).\n\nRecommended defaults (confirm with user):\n- planning_base: actively_sold_only\n- time_window.lookahead_days: 14\n- sales_velocity: current\n- use_seasonality: true\n- override_default: false (so table defaults are used)\n- days_between_shipments: 14 (aka reorder cadence)\n- stockout_threshold_days: 7\n- limit: 50\n\nCommon questions to ask the user:\n- Which marketplaces/countries should we include? (default: ALL)\n- Do you want actively sold only (default), all, or a targeted subset?\n- Should results be limited to a specific company_id (if you have multiple)?\n\nKnowledge base (methodology & definitions): https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "amazon_supply_chain_fba_list_replenish_asap",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "planning_base": {
+                            "type": "string",
+                            "enum": [
+                                "all",
+                                "targeted_only",
+                                "actively_sold_only",
+                                "planned_only"
+                            ],
+                            "default": "actively_sold_only",
+                            "description": "Which universe of SKUs/items to consider. Recommended default: actively_sold_only. Use targeted_only with target_* filters."
+                        },
+                        "target_skus": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional: restrict to specific SKUs. Recommended when planning_base=targeted_only."
+                        },
+                        "target_inventory_ids": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            },
+                            "description": "Optional: restrict to specific inventory IDs. Recommended when planning_base=targeted_only."
+                        },
+                        "target_asins": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional: restrict to specific ASINs. Recommended when planning_base=targeted_only."
+                        },
+                        "brand": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional brand filter (exact match as stored in snapshot)."
+                        },
+                        "category": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional category filter (exact match as stored in snapshot)."
+                        },
+                        "marketplaces": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "US",
+                                    "UK",
+                                    "ALL"
+                                ]
+                            },
+                            "default": [
+                                "ALL"
+                            ],
+                            "description": "Marketplace filter. If you provide both ALL and specific marketplaces, ALL is ignored. If you set countries, countries takes precedence over marketplaces."
+                        },
+                        "countries": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional explicit country/country_code filter. Takes precedence over marketplaces when non-empty."
+                        },
+                        "company_id": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Optional: restrict to a specific permitted company_id. If omitted, uses all permitted companies."
+                        },
+                        "time_window": {
+                            "type": "object",
+                            "properties": {
+                                "lookahead_days": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "default": 14,
+                                    "description": "How many days ahead to evaluate stockout risk. Recommended default: 14. Ask the user if they want a different horizon (e.g., 7/14/30)."
+                                },
+                                "as_of_date": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "description": "Optional. Evaluate as of a specific date (YYYY-MM-DD). If omitted, the latest available snapshot date is used."
+                                }
+                            },
+                            "description": "Time window settings. Ask the user to confirm lookahead_days and (optionally) as_of_date."
+                        },
+                        "sales_velocity": {
+                            "type": "string",
+                            "enum": [
+                                "current",
+                                "target",
+                                "planned"
+                            ],
+                            "default": "current",
+                            "description": "Which sales velocity to use for projections. Recommended default: current."
+                        },
+                        "use_seasonality": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Whether to apply seasonality adjustments (if available in the snapshot). Recommended default: true."
+                        },
+                        "override_default": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "If true, use fba_lead_time_days_override and fba_safety_stock_days_override instead of table defaults."
+                        },
+                        "fba_lead_time_days_override": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 12,
+                            "description": "Only used when override_default=true. Lead time (days) to use for FBA replenishment planning. Recommended default: 12 (confirm with user)."
+                        },
+                        "fba_safety_stock_days_override": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 60,
+                            "description": "Only used when override_default=true. Safety stock buffer expressed in days of coverage. This is treated as a MINIMUM required buffer (higher = more conservative). Recommended default: 60 (confirm with user)."
+                        },
+                        "days_between_shipments": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 14,
+                            "description": "Reorder cadence (synonym: days_between_shipments). Used to ensure inventory stays covered until the next replenishment cycle. This is added to lead_time + safety_stock coverage when computing shipment_due_* and recommended_ship_units. Recommended default: 14 (confirm with user)."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "default": 50,
+                            "description": "Max number of rows to return. Recommended default: 50."
+                        },
+                        "stockout_threshold_days": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 7,
+                            "description": "Threshold (days to OOS) for classifying urgency. Recommended default: 7."
+                        },
+                        "active_sold_min_units_per_day": {
+                            "type": "number",
+                            "minimum": 0,
+                            "default": 1,
+                            "description": "Only affects planning_base=actively_sold_only. Minimum average daily units (30-day basis) required to include an item as 'actively sold'. Default 1 means ~1 unit/day. Example: 100 means only items selling ~100/day or more are considered actively sold."
+                        }
+                    },
+                    "required": [
+                        "planning_base"
+                    ]
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "company_id": {
+                                        "type": "integer",
+                                        "description": "Company id for the row (helps validate filtering and client-side rendering)."
+                                    },
+                                    "item_ref": {
+                                        "type": "object",
+                                        "description": "Canonical item reference. Include at least one identifier. Prefer to include item_icon_url in tool outputs to avoid extra requests.",
+                                        "properties": {
+                                            "inventory_id": {
+                                                "type": "integer"
+                                            },
+                                            "sku": {
+                                                "type": "string"
+                                            },
+                                            "asin": {
+                                                "type": "string"
+                                            },
+                                            "marketplace": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "US",
+                                                    "UK"
+                                                ]
+                                            },
+                                            "item_name": {
+                                                "type": "string"
+                                            },
+                                            "item_icon_url": {
+                                                "type": "string",
+                                                "description": "Small icon/image URL for item; include in datasets when possible."
+                                            }
+                                        }
+                                    },
+                                    "presentation": {
+                                        "type": "object",
+                                        "description": "UI-agnostic presentation payload. Clients can render links/images consistently. Links specify which identifier they are derived from.",
+                                        "properties": {
+                                            "identity": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "sku": {
+                                                        "type": "string"
+                                                    },
+                                                    "asin": {
+                                                        "type": "string"
+                                                    },
+                                                    "inventory_id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "marketplace_code": {
+                                                        "type": "string"
+                                                    }
+                                                }
+                                            },
+                                            "media": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "primary_image": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": "string"
+                                                            },
+                                                            "derived_from": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "sku"
+                                                                ]
+                                                            },
+                                                            "source_field": {
+                                                                "type": "string"
+                                                            },
+                                                            "sku": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "derived_from"
+                                                        ]
+                                                    }
+                                                },
+                                                "required": [
+                                                    "primary_image"
+                                                ]
+                                            },
+                                            "links": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "neonpanel_inventory": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": "string"
+                                                            },
+                                                            "derived_from": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "inventory_id"
+                                                                ]
+                                                            },
+                                                            "inventory_id": {
+                                                                "type": "integer"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "derived_from"
+                                                        ]
+                                                    },
+                                                    "amazon_storefront": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": "string"
+                                                            },
+                                                            "derived_from": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "asin"
+                                                                ]
+                                                            },
+                                                            "asin": {
+                                                                "type": "string"
+                                                            },
+                                                            "marketplace_code": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "derived_from"
+                                                        ]
+                                                    }
+                                                },
+                                                "required": [
+                                                    "neonpanel_inventory",
+                                                    "amazon_storefront"
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "identity",
+                                            "media",
+                                            "links"
+                                        ]
+                                    },
+                                    "sales_velocity": {
+                                        "type": "number",
+                                        "description": "Units/day used for planning and recommendations (based on the selected sales_velocity input)."
+                                    },
+                                    "fba_days_of_supply": {
+                                        "type": "number",
+                                        "description": "Computed days of supply at the selected sales velocity (fba_available / sales_velocity)."
+                                    },
+                                    "shipment_due_date": {
+                                        "type": "string",
+                                        "description": "Date the replenishment shipment is due (clamped to today if overdue). Based on CURRENT_DATE + shipment_due_in_days.",
+                                        "format": "date"
+                                    },
+                                    "shipment_due_in_days": {
+                                        "type": "number",
+                                        "description": "Days until shipment is due. Negative means overdue. Computed as days_of_supply - (lead_time + safety_stock)."
+                                    },
+                                    "shipment_overdue_days": {
+                                        "type": "number",
+                                        "description": "Days overdue (>= 0). 0 means not overdue."
+                                    },
+                                    "days_overdue": {
+                                        "type": "number",
+                                        "description": "Synonym for shipment_overdue_days (>= 0)."
+                                    },
+                                    "fba_on_hand": {
+                                        "type": "integer"
+                                    },
+                                    "fba_inbound": {
+                                        "type": "integer"
+                                    },
+                                    "recommended_ship_units": {
+                                        "type": "integer"
+                                    },
+                                    "recommended_by_amazon_replenishment_quantity": {
+                                        "type": "integer",
+                                        "description": "Raw recommendation from Amazon (snapshot field recommended_replenishment_qty), renamed for clarity. This is NOT the tool's computed recommendation."
+                                    },
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "low",
+                                            "medium",
+                                            "high",
+                                            "critical"
+                                        ],
+                                        "default": "high"
+                                    },
+                                    "reason": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "item_ref",
+                                    "shipment_due_date",
+                                    "shipment_overdue_days",
+                                    "recommended_ship_units",
+                                    "priority"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "items"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "Recommended defaults (broad)",
+                        "description": "Use recommended defaults and all marketplaces.",
+                        "input": {
+                            "planning_base": "actively_sold_only",
+                            "marketplaces": [
+                                "ALL"
+                            ],
+                            "time_window": {
+                                "lookahead_days": 14
+                            },
+                            "sales_velocity": "current",
+                            "use_seasonality": true,
+                            "override_default": false,
+                            "limit": 50,
+                            "stockout_threshold_days": 7
+                        }
+                    },
+                    {
+                        "name": "Targeted SKUs (US only)",
+                        "description": "Target a small SKU list and restrict to US.",
+                        "input": {
+                            "planning_base": "targeted_only",
+                            "target_skus": [
+                                "SKU-EXAMPLE-1",
+                                "SKU-EXAMPLE-2"
+                            ],
+                            "marketplaces": [
+                                "US"
+                            ],
+                            "time_window": {
+                                "lookahead_days": 14
+                            },
+                            "sales_velocity": "current",
+                            "use_seasonality": true,
+                            "override_default": false,
+                            "limit": 200,
+                            "stockout_threshold_days": 7
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "amazon_supply_chain_inventory_po_schedule",
+                "description": "Schedule purchase orders (POs) by estimating when an item needs a new PO to maintain coverage through lead time + safety stock + PO cadence. Uses the latest inventory planning snapshot partition.\n\nDefaults:\n- sales_velocity: planned (sales plan)\n- days_between_pos: 30\n- limit: 50\n\nAvailable inventory used for coverage:\n- available_inventory_units = total_balance_quantity + total_ordered_quantity + available\n- inbound is NOT counted.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "amazon_supply_chain_inventory_po_schedule",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "planning_base": {
+                            "type": "string",
+                            "enum": [
+                                "all",
+                                "targeted_only",
+                                "actively_sold_only",
+                                "planned_only"
+                            ],
+                            "default": "actively_sold_only",
+                            "description": "Which universe of items to consider. Recommended default: actively_sold_only. Use targeted_only with target_* filters."
+                        },
+                        "target_skus": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional: restrict to specific SKUs."
+                        },
+                        "target_inventory_ids": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            },
+                            "description": "Optional: restrict to specific inventory IDs."
+                        },
+                        "target_asins": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional: restrict to specific ASINs."
+                        },
+                        "brand": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional brand filter (exact match as stored in snapshot)."
+                        },
+                        "category": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional category filter (exact match as stored in snapshot)."
+                        },
+                        "marketplaces": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "US",
+                                    "UK",
+                                    "ALL"
+                                ]
+                            },
+                            "default": [
+                                "ALL"
+                            ],
+                            "description": "Marketplace filter. If you provide both ALL and specific marketplaces, ALL is ignored. If you set countries (non-empty), countries takes precedence over marketplaces."
+                        },
+                        "countries": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Optional explicit country/country_code filter. Takes precedence over marketplaces when non-empty."
+                        },
+                        "company_id": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Optional: restrict to a specific permitted company_id. If omitted, uses all permitted companies."
+                        },
+                        "time_window": {
+                            "type": "object",
+                            "properties": {
+                                "lookahead_days": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "default": 14,
+                                    "description": "Optional horizon (days)."
+                                },
+                                "as_of_date": {
+                                    "type": "string",
+                                    "format": "date",
+                                    "description": "Optional evaluation date (YYYY-MM-DD)."
+                                }
+                            },
+                            "description": "Optional time window settings."
+                        },
+                        "sales_velocity": {
+                            "type": "string",
+                            "enum": [
+                                "current",
+                                "target",
+                                "planned"
+                            ],
+                            "default": "planned",
+                            "description": "Which sales velocity to use for projections. Default: planned."
+                        },
+                        "use_seasonality": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Whether to apply seasonality adjustments (reserved for future; currently not applied in SQL)."
+                        },
+                        "override_default": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "If true, use lead_time_days_override and safety_stock_days_override instead of table defaults."
+                        },
+                        "lead_time_days_override": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 30,
+                            "description": "Only used when override_default=true. Lead time (days) to use for PO planning."
+                        },
+                        "safety_stock_days_override": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 60,
+                            "description": "Only used when override_default=true. Safety stock buffer expressed in days of coverage (minimum buffer)."
+                        },
+                        "days_between_pos": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 30,
+                            "description": "PO cadence (days between POs). Added to lead_time + safety_stock coverage when computing po_due_* and recommended_order_units. Default: 30."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "default": 50,
+                            "description": "Max number of rows to return."
+                        },
+                        "stockout_threshold_days": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 7,
+                            "description": "Threshold for classifying urgency (po_due_in_days <= threshold => critical)."
+                        },
+                        "active_sold_min_units_per_day": {
+                            "type": "number",
+                            "minimum": 0,
+                            "default": 1,
+                            "description": "Only affects planning_base=actively_sold_only. Minimum daily units to treat item as actively sold (30-day basis)."
+                        }
+                    },
+                    "required": [
+                        "planning_base"
+                    ]
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item_ref": {
+                                        "type": "object",
+                                        "properties": {
+                                            "inventory_id": {
+                                                "type": "integer"
+                                            },
+                                            "sku": {
+                                                "type": "string"
+                                            },
+                                            "asin": {
+                                                "type": "string"
+                                            },
+                                            "marketplace": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "US",
+                                                    "UK"
+                                                ]
+                                            },
+                                            "item_name": {
+                                                "type": "string"
+                                            },
+                                            "item_icon_url": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "presentation": {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    },
+                                    "sales_velocity": {
+                                        "type": "number"
+                                    },
+                                    "po_days_of_supply": {
+                                        "type": "integer"
+                                    },
+                                    "available_inventory_units": {
+                                        "type": "integer"
+                                    },
+                                    "lead_time_days": {
+                                        "type": "integer"
+                                    },
+                                    "safety_stock_days": {
+                                        "type": "integer"
+                                    },
+                                    "target_coverage_days": {
+                                        "type": "integer"
+                                    },
+                                    "po_due_in_days": {
+                                        "type": "integer"
+                                    },
+                                    "po_overdue_days": {
+                                        "type": "integer"
+                                    },
+                                    "po_due_date": {
+                                        "type": "string"
+                                    },
+                                    "recommended_order_units": {
+                                        "type": "integer"
+                                    },
+                                    "priority": {
+                                        "type": "string",
+                                        "enum": [
+                                            "low",
+                                            "medium",
+                                            "high",
+                                            "critical"
+                                        ]
+                                    },
+                                    "reason": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "item_ref"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "items"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "Recommended defaults (broad)",
+                        "description": "Use recommended defaults and all marketplaces for permitted companies.",
+                        "input": {
+                            "planning_base": "actively_sold_only",
+                            "marketplaces": [
+                                "ALL"
+                            ],
+                            "time_window": {
+                                "lookahead_days": 14
+                            },
+                            "sales_velocity": "planned",
+                            "override_default": false,
+                            "days_between_pos": 30,
+                            "limit": 50,
+                            "stockout_threshold_days": 7
+                        }
+                    },
+                    {
+                        "name": "Single company (US)",
+                        "description": "Restrict to a single permitted company_id and US marketplace.",
+                        "input": {
+                            "company_id": 106,
+                            "marketplaces": [
+                                "US"
+                            ],
+                            "planning_base": "actively_sold_only",
+                            "limit": 100
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "amazon_supply_chain_inventory_sku_deep_dive",
+                "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for the authorized company_id(s).\n\nHow to use:\n- Best: provide sku + marketplace (US/UK) to inspect a specific item.\n- If you omit sku and/or marketplace, the tool will return a small sample of rows (useful to confirm snapshot data exists and to see exact country labels / SKU formatting).\n\nBefore calling this tool:\n1) Ask the user if they want a specific SKU + marketplace or just a sample row for validation.\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "amazon_supply_chain_inventory_sku_deep_dive",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "sku": {
+                            "type": "string",
+                            "description": "Optional. The SKU to inspect. If omitted, returns sample rows."
+                        },
+                        "marketplace": {
+                            "type": "string",
+                            "enum": [
+                                "US",
+                                "UK"
+                            ],
+                            "description": "Optional. Marketplace/country code (maps to snapshot column pil.country_code). If omitted, returns sample rows and lets you see available country labels."
+                        },
+                        "company_id": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Optional: restrict to a specific company_id (must be permitted). Recommended if you have access to multiple companies."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 25,
+                            "default": 5,
+                            "description": "Optional. Max rows to return if multiple rows match the SKU+marketplace. Recommended default: 5."
+                        },
+                        "debug": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Optional. If true, include diagnostics to explain why rows might be missing (authorized company_ids, chosen snapshot partition, available countries for the SKU)."
+                        }
+                    },
+                    "required": []
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item_ref": {
+                                        "type": "object",
+                                        "properties": {
+                                            "company_id": {
+                                                "type": "integer"
+                                            },
+                                            "inventory_id": {
+                                                "type": "integer"
+                                            },
+                                            "sku": {
+                                                "type": "string"
+                                            },
+                                            "asin": {
+                                                "type": "string"
+                                            },
+                                            "marketplace": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "US",
+                                                    "UK"
+                                                ]
+                                            },
+                                            "item_name": {
+                                                "type": "string"
+                                            },
+                                            "item_icon_url": {
+                                                "type": "string",
+                                                "description": "Small icon/image URL for item; render as an image when presenting results."
+                                            }
+                                        },
+                                        "required": [
+                                            "sku",
+                                            "marketplace"
+                                        ]
+                                    },
+                                    "sales_forecast_scenario": {
+                                        "type": "object",
+                                        "description": "Sales forecast scenario metadata for this snapshot row.",
+                                        "properties": {
+                                            "id": {
+                                                "type": "integer",
+                                                "description": "Scenario id (snapshot column sales_forecast_scenario_id)."
+                                            },
+                                            "name": {
+                                                "type": "string",
+                                                "description": "Scenario name (snapshot column sales_forecast_scenario_name)."
+                                            },
+                                            "uuid": {
+                                                "type": "string",
+                                                "description": "Scenario uuid (snapshot column sales_forecast_scenario_uuid)."
+                                            }
+                                        }
+                                    },
+                                    "presentation": {
+                                        "type": "object",
+                                        "description": "UI-agnostic presentation payload. Clients can render links/images consistently. Links specify which identifier they are derived from.",
+                                        "properties": {
+                                            "identity": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "sku": {
+                                                        "type": "string"
+                                                    },
+                                                    "asin": {
+                                                        "type": "string"
+                                                    },
+                                                    "inventory_id": {
+                                                        "type": "integer"
+                                                    },
+                                                    "marketplace_code": {
+                                                        "type": "string"
+                                                    }
+                                                }
+                                            },
+                                            "media": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "primary_image": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": "string"
+                                                            },
+                                                            "derived_from": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "sku"
+                                                                ]
+                                                            },
+                                                            "source_field": {
+                                                                "type": "string"
+                                                            },
+                                                            "sku": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "derived_from"
+                                                        ]
+                                                    }
+                                                },
+                                                "required": [
+                                                    "primary_image"
+                                                ]
+                                            },
+                                            "links": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "neonpanel_inventory": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": "string"
+                                                            },
+                                                            "derived_from": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "inventory_id"
+                                                                ]
+                                                            },
+                                                            "inventory_id": {
+                                                                "type": "integer"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "derived_from"
+                                                        ]
+                                                    },
+                                                    "amazon_storefront": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "url": {
+                                                                "type": "string"
+                                                            },
+                                                            "derived_from": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "asin"
+                                                                ]
+                                                            },
+                                                            "asin": {
+                                                                "type": "string"
+                                                            },
+                                                            "marketplace_code": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "derived_from"
+                                                        ]
+                                                    }
+                                                },
+                                                "required": [
+                                                    "neonpanel_inventory",
+                                                    "amazon_storefront"
+                                                ]
+                                            }
+                                        },
+                                        "required": [
+                                            "identity",
+                                            "media",
+                                            "links"
+                                        ]
+                                    },
+                                    "snapshot_partition": {
+                                        "type": "object",
+                                        "properties": {
+                                            "year": {
+                                                "type": "string"
+                                            },
+                                            "month": {
+                                                "type": "string"
+                                            },
+                                            "day": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "snapshot": {
+                                        "type": "object",
+                                        "description": "Raw inventory_planning_snapshot columns for this SKU+marketplace row. Shape depends on the snapshot schema.",
+                                        "additionalProperties": true
+                                    }
+                                },
+                                "required": [
+                                    "item_ref",
+                                    "snapshot"
+                                ]
+                            }
+                        },
+                        "diagnostics": {
+                            "type": "object",
+                            "description": "Included when debug=true or when no rows are found. Helps troubleshoot authorization / snapshot partition / marketplace mismatches.",
+                            "properties": {
+                                "permitted_company_ids_count": {
+                                    "type": "integer"
+                                },
+                                "allowed_company_ids": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "selected_snapshot_partition": {
+                                    "type": "object",
+                                    "properties": {
+                                        "year": {
+                                            "type": "string"
+                                        },
+                                        "month": {
+                                            "type": "string"
+                                        },
+                                        "day": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
+                                "sample_row_present": {
+                                    "type": "boolean",
+                                    "description": "Whether the selected latest snapshot partition contains any rows for the authorized company_ids."
+                                },
+                                "sample_country": {
+                                    "type": "string",
+                                    "description": "A sample country value from the selected partition (helps confirm expected marketplace labels)."
+                                },
+                                "available_countries_for_sku": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "required": [
+                        "items"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "Single SKU (US)",
+                        "description": "Inspect the latest snapshot row for a SKU in US marketplace.",
+                        "input": {
+                            "sku": "SKU-EXAMPLE-1",
+                            "marketplace": "US",
+                            "limit": 5
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "amazon_supply_chain_product_list_logistic_parameters",
+                "description": "List product logistics parameters (vendor, product spec/name for POs, dimensions, box params, MOQ) from the latest inventory planning snapshot.\n\nInputs (choose one):\n- Provide inventory_ids (best when you already know the inventory IDs), OR\n- Provide sku + company_id (best when you only know the SKU).\n\nNotes:\n- Data is read from the latest available inventory_planning_snapshot partition for the caller\u2019s permitted companies.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "amazon_supply_chain_product_list_logistic_parameters",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "inventory_ids": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer",
+                                "minimum": 1
+                            },
+                            "description": "Provide a list of inventory_id values to look up logistics parameters for. Use this OR sku+company_id."
+                        },
+                        "sku": {
+                            "type": "string",
+                            "description": "Provide a SKU to look up logistics parameters for. Requires company_id. Use this OR inventory_ids."
+                        },
+                        "company_id": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Required when using sku. Must be a company_id permitted for the caller."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "default": 200,
+                            "description": "Safety limit for returned rows. If sku matches multiple marketplaces/rows, this caps the result size. Default: 200."
+                        }
+                    },
+                    "required": []
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item_ref": {
+                                        "type": "object",
+                                        "properties": {
+                                            "inventory_id": {
+                                                "type": "integer"
+                                            },
+                                            "sku": {
+                                                "type": "string"
+                                            },
+                                            "asin": {
+                                                "type": "string"
+                                            },
+                                            "marketplace": {
+                                                "type": "string"
+                                            },
+                                            "item_name": {
+                                                "type": "string"
+                                            },
+                                            "item_icon_url": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "presentation": {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    },
+                                    "company_id": {
+                                        "type": "integer"
+                                    },
+                                    "vendor": {
+                                        "type": "string"
+                                    },
+                                    "brand": {
+                                        "type": "string"
+                                    },
+                                    "product_family": {
+                                        "type": "string"
+                                    },
+                                    "product_spec": {
+                                        "type": "string",
+                                        "description": "Vendor-facing product specification/name used for purchase orders (often sourced from vendor_product_specs in NeonPanel)."
+                                    },
+                                    "optional_product_code": {
+                                        "type": "string"
+                                    },
+                                    "optional_product_code_type": {
+                                        "type": "string"
+                                    },
+                                    "product_weight": {
+                                        "type": "number"
+                                    },
+                                    "product_length": {
+                                        "type": "number"
+                                    },
+                                    "product_depth": {
+                                        "type": "number"
+                                    },
+                                    "product_height": {
+                                        "type": "number"
+                                    },
+                                    "length_and_girth": {
+                                        "type": "number"
+                                    },
+                                    "box_quantity": {
+                                        "type": "integer"
+                                    },
+                                    "box_length": {
+                                        "type": "number"
+                                    },
+                                    "box_depth": {
+                                        "type": "number"
+                                    },
+                                    "box_height": {
+                                        "type": "number"
+                                    },
+                                    "box_weight": {
+                                        "type": "number"
+                                    },
+                                    "moq": {
+                                        "type": "integer"
+                                    },
+                                    "snapshot_year": {
+                                        "type": "string"
+                                    },
+                                    "snapshot_month": {
+                                        "type": "string"
+                                    },
+                                    "snapshot_day": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "item_ref"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "items"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "Lookup by inventory_ids",
+                        "description": "Fetch logistics parameters for a known inventory_id set.",
+                        "input": {
+                            "inventory_ids": [
+                                12345,
+                                67890
+                            ],
+                            "limit": 200
+                        }
+                    },
+                    {
+                        "name": "Lookup by sku + company_id",
+                        "description": "Fetch logistics parameters when you only know the SKU (requires company_id).",
+                        "input": {
+                            "sku": "SKU-EXAMPLE-1",
+                            "company_id": 106,
+                            "limit": 200
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_listCompanies",
+                "description": "Retrieve companies the authenticated user can access.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_listCompanies",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "perPage": {
+                            "type": "integer",
+                            "minimum": 10,
+                            "maximum": 60
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        },
+                        "pagination": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "First Page",
+                        "description": "Get the first page of companies with default pagination.",
+                        "arguments": {}
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_listReports",
+                "description": "Retrieve the list of reports with groups, descriptions, and URLs.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_listReports",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "List Reports",
+                        "arguments": {}
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getCompaniesWithPermission",
+                "description": "Test access: return companies the authenticated user can access for a given permission (NeonPanel: GET /api/v1/permissions/{permission}/companies).",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getCompaniesWithPermission",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "permission": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "companyUuids": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "minItems": 1,
+                            "description": "Optional: limit results to a set of company UUIDs."
+                        }
+                    },
+                    "required": [
+                        "permission"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Business planning permission (all permitted companies)",
+                        "arguments": {
+                            "permission": "view:quicksight_group.business_planning_new"
+                        }
+                    },
+                    {
+                        "name": "Check permission for one company",
+                        "arguments": {
+                            "permission": "view:quicksight_group.business_planning_new",
+                            "companyUuids": [
+                                "company-uuid"
+                            ]
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_listInventoryItems",
+                "description": "List inventory items for a company with optional filters.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_listInventoryItems",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "perPage": {
+                            "type": "integer",
+                            "minimum": 10,
+                            "maximum": 60
+                        },
+                        "countryCode": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 2
+                        },
+                        "search": {
+                            "type": "string"
+                        },
+                        "fnsku": {
+                            "type": "string"
+                        },
+                        "asin": {
+                            "type": "string"
+                        },
+                        "sku": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "companyUuid"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        },
+                        "pagination": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "Search by SKU",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "search": "SKU12345",
+                            "perPage": 20
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_listWarehouses",
+                "description": "Retrieve warehouses for a company with optional search.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_listWarehouses",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "perPage": {
+                            "type": "integer",
+                            "minimum": 10,
+                            "maximum": 60
+                        },
+                        "search": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "companyUuid"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        },
+                        "pagination": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "List Warehouses",
+                        "arguments": {
+                            "companyUuid": "company-uuid"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getWarehouseBalances",
+                "description": "Retrieve paginated inventory balances for a warehouse.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getWarehouseBalances",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "warehouseUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "perPage": {
+                            "type": "integer",
+                            "minimum": 10,
+                            "maximum": 60
+                        },
+                        "balancesDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "warehouseUuid"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
+                        },
+                        "pagination": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "nullable": true
+                        }
+                    },
+                    "required": [
+                        "data"
+                    ]
+                },
+                "examples": [
+                    {
+                        "name": "Warehouse Balances",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "warehouseUuid": "warehouse-uuid"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getInventoryDetails",
+                "description": "Retrieve inventory details including restock information and warehouse balances.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getInventoryDetails",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "inventoryId": {
+                            "type": "integer"
+                        },
+                        "balancesDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "inventoryId"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Inventory Details",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "inventoryId": 123
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getInventoryLandedCost",
+                "description": "Retrieve landed cost (manufacturing expenses) for an inventory item.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getInventoryLandedCost",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "inventoryId": {
+                            "type": "integer"
+                        },
+                        "warehouseUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "startDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "endDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "perPage": {
+                            "type": "integer",
+                            "minimum": 10,
+                            "maximum": 60
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "inventoryId",
+                        "warehouseUuid",
+                        "startDate"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Landed Cost for Warehouse",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "inventoryId": 123,
+                            "warehouseUuid": "warehouse-uuid",
+                            "startDate": "2024-01-01",
+                            "endDate": "2024-02-01"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getInventoryCogs",
+                "description": "Retrieve cost of goods sold (COGS) for an inventory item.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getInventoryCogs",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "inventoryId": {
+                            "type": "integer"
+                        },
+                        "startDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "endDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "perPage": {
+                            "type": "integer",
+                            "minimum": 10,
+                            "maximum": 60
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "inventoryId",
+                        "startDate"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Inventory COGS",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "inventoryId": 123,
+                            "startDate": "2024-01-01"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getImportInstructions",
+                "description": "Retrieve document upload instructions for a supported import type.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getImportInstructions",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "bill"
+                            ]
+                        }
+                    },
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Import Instructions",
+                        "arguments": {
+                            "type": "bill"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_createDocuments",
+                "description": "Create documents for a company using JSON payload data.",
+                "_meta": {
+                    "openai/visibility": "private",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_createDocuments",
+                    "readOnlyHint": false,
+                    "idempotentHint": false,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": true,
+                "isConsequential": true,
+                "x-openai-isConsequential": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "bill"
+                            ]
+                        },
+                        "data": {
+                            "type": "object",
+                            "additionalProperties": {},
+                            "description": "Document payload matching import instructions"
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "type",
+                        "data"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Create Bill Document",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "type": "bill",
+                            "data": {
+                                "example": "payload"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_createDocumentsByPdf",
+                "description": "Create documents for a company by providing a downloadable PDF link.",
+                "_meta": {
+                    "openai/visibility": "private",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_createDocumentsByPdf",
+                    "readOnlyHint": false,
+                    "idempotentHint": false,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": true,
+                "isConsequential": true,
+                "x-openai-isConsequential": true,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "bill"
+                            ]
+                        },
+                        "file": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "link": {
+                                    "type": "string",
+                                    "format": "uri"
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "link"
+                            ],
+                            "additionalProperties": false
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "type",
+                        "file"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Create Bill From PDF Link",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "type": "bill",
+                            "file": {
+                                "name": "invoice.pdf",
+                                "link": "https://example.com/invoice.pdf"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_checkImportStatus",
+                "description": "Check the processing status of a previously uploaded document import.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_checkImportStatus",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "companyUuid": {
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "bill"
+                            ]
+                        },
+                        "requestId": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "required": [
+                        "companyUuid",
+                        "type",
+                        "requestId"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Check Import Status",
+                        "arguments": {
+                            "companyUuid": "company-uuid",
+                            "type": "bill",
+                            "requestId": "00000000-0000-0000-0000-000000000000"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "neonpanel_getRevenueAndCogs",
+                "description": "Retrieve revenue and COGS summary for the specified period.",
+                "_meta": {
+                    "openai/visibility": "public",
+                    "securitySchemes": [
+                        {
+                            "type": "oauth2",
+                            "scopes": [
+                                "neonpanel.mcp"
+                            ]
+                        }
+                    ]
+                },
+                "annotations": {
+                    "title": "neonpanel_getRevenueAndCogs",
+                    "readOnlyHint": true,
+                    "idempotentHint": true,
+                    "destructiveHint": false,
+                    "openWorldHint": false
+                },
+                "is_consequential": false,
+                "isConsequential": false,
+                "x-openai-isConsequential": false,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "startDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "endDate": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "companyUuids": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "minItems": 1
+                        },
+                        "countryCodes": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "minItems": 1
+                        },
+                        "grouping": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "company",
+                                    "country",
+                                    "invoice"
+                                ]
+                            },
+                            "minItems": 1
+                        },
+                        "periodicity": {
+                            "type": "string",
+                            "enum": [
+                                "total",
+                                "yearly",
+                                "quarterly",
+                                "monthly"
+                            ]
+                        }
+                    },
+                    "required": [
+                        "startDate"
+                    ],
+                    "additionalProperties": false
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "examples": [
+                    {
+                        "name": "Quarterly by Company",
+                        "arguments": {
+                            "startDate": "2024-01-01",
+                            "endDate": "2024-06-30",
+                            "grouping": [
+                                "company"
+                            ],
+                            "periodicity": "quarterly"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

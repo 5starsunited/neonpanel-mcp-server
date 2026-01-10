@@ -1,0 +1,727 @@
+{
+  "jsonrpc": "2.0",
+  "id": "tool_registry_v1_supply_chain_option_1",
+  "result": {
+    "registry_version": "1.0",
+    "naming_convention": {
+      "tool_names": "snake_case_only_no_dots",
+      "query_envelope": "option_1_query_object"
+    },
+    "shared_query_schema": {
+      "description": "Shared query envelope for list/portfolio tools. Tools may ignore unsupported fields but should return meta.warnings when they do.",
+      "type": "object",
+      "properties": {
+        "filters": {
+          "type": "object",
+          "description": "Standard filters. Tools should support a meaningful subset and warn on unsupported keys.",
+          "properties": {
+            "company": {
+              "type": "string",
+              "description": "Company identifier (uuid/slug). Optional alias for company_id."
+            },
+            "company_id": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Numeric company identifier. Optional alias for company."
+            },
+            "brand": { "type": "array", "items": { "type": "string" } },
+            "marketplace": { "type": "array", "items": { "type": "string" } },
+            "currency": { "type": "array", "items": { "type": "string" } },
+            "product_family": { "type": "array", "items": { "type": "string" } },
+            "parent_asin": { "type": "array", "items": { "type": "string" } },
+            "asin": { "type": "array", "items": { "type": "string" } },
+            "sku": { "type": "array", "items": { "type": "string" } },
+            "revenue_abcd_class": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
+            },
+            "pareto_abc_class": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["A", "B", "C"] }
+            },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Filter-only tags. Multi-agent safe. Agents must not infer meaning."
+            }
+          },
+          "additionalProperties": true
+        },
+        "aggregation": {
+          "type": "object",
+          "description": "Optional aggregation. If group_by is used, tool may return aggregated rows rather than SKU-level rows.",
+          "properties": {
+            "group_by": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["none"],
+              "description": "Hierarchical grouping. Order matters. Example: [\"brand\",\"product_family\",\"parent_asin\"]."
+            },
+            "time": {
+              "type": "object",
+              "description": "Optional time bucketing (if historical snapshots exist). Tools should warn if periodicity is requested but not supported.",
+              "properties": {
+                "periodicity": {
+                  "type": "string",
+                  "enum": ["day", "week", "month", "quarter", "year"]
+                },
+                "start_date": { "type": "string", "format": "date" },
+                "end_date": { "type": "string", "format": "date" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "sort": {
+          "type": "object",
+          "description": "Sort by any returned output field/KPI. Tool should return meta.applied_sort and warn if field is unknown.",
+          "properties": {
+            "field": { "type": "string" },
+            "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+            "nulls": { "type": "string", "enum": ["first", "last"], "default": "last" }
+          },
+          "additionalProperties": false
+        },
+        "select_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional output field selection (projection). If omitted, tool returns defaults."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50,
+          "description": "Max number of rows to return."
+        },
+        "cursor": {
+          "type": "string",
+          "description": "Opaque cursor for pagination (if supported)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "tools": [
+      {
+        "name": "supply_chain_list_fba_replenishment_candidates",
+        "status": "existing",
+        "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage. Refactor of amazon_supply_chain_fba_list_replenish_asap into Option-1 query envelope.",
+        "x_blueprint": {
+          "source_tool": "amazon_supply_chain_fba_list_replenish_asap",
+          "supports_query_envelope": true,
+          "notes": [
+            "tool_specific retains the original parameters for backward compatibility.",
+            "company/company_id may be passed via query.filters; tool_specific.company_id remains supported."
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": { "$ref": "#/result/shared_query_schema" },
+            "tool_specific": {
+              "type": "object",
+              "description": "Original parameters preserved under tool_specific.",
+              "properties": {
+                "planning_base": {
+                  "type": "string",
+                  "enum": ["all", "targeted_only", "actively_sold_only", "planned_only"],
+                  "default": "actively_sold_only"
+                },
+                "target_skus": { "type": "array", "items": { "type": "string" } },
+                "target_inventory_ids": { "type": "array", "items": { "type": "integer" } },
+                "target_asins": { "type": "array", "items": { "type": "string" } },
+                "brand": { "type": "array", "items": { "type": "string" } },
+                "category": { "type": "array", "items": { "type": "string" } },
+                "marketplaces": { "type": "array", "items": { "type": "string" }, "default": ["ALL"] },
+                "countries": { "type": "array", "items": { "type": "string" } },
+                "company_id": { "type": "integer", "minimum": 1 },
+                "time_window": {
+                  "type": "object",
+                  "properties": {
+                    "lookahead_days": { "type": "integer", "minimum": 1, "default": 14 },
+                    "as_of_date": { "type": "string", "format": "date" }
+                  }
+                },
+                "sales_velocity": { "type": "string", "enum": ["current", "target", "planned"], "default": "current" },
+                "use_seasonality": { "type": "boolean", "default": true },
+                "override_default": { "type": "boolean", "default": false },
+                "fba_lead_time_days_override": { "type": "integer", "minimum": 0, "default": 12 },
+                "fba_safety_stock_days_override": { "type": "integer", "minimum": 0, "default": 60 },
+                "days_between_shipments": { "type": "integer", "minimum": 0, "default": 14 },
+                "stockout_threshold_days": { "type": "integer", "minimum": 0, "default": 7 },
+                "active_sold_min_units_per_day": { "type": "number", "minimum": 0, "default": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["query"],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "meta": {
+              "type": "object",
+              "properties": {
+                "applied_sort": { "type": "object", "additionalProperties": true },
+                "selected_fields": { "type": "array", "items": { "type": "string" } },
+                "included_fields": { "type": "array", "items": { "type": "string" } },
+                "warnings": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": ["items"]
+        }
+      },
+
+      {
+        "name": "supply_chain_list_po_placement_candidates",
+        "status": "existing",
+        "description": "List items needing PO placement based on lead time + safety stock + PO cadence coverage. Refactor of amazon_supply_chain_inventory_po_schedule into Option-1 query envelope.",
+        "x_blueprint": {
+          "source_tool": "amazon_supply_chain_inventory_po_schedule",
+          "supports_query_envelope": true,
+          "notes": [
+            "tool_specific retains original parameters.",
+            "Use alongside the skill rule: evaluate FBA replenishment first; only evaluate PO placement for the gap."
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": { "$ref": "#/result/shared_query_schema" },
+            "tool_specific": {
+              "type": "object",
+              "properties": {
+                "planning_base": {
+                  "type": "string",
+                  "enum": ["all", "targeted_only", "actively_sold_only", "planned_only"],
+                  "default": "actively_sold_only"
+                },
+                "target_skus": { "type": "array", "items": { "type": "string" } },
+                "target_inventory_ids": { "type": "array", "items": { "type": "integer" } },
+                "target_asins": { "type": "array", "items": { "type": "string" } },
+                "brand": { "type": "array", "items": { "type": "string" } },
+                "category": { "type": "array", "items": { "type": "string" } },
+                "marketplaces": { "type": "array", "items": { "type": "string" }, "default": ["ALL"] },
+                "countries": { "type": "array", "items": { "type": "string" } },
+                "company_id": { "type": "integer", "minimum": 1 },
+                "time_window": {
+                  "type": "object",
+                  "properties": {
+                    "lookahead_days": { "type": "integer", "minimum": 1, "default": 14 },
+                    "as_of_date": { "type": "string", "format": "date" }
+                  }
+                },
+                "sales_velocity": { "type": "string", "enum": ["current", "target", "planned"], "default": "planned" },
+                "use_seasonality": { "type": "boolean", "default": true },
+                "override_default": { "type": "boolean", "default": false },
+                "lead_time_days_override": { "type": "integer", "minimum": 0, "default": 30 },
+                "safety_stock_days_override": { "type": "integer", "minimum": 0, "default": 60 },
+                "days_between_pos": { "type": "integer", "minimum": 0, "default": 30 },
+                "stockout_threshold_days": { "type": "integer", "minimum": 0, "default": 7 },
+                "active_sold_min_units_per_day": { "type": "number", "minimum": 0, "default": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["query"],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "meta": {
+              "type": "object",
+              "properties": {
+                "applied_sort": { "type": "object", "additionalProperties": true },
+                "selected_fields": { "type": "array", "items": { "type": "string" } },
+                "included_fields": { "type": "array", "items": { "type": "string" } },
+                "warnings": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": ["items"]
+        }
+      },
+
+      {
+        "name": "supply_chain_inspect_inventory_sku_snapshot",
+        "status": "existing",
+        "description": "Inventory SKU deep dive (raw snapshot inspection). Refactor of amazon_supply_chain_inventory_sku_deep_dive. Diagnostic / evidence tool; does not use query envelope.",
+        "x_blueprint": {
+          "source_tool": "amazon_supply_chain_inventory_sku_deep_dive",
+          "supports_query_envelope": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sku": { "type": "string" },
+            "marketplace": { "type": "string", "enum": ["US", "UK"] },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 5 },
+            "debug": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+
+      {
+        "name": "supply_chain_list_product_logistics_parameters",
+        "status": "existing",
+        "description": "List product logistics parameters (vendor/spec/dimensions/case pack/MOQ). Refactor of amazon_supply_chain_product_list_logistic_parameters.",
+        "x_blueprint": {
+          "source_tool": "amazon_supply_chain_product_list_logistic_parameters",
+          "supports_query_envelope": false,
+          "notes": ["This is a context tool; can be used by both FBA replenishment and PO placement decision paths."]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "inventory_ids": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+            "sku": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "limit": { "type": "integer", "minimum": 1, "default": 200 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+
+      {
+        "name": "inventory_get_available_to_ship",
+        "status": "pending",
+        "description": "Compute available-to-ship inventory across nodes (FBA, 3PL/warehouse, transferable, reserved exclusions). Used by the skill rule: evaluate FBA replenishment first; if shortfall then PO placement.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "sku": { "type": "string" },
+            "asin": { "type": "string" },
+            "as_of_date": { "type": "string", "format": "date" }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "item_ref": { "type": "object", "additionalProperties": true },
+            "available_to_ship_units": { "type": "integer" },
+            "by_node": { "type": "object", "additionalProperties": true },
+            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "meta": { "type": "object", "additionalProperties": true }
+          },
+          "required": ["available_to_ship_units"]
+        }
+      },
+
+      {
+        "name": "supply_chain_evaluate_fba_replenishment_timing",
+        "status": "pending",
+        "description": "Decision tool (no side effects). Determine whether to ship to FBA now vs wait; returns urgency score, estimated stockout date, latest safe ship date. Intended for single SKU/ASIN reasoning.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "sku": { "type": "string" },
+            "asin": { "type": "string" },
+            "as_of_date": { "type": "string", "format": "date" },
+            "policy": { "type": "object", "additionalProperties": true },
+            "assumptions": { "type": "object", "additionalProperties": true }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "decision": { "type": "string", "enum": ["ship_now", "wait", "do_not_ship"] },
+            "urgency_score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "estimated_stockout_date": { "type": "string", "format": "date" },
+            "latest_safe_ship_date": { "type": "string", "format": "date" },
+            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "constraints_checked": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "risk_flags": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["decision", "urgency_score"]
+        }
+      },
+
+      {
+        "name": "supply_chain_evaluate_fba_replenishment_quantity",
+        "status": "pending",
+        "description": "Decision tool (no side effects). Compute recommended quantity to replenish to FBA given demand, cadence, lead time, and safety stock. Output includes recommended units and coverage days.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "sku": { "type": "string" },
+            "asin": { "type": "string" },
+            "as_of_date": { "type": "string", "format": "date" },
+            "days_between_shipments": { "type": "integer", "minimum": 0, "default": 14 },
+            "lead_time_days": { "type": "integer", "minimum": 0 },
+            "safety_stock_days": { "type": "integer", "minimum": 0 },
+            "velocity_mode": { "type": "string", "enum": ["current", "target", "planned"], "default": "current" },
+            "seasonality_multiplier": { "type": "number", "minimum": 0, "default": 1.0 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "recommended_ship_units": { "type": "integer", "minimum": 0 },
+            "coverage_days": { "type": "number", "minimum": 0 },
+            "assumptions": { "type": "object", "additionalProperties": true },
+            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "risk_flags": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["recommended_ship_units"]
+        }
+      },
+
+      {
+        "name": "supply_chain_evaluate_po_placement_timing",
+        "status": "pending",
+        "description": "Decision tool (no side effects). Determine whether to place PO now vs wait vs do not place. Intended for single SKU/ASIN reasoning and gap-based planning after checking available inventory.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "sku": { "type": "string" },
+            "asin": { "type": "string" },
+            "as_of_date": { "type": "string", "format": "date" },
+            "lead_time_days": { "type": "integer", "minimum": 0 },
+            "safety_stock_days": { "type": "integer", "minimum": 0 },
+            "velocity_mode": { "type": "string", "enum": ["current", "target", "planned"], "default": "planned" }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "decision": { "type": "string", "enum": ["place_now", "wait", "do_not_place"] },
+            "urgency_score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "latest_safe_po_date": { "type": "string", "format": "date" },
+            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          },
+          "required": ["decision", "urgency_score"]
+        }
+      },
+
+      {
+        "name": "supply_chain_evaluate_po_placement_quantity",
+        "status": "pending",
+        "description": "Decision tool (no side effects). Compute recommended PO quantity given forecast demand, lead time, MOQ/case pack, cash constraints. Should support gap-based ordering (order only what is missing after available-to-ship is applied).",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "sku": { "type": "string" },
+            "asin": { "type": "string" },
+            "as_of_date": { "type": "string", "format": "date" },
+            "inventory_gap_units": { "type": "integer", "minimum": 0, "description": "Optional. If provided, tool computes PO quantity primarily to cover the gap." },
+            "target_cover_days": { "type": "integer", "minimum": 1, "default": 45 },
+            "lead_time_days": { "type": "integer", "minimum": 0 },
+            "safety_stock_days": { "type": "integer", "minimum": 0, "default": 14 },
+            "moq_units": { "type": "integer", "minimum": 0, "default": 0 },
+            "case_pack": { "type": "integer", "minimum": 1, "default": 1 },
+            "max_capital": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "recommended_order_units": { "type": "integer", "minimum": 0 },
+            "rounded_to_case_pack_units": { "type": "integer", "minimum": 0 },
+            "coverage_days": { "type": "number", "minimum": 0 },
+            "capital_required": { "type": "number", "minimum": 0 },
+            "constraints_checked": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          },
+          "required": ["recommended_order_units"]
+        }
+      },
+
+      {
+        "name": "supply_chain_evaluate_inbound_method",
+        "status": "pending",
+        "description": "Decision tool (no side effects). Choose inbound method (SPD vs LTL vs defer) based on urgency, volume, cost deltas, and receiving constraints.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "sku": { "type": "string" },
+            "asin": { "type": "string" },
+            "urgency_score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "volume": { "type": "object", "additionalProperties": true },
+            "constraints": { "type": "object", "additionalProperties": true }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "recommended_method": { "type": "string", "enum": ["spd", "ltl", "defer"] },
+            "rationale": { "type": "array", "items": { "type": "string" } },
+            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          },
+          "required": ["recommended_method"]
+        }
+      },
+
+      {
+        "name": "fba_create_inbound_shipment_draft",
+        "status": "pending",
+        "description": "Create an inbound shipment draft to FBA (no final submission). Intended to be approval-gated in later phases.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "marketplace": { "type": "string" },
+            "shipment_lines": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "inbound_method": { "type": "string", "enum": ["spd", "ltl"] },
+            "dry_run": { "type": "boolean", "default": true }
+          },
+          "required": ["shipment_lines"],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+
+      {
+        "name": "procurement_create_po_draft",
+        "status": "pending",
+        "description": "Create a PO draft record (local system) without placing/issuing it to the supplier. Intended to be approval-gated in later phases.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "company": { "type": "string" },
+            "company_id": { "type": "integer", "minimum": 1 },
+            "vendor": { "type": "string" },
+            "po_lines": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+            "currency": { "type": "string" },
+            "dry_run": { "type": "boolean", "default": true }
+          },
+          "required": ["vendor", "po_lines"],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+
+      {
+        "name": "neonpanel_listCompanies",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_listCompanies", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_listReports",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_listReports", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getCompaniesWithPermission",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getCompaniesWithPermission", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_listInventoryItems",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_listInventoryItems", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_listWarehouses",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_listWarehouses", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getWarehouseBalances",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getWarehouseBalances", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getInventoryDetails",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getInventoryDetails", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getInventoryLandedCost",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getInventoryLandedCost", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getInventoryCogs",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getInventoryCogs", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getImportInstructions",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getImportInstructions", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_createDocuments",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry (write).",
+        "x_blueprint": { "source_tool": "neonpanel_createDocuments", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_createDocumentsByPdf",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry (write).",
+        "x_blueprint": { "source_tool": "neonpanel_createDocumentsByPdf", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_checkImportStatus",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_checkImportStatus", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      },
+      {
+        "name": "neonpanel_getRevenueAndCogs",
+        "status": "existing",
+        "description": "Unchanged passthrough tool from source registry.",
+        "x_blueprint": { "source_tool": "neonpanel_getRevenueAndCogs", "supports_query_envelope": false },
+        "inputSchema": { "type": "object", "additionalProperties": true },
+        "outputSchema": { "type": "object", "additionalProperties": true }
+      }
+    ]
+  }
+}

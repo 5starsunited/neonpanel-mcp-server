@@ -1,6 +1,6 @@
 {
   "name": "amazon_supply_chain_inventory_po_schedule",
-  "description": "Schedule purchase orders (POs) by estimating when an item needs a new PO to maintain coverage through lead time + safety stock + PO cadence. Uses the latest inventory planning snapshot partition.\n\nDefaults:\n- sales_velocity: planned (sales plan)\n- days_between_pos: 30\n- limit: 50\n\nAvailable inventory used for coverage:\n- available_inventory_units = total_balance_quantity + total_ordered_quantity + available\n- inbound is NOT counted.",
+  "description": "DEPRECATED: use supply_chain_list_po_placement_candidates (query envelope) instead.\n\nSchedule purchase orders (POs) by estimating when an item needs a new PO to maintain coverage through lead time + safety stock + PO cadence. Uses the latest inventory planning snapshot partition.\n\nDefaults:\n- sales_velocity: planned (sales plan)\n- days_between_pos: 30\n- limit: 50\n\nAvailable inventory used for coverage:\n- available_inventory_units = total_balance_quantity + total_ordered_quantity + available\n- inbound is NOT counted.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -26,10 +26,20 @@
         "items": { "type": "string" },
         "description": "Optional: restrict to specific ASINs."
       },
+      "parent_asins": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional: restrict to specific parent ASINs."
+      },
       "brand": {
         "type": "array",
         "items": { "type": "string" },
         "description": "Optional brand filter (exact match as stored in snapshot)."
+      },
+      "product_family": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional product_family filter (exact match as stored in snapshot)."
       },
       "category": {
         "type": "array",
