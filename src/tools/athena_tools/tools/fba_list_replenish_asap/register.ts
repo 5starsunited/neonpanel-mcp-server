@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { runAthenaQuery } from '../../../../clients/athena';
 import { neonPanelRequest } from '../../../../clients/neonpanel-api';
 import { config } from '../../../../config';
-import type { ToolRegistry, ToolSpecJson } from '../../../types';
+import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../types';
 import { loadTextFile } from '../../runtime/load-assets';
 import { renderSqlTemplate } from '../../runtime/render-sql';
 import { buildItemPresentation } from '../../runtime/presentation';
@@ -73,6 +73,152 @@ export const fbaListReplenishAsapInputSchema = z
   .strict();
 
 const inputSchema = fbaListReplenishAsapInputSchema;
+
+export async function executeFbaListReplenishAsap(
+  parsed: z.infer<typeof inputSchema>,
+  context: ToolExecutionContext,
+): Promise<{ items: unknown[] }> {
+  // Permission gate: use NeonPanel permission endpoint, then filter Athena by company_id.
+  const permission = 'view:quicksight_group.business_planning_new';
+  const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+    token: context.userToken,
+    path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+  });
+
+  const permittedCompanies = (permissionResponse.companies ?? []).filter(
+    (c): c is { company_id?: number; companyId?: number; id?: number; name?: string; short_name?: string } =>
+      c !== null && typeof c === 'object',
+  );
+
+  const permittedCompanyIds = permittedCompanies
+    .map((c) => c.company_id ?? c.companyId ?? c.id)
+    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+
+  const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
+  const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
+
+  if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
+    return { items: [] };
+  }
+
+  const catalog = config.athena.catalog;
+  const database = config.athena.database;
+  const table = config.athena.tables.inventoryPlanningSnapshot;
+
+  const limit = parsed.limit ?? 200;
+
+  const skus = parsed.target_skus ?? [];
+  const inventoryIds = parsed.target_inventory_ids ?? [];
+
+  const marketplaces = parsed.marketplaces ?? ['ALL'];
+  // Treat ALL as "no filter" only when it's the only selection.
+  // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
+  const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
+
+  // Some clients send `countries: []` by default. An empty array should NOT override marketplaces;
+  // it should behave like "countries not provided".
+  const countriesFromSelector = (parsed.countries ?? [])
+    .map((c) => (typeof c === 'string' ? c.trim() : ''))
+    .filter((c) => c.length > 0);
+
+  const countriesRaw = countriesFromSelector.length > 0 ? countriesFromSelector : marketplacesNormalized;
+  const countries = normalizeCountries(countriesRaw);
+
+  const toolJsonPath = path.join(__dirname, 'tool.json');
+  const sqlPath = path.join(__dirname, 'query.sql');
+
+  const template = await loadTextFile(sqlPath);
+  const query = renderSqlTemplate(template, {
+    catalog,
+    database,
+    table,
+    // Athena UI SQL parameter equivalents
+    sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'current'),
+    planning_base_sql: planningBaseSql(parsed.planning_base),
+    override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
+    use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
+    fba_lead_time_days_override: Math.trunc(parsed.fba_lead_time_days_override ?? 12),
+    fba_safety_stock_days_override: Math.trunc(parsed.fba_safety_stock_days_override ?? 60),
+    days_between_shipments: Math.trunc(parsed.days_between_shipments ?? 14),
+    limit_top_n: Number(limit),
+    stockout_threshold_days: Math.trunc(parsed.stockout_threshold_days ?? 7),
+    active_sold_min_units_per_day: Number(parsed.active_sold_min_units_per_day ?? 1),
+
+    company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+    skus_array: sqlVarcharArrayExpr(skus),
+    inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
+    countries_array: sqlVarcharArrayExpr(countries),
+
+    // Back-compat for older draft templates
+    companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
+    limit: Number(limit),
+    topN: Number(limit),
+  });
+
+  const athenaResult = await runAthenaQuery({
+    query,
+    database,
+    workGroup: config.athena.workgroup,
+    outputLocation: config.athena.outputLocation,
+    maxRows: Math.min(2000, limit),
+  });
+
+  let items = (athenaResult.rows ?? []).map((row) => {
+    const record = row;
+
+    const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;
+
+    const item_ref = {
+      inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
+      sku: (getRowValue(record, 'item_ref_sku') ?? undefined) as string | undefined,
+      asin: (getRowValue(record, 'item_ref_asin') ?? undefined) as string | undefined,
+      marketplace: (getRowValue(record, 'item_ref_marketplace') ?? undefined) as 'US' | 'UK' | undefined,
+      item_name: (getRowValue(record, 'item_ref_item_name') ?? undefined) as string | undefined,
+      item_icon_url: (getRowValue(record, 'item_ref_item_icon_url') ?? undefined) as string | undefined,
+    };
+
+    const priorityRaw = (getRowValue(record, 'priority') ?? undefined) as string | undefined;
+    const priority =
+      priorityRaw === 'low' || priorityRaw === 'medium' || priorityRaw === 'high' || priorityRaw === 'critical'
+        ? priorityRaw
+        : 'high';
+
+    return {
+      company_id,
+      item_ref,
+      presentation: buildItemPresentation({
+        sku: item_ref.sku,
+        asin: item_ref.asin,
+        inventory_id: item_ref.inventory_id,
+        marketplace_code: item_ref.marketplace,
+        image_url: item_ref.item_icon_url,
+        image_source_field: 'item_ref.item_icon_url',
+      }),
+      sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? 0,
+      fba_days_of_supply: toNumber(getRowValue(record, 'fba_days_of_supply')) ?? 0,
+      shipment_due_date: (getRowValue(record, 'shipment_due_date') ?? undefined) as string | undefined,
+      shipment_due_in_days: toNumber(getRowValue(record, 'shipment_due_in_days')) ?? 0,
+      shipment_overdue_days: toNumber(getRowValue(record, 'shipment_overdue_days')) ?? 0,
+      days_overdue: toNumber(getRowValue(record, 'days_overdue')) ?? 0,
+      fba_on_hand: toInt(getRowValue(record, 'fba_on_hand')) ?? 0,
+      fba_inbound: toInt(getRowValue(record, 'fba_inbound')) ?? 0,
+      recommended_ship_units: toInt(getRowValue(record, 'recommended_ship_units')) ?? 0,
+      recommended_by_amazon_replenishment_quantity: toInt(getRowValue(record, 'recommended_by_amazon_replenishment_quantity')) ?? 0,
+      priority,
+      reason: (getRowValue(record, 'reason') ?? '') as string,
+    };
+  });
+
+  // Defensive: if caller requests a specific company_id, enforce it client-side as well.
+  // This protects against any upstream data/view bugs.
+  if (parsed.company_id) {
+    const requestedCompanyId = parsed.company_id;
+    items = items.filter((it) => (it as any).company_id === requestedCompanyId);
+  }
+
+  void toolJsonPath;
+  return { items };
+}
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -167,144 +313,7 @@ export function registerFbaListReplenishAsapTool(registry: ToolRegistry) {
     specJson,
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
-
-      // Permission gate: use NeonPanel permission endpoint, then filter Athena by company_id.
-      const permission = 'view:quicksight_group.business_planning_new';
-      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
-
-      const permittedCompanies = (permissionResponse.companies ?? []).filter(
-        (c): c is { company_id?: number; companyId?: number; id?: number; name?: string; short_name?: string } =>
-          c !== null && typeof c === 'object',
-      );
-
-      const permittedCompanyIds = permittedCompanies
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-
-      const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
-      const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
-
-      if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
-        return { items: [] };
-      }
-
-      const catalog = config.athena.catalog;
-      const database = config.athena.database;
-      const table = config.athena.tables.inventoryPlanningSnapshot;
-
-      const limit = parsed.limit ?? 200;
-
-      const skus = parsed.target_skus ?? [];
-      const inventoryIds = parsed.target_inventory_ids ?? [];
-
-      const marketplaces = parsed.marketplaces ?? ['ALL'];
-      // Treat ALL as "no filter" only when it's the only selection.
-      // If the user provides ALL + specific marketplaces (common UX), ignore ALL.
-      const marketplacesNormalized = marketplaces.filter((m) => m !== 'ALL');
-
-      // Some clients send `countries: []` by default. An empty array should NOT override marketplaces;
-      // it should behave like "countries not provided".
-      const countriesFromSelector = (parsed.countries ?? [])
-        .map((c) => (typeof c === 'string' ? c.trim() : ''))
-        .filter((c) => c.length > 0);
-
-      const countriesRaw = countriesFromSelector.length > 0 ? countriesFromSelector : marketplacesNormalized;
-      const countries = normalizeCountries(countriesRaw);
-
-      const template = await loadTextFile(sqlPath);
-      const query = renderSqlTemplate(template, {
-        catalog,
-        database,
-        table,
-        // Athena UI SQL parameter equivalents
-        sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'current'),
-        planning_base_sql: planningBaseSql(parsed.planning_base),
-        override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
-        use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
-        fba_lead_time_days_override: Math.trunc(parsed.fba_lead_time_days_override ?? 12),
-        fba_safety_stock_days_override: Math.trunc(parsed.fba_safety_stock_days_override ?? 60),
-        days_between_shipments: Math.trunc(parsed.days_between_shipments ?? 14),
-        limit_top_n: Number(limit),
-        stockout_threshold_days: Math.trunc(parsed.stockout_threshold_days ?? 7),
-        active_sold_min_units_per_day: Number(parsed.active_sold_min_units_per_day ?? 1),
-
-        company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-        skus_array: sqlVarcharArrayExpr(skus),
-        inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
-        countries_array: sqlVarcharArrayExpr(countries),
-
-        // Back-compat for older draft templates
-        companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
-        limit: Number(limit),
-        topN: Number(limit),
-      });
-
-      const athenaResult = await runAthenaQuery({
-        query,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: Math.min(2000, limit),
-      });
-
-      let items = (athenaResult.rows ?? []).map((row) => {
-        const record = row;
-
-        const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;
-
-        const item_ref = {
-          inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
-          sku: (getRowValue(record, 'item_ref_sku') ?? undefined) as string | undefined,
-          asin: (getRowValue(record, 'item_ref_asin') ?? undefined) as string | undefined,
-          marketplace: (getRowValue(record, 'item_ref_marketplace') ?? undefined) as 'US' | 'UK' | undefined,
-          item_name: (getRowValue(record, 'item_ref_item_name') ?? undefined) as string | undefined,
-          item_icon_url: (getRowValue(record, 'item_ref_item_icon_url') ?? undefined) as string | undefined,
-        };
-
-        const priorityRaw = (getRowValue(record, 'priority') ?? undefined) as string | undefined;
-        const priority =
-          priorityRaw === 'low' || priorityRaw === 'medium' || priorityRaw === 'high' || priorityRaw === 'critical'
-            ? priorityRaw
-            : 'high';
-
-        return {
-          company_id,
-          item_ref,
-          presentation: buildItemPresentation({
-            sku: item_ref.sku,
-            asin: item_ref.asin,
-            inventory_id: item_ref.inventory_id,
-            marketplace_code: item_ref.marketplace,
-            image_url: item_ref.item_icon_url,
-            image_source_field: 'item_ref.item_icon_url',
-          }),
-          sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? 0,
-          fba_days_of_supply: toNumber(getRowValue(record, 'fba_days_of_supply')) ?? 0,
-          shipment_due_date: (getRowValue(record, 'shipment_due_date') ?? undefined) as string | undefined,
-          shipment_due_in_days: toNumber(getRowValue(record, 'shipment_due_in_days')) ?? 0,
-          shipment_overdue_days: toNumber(getRowValue(record, 'shipment_overdue_days')) ?? 0,
-          days_overdue: toNumber(getRowValue(record, 'days_overdue')) ?? 0,
-          fba_on_hand: toInt(getRowValue(record, 'fba_on_hand')) ?? 0,
-          fba_inbound: toInt(getRowValue(record, 'fba_inbound')) ?? 0,
-          recommended_ship_units: toInt(getRowValue(record, 'recommended_ship_units')) ?? 0,
-          recommended_by_amazon_replenishment_quantity:
-            toInt(getRowValue(record, 'recommended_by_amazon_replenishment_quantity')) ?? 0,
-          priority,
-          reason: (getRowValue(record, 'reason') ?? '') as string,
-        };
-      });
-
-      // Defensive: if caller requests a specific company_id, enforce it client-side as well.
-      // This protects against any upstream data/view bugs.
-      if (parsed.company_id) {
-        const requestedCompanyId = parsed.company_id;
-        items = items.filter((it) => (it as any).company_id === requestedCompanyId);
-      }
-
-      return { items };
+      return executeFbaListReplenishAsap(parsed, context);
     },
   });
 }
