@@ -19,6 +19,12 @@ function hasOwn(obj: unknown, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
+type Marketplace = 'US' | 'UK' | 'ALL';
+
+function isMarketplace(value: string): value is Marketplace {
+  return value === 'US' || value === 'UK' || value === 'ALL';
+}
+
 const sharedQuerySchema = z
   .object({
     filters: z
@@ -147,8 +153,9 @@ function mergeInputs(
     const normalized = raw
       .map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
       .filter((v) => v.length > 0);
-    const allowed = normalized.filter((v) => v === 'US' || v === 'UK' || v === 'ALL');
-    const unknown = normalized.filter((v) => v && !allowed.includes(v));
+    const allowed = normalized.filter(isMarketplace);
+    const allowedSet = new Set<string>(allowed);
+    const unknown = normalized.filter((v) => v && !allowedSet.has(v));
     if (unknown.length > 0) {
       warnings.push(`query.filters.marketplace contains unsupported values: ${unknown.join(', ')}`);
     }
