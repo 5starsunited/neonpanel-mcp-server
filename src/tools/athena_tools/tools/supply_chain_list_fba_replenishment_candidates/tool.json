@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_list_fba_replenishment_candidates",
-  "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage.\n\nThis is the preferred (refactored) version of amazon_supply_chain_fba_list_replenish_asap.\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection\n- tool_specific: the legacy parameters preserved for backward compatibility\n\nNotes:\n- query.filters.company_id (or company) may be used instead of tool_specific.company_id\n- Tools may ignore unsupported query keys but should return meta.warnings when they do\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning",
+  "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage.\n\nThis is the preferred (refactored) version of amazon_supply_chain_fba_list_replenish_asap.\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection\n- tool_specific: the legacy parameters preserved for backward compatibility\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or tool_specific.company_id.\n- Do NOT pass a freeform company name in query.filters.company (e.g., \"5 stars united\"). This tool will return an error asking you to use company_id.\n- If you only have the company name, first call neonpanel_listCompanies, identify the exact company (e.g., \"5 Stars United LLC\"), then use its numeric id as company_id.\n\nNotes:\n- Tools may ignore unsupported query keys but should return meta.warnings when they do\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -15,7 +15,7 @@
             "properties": {
               "company": {
                 "type": "string",
-                "description": "Company identifier (uuid/slug). Optional alias for company_id. For this tool, numeric strings may be accepted as company_id."
+                "description": "Deprecated alias for company_id. Only numeric strings are accepted (treated as company_id). Do not pass company names; use neonpanel_listCompanies to find the company id and pass company_id instead."
               },
               "company_id": {
                 "type": "integer",

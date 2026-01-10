@@ -38,6 +38,10 @@ latest_snapshot AS (
 SELECT
   pil.*,
 
+  -- Naming fix: this metric is the average *purchase* price, but upstream snapshot uses average_item_price.
+  -- Emit a standardized alias so clients can rely on the corrected field name.
+  pil.average_item_price AS average_purchase_price,
+
   -- Standardized aliases for MCP output parsing/beautification
   pil.inventory_id AS item_ref_inventory_id,
   pil.sku AS item_ref_sku,

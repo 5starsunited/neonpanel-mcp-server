@@ -46,6 +46,18 @@ function sanitizeSnapshot(record: Record<string, unknown>): Record<string, unkno
     delete snapshot.recommended_replenishment_qty;
   }
 
+  // Naming fix: this metric represents average *purchase* price.
+  // The upstream snapshot column is average_item_price; expose as average_purchase_price.
+  if (snapshot.average_purchase_price === undefined && snapshot.average_item_price !== undefined) {
+    snapshot.average_purchase_price = snapshot.average_item_price;
+  }
+  if (snapshot.average_purchase_price === undefined && snapshot.averageItemPrice !== undefined) {
+    snapshot.average_purchase_price = snapshot.averageItemPrice;
+  }
+
+  delete snapshot.average_item_price;
+  delete snapshot.averageItemPrice;
+
   return snapshot;
 }
 

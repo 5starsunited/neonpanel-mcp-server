@@ -23,7 +23,7 @@ CREATE TABLE inventory_planning.inventory_planning_snapshot_iceberg (
   asin_img_path string,
   product_name string,
   average_order_quantity double,
-  average_item_price decimal(15, 3),
+  average_item_price decimal(15, 3), -- Average purchase price (naming correction)
   country string,
   country_code string,
   merchant_sku string,

@@ -113,7 +113,7 @@ function mergeInputs(
   query: SharedQuery,
   toolSpecific: ToolSpecific,
   toolSpecificRaw: unknown,
-): { merged: Record<string, unknown>; warnings: string[] } {
+): { merged: Record<string, unknown>; warnings: string[]; error?: string } {
   const warnings: string[] = [];
   const filters = query.filters ?? {};
 
@@ -128,7 +128,12 @@ function mergeInputs(
       if (asInt && asInt > 0) {
         merged.company_id = asInt;
       } else {
-        warnings.push('query.filters.company is not supported unless it is a numeric company_id; pass query.filters.company_id instead.');
+        return {
+          merged,
+          warnings,
+          error:
+            'Unsupported company filter: query.filters.company must be a numeric company_id. Use neonpanel_listCompanies to find the correct company (e.g., "5 Stars United LLC"), then pass query.filters.company_id (preferred) or tool_specific.company_id.',
+        };
       }
     }
   }
@@ -224,7 +229,19 @@ export function registerSupplyChainListFbaReplenishmentCandidatesTool(registry: 
       const rawToolSpecific = (parsed.tool_specific ?? {}) as unknown;
       const toolSpecificParsed = toolSpecificSchema.parse(rawToolSpecific);
 
-      const { merged, warnings } = mergeInputs(parsed.query, toolSpecificParsed, rawToolSpecific);
+      const { merged, warnings, error } = mergeInputs(parsed.query, toolSpecificParsed, rawToolSpecific);
+
+      if (error) {
+        return {
+          items: [],
+          meta: {
+            warnings,
+            error,
+            applied_sort: parsed.query.sort ?? null,
+            selected_fields: parsed.query.select_fields ?? null,
+          },
+        };
+      }
 
       // Convert merged args to the legacy tool's strict schema (to guarantee runtime safety).
       const legacyParsed = fbaListReplenishAsapInputSchema.parse(merged);

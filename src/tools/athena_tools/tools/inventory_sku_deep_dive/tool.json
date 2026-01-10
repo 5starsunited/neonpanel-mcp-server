@@ -1,6 +1,6 @@
 {
   "name": "amazon_supply_chain_inventory_sku_deep_dive",
-  "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for the authorized company_id(s).\n\nHow to use:\n- Best: provide sku + marketplace (US/UK) to inspect a specific item.\n- If you omit sku and/or marketplace, the tool will return a small sample of rows (useful to confirm snapshot data exists and to see exact country labels / SKU formatting).\n\nBefore calling this tool:\n1) Ask the user if they want a specific SKU + marketplace or just a sample row for validation.\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
+  "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for the authorized company_id(s).\n\nHow to use:\n- Best: provide sku + marketplace (US/UK) to inspect a specific item.\n- If you omit sku and/or marketplace, the tool will return a small sample of rows (useful to confirm snapshot data exists and to see exact country labels / SKU formatting).\n\nNaming note (important):\n- The metric previously labeled \"Average item price\" should be treated as \"Average purchase price\". In this tool output, prefer snapshot.average_purchase_price.\n\nBefore calling this tool:\n1) Ask the user if they want a specific SKU + marketplace or just a sample row for validation.\n2) Optionally ask if they want to restrict to a specific company_id (recommended if they have access to multiple companies).\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning\n\nWhen presenting results (important):\n- Render item_ref.item_icon_url as an image when possible.\n- Present a clean summary first (SKU, marketplace, inventory_id, company_id, snapshot date).\n- Then show the raw snapshot fields grouped logically (inventory, sales, inbound, planning, lead time/safety stock).",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -162,7 +162,7 @@
             },
             "snapshot": {
               "type": "object",
-              "description": "Raw inventory_planning_snapshot columns for this SKU+marketplace row. Shape depends on the snapshot schema.",
+              "description": "Raw inventory_planning_snapshot columns for this SKU+marketplace row. Shape depends on the snapshot schema. Note: average_purchase_price is the standardized name for the metric previously surfaced as average_item_price / 'Average item price'.",
               "additionalProperties": true
             }
           },
