@@ -61,6 +61,9 @@ export const inventoryPoScheduleInputSchema = z
     countries: z.array(z.string()).optional(),
     company_id: z.coerce.number().int().min(1).optional(),
 
+    // Optional classification filters (computed from snapshot sales_last_30_days)
+    revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
+
     // Planning window + knobs
     time_window: timeWindowSchema,
     sales_velocity: z.enum(['current', 'target', 'planned']).default('planned').optional(),
@@ -127,6 +130,10 @@ export async function executeInventoryPoSchedule(
   const countriesRaw = countriesFromSelector.length > 0 ? countriesFromSelector : marketplacesNormalized;
   const countries = normalizeCountries(countriesRaw);
 
+  const revenueAbcdClasses = (parsed.revenue_abcd_class ?? [])
+    .map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
+    .filter((v): v is 'A' | 'B' | 'C' | 'D' => v === 'A' || v === 'B' || v === 'C' || v === 'D');
+
   const template = await loadTextFile(sqlPath);
   const query = renderSqlTemplate(template, {
     catalog,
@@ -148,6 +155,7 @@ export async function executeInventoryPoSchedule(
     skus_array: sqlVarcharArrayExpr(skus),
     inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
     countries_array: sqlVarcharArrayExpr(countries),
+    revenue_abcd_classes_array: sqlVarcharArrayExpr(revenueAbcdClasses),
 
     // Back-compat for older draft templates
     companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
@@ -166,6 +174,8 @@ export async function executeInventoryPoSchedule(
   const items = (athenaResult.rows ?? []).map((row) => {
     const record = row;
 
+    const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;
+
     const item_ref = {
       inventory_id: toInt(getRowValue(record, 'item_ref_inventory_id')) ?? undefined,
       sku: (getRowValue(record, 'item_ref_sku') ?? undefined) as string | undefined,
@@ -182,6 +192,8 @@ export async function executeInventoryPoSchedule(
         : 'high';
 
     return {
+      company_id,
+      revenue_abcd_class: (getRowValue(record, 'revenue_abcd_class') ?? undefined) as string | undefined,
       item_ref,
       presentation: buildItemPresentation({
         sku: item_ref.sku,

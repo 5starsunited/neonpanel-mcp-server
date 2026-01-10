@@ -167,6 +167,15 @@ function mergeInputs(
     if (allowed.length > 0) merged.marketplaces = allowed as any;
   }
 
+  // classification filters
+  if (
+    !hasOwn(toolSpecificRaw, 'revenue_abcd_class') &&
+    merged.revenue_abcd_class === undefined &&
+    Array.isArray((filters as any).revenue_abcd_class)
+  ) {
+    merged.revenue_abcd_class = (filters as any).revenue_abcd_class;
+  }
+
   // shared knobs
   if (!hasOwn(toolSpecificRaw, 'limit') && typeof query.limit === 'number') {
     merged.limit = query.limit;
@@ -194,7 +203,7 @@ function mergeInputs(
   }
 
   // Warn on common unsupported filters when present.
-  const unsupportedFilterKeys = ['currency', 'product_family', 'parent_asin', 'revenue_abcd_class', 'pareto_abc_class', 'tags'];
+  const unsupportedFilterKeys = ['currency', 'product_family', 'parent_asin', 'pareto_abc_class', 'tags'];
   for (const key of unsupportedFilterKeys) {
     if ((filters as any)[key] !== undefined) {
       warnings.push(`query.filters.${key} is not supported for this tool yet.`);

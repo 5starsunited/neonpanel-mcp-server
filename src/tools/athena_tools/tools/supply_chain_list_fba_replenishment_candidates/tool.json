@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_list_fba_replenishment_candidates",
-  "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage.\n\nThis is the preferred (refactored) version of amazon_supply_chain_fba_list_replenish_asap.\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection\n- tool_specific: the legacy parameters preserved for backward compatibility\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or tool_specific.company_id.\n- Do NOT pass a freeform company name in query.filters.company (e.g., \"5 stars united\"). This tool will return an error asking you to use company_id.\n- If you only have the company name, first call neonpanel_listCompanies, identify the exact company (e.g., \"5 Stars United LLC\"), then use its numeric id as company_id.\n\nNotes:\n- Tools may ignore unsupported query keys but should return meta.warnings when they do\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning",
+  "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage.\n\nThis is the preferred (refactored) version of amazon_supply_chain_fba_list_replenish_asap.\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection\n- tool_specific: the legacy parameters preserved for backward compatibility\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or tool_specific.company_id.\n- Do NOT pass a freeform company name in query.filters.company (e.g., \"5 stars united\"). This tool will return an error asking you to use company_id.\n- If you only have the company name, first call neonpanel_listCompanies, identify the exact company (e.g., \"5 Stars United LLC\"), then use its numeric id as company_id.\n\nSupported classification filters:\n- query.filters.revenue_abcd_class is supported (computed from snapshot sales_last_30_days). If used, the output rows will include revenue_abcd_class.\n\nNotes:\n- Tools may ignore unsupported query keys but should return meta.warnings when they do\n\nKnowledge base: https://help.neonpanel.com/en/articles/60\nInventory Planning report (UI): https://my.neonpanel.com/app/reports/forecasting/inventory-planning",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -31,6 +31,7 @@
               "sku": { "type": "array", "items": { "type": "string" } },
               "revenue_abcd_class": {
                 "type": "array",
+                "description": "Revenue ABCD class filter (computed from snapshot sales_last_30_days). If provided, results will include revenue_abcd_class.",
                 "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
               },
               "pareto_abc_class": {

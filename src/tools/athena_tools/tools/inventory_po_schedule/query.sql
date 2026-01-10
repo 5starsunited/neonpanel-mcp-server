@@ -24,7 +24,8 @@ WITH params AS (
     -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
     {{inventory_ids_array}} AS inventory_ids,
-    {{countries_array}} AS countries
+    {{countries_array}} AS countries,
+    {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
 
 latest_snapshot AS (
@@ -47,6 +48,9 @@ t_base AS (
     pil.country_code,
     pil.asin_img_path,
     pil.product_name,
+
+    -- Revenue proxy used for ABCD classification.
+    COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
 
     COALESCE(pil.daily_unit_sales_target, 0) AS target_units_per_day,
     -- avg_units_30d is a daily average.
@@ -196,9 +200,47 @@ t AS (
     AS DOUBLE) AS sales_velocity
 
   FROM t_base b
+),
+
+t_classed AS (
+  SELECT
+    t.*,
+    CASE
+      WHEN SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code) <= 0 THEN 'D'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.80 THEN 'A'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.95 THEN 'B'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.99 THEN 'C'
+      ELSE 'D'
+    END AS revenue_abcd_class
+  FROM t
 )
 
 SELECT
+  -- company
+  t.company_id AS company_id,
+  t.revenue_abcd_class AS revenue_abcd_class,
+
   -- item_ref
   t.inventory_id AS item_ref_inventory_id,
   t.sku AS item_ref_sku,
@@ -299,7 +341,11 @@ SELECT
     'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + total_ordered_quantity + available (excludes inbound). planned sales_velocity uses the arrival-month rate (month index=floor(lead_time_days/30)); planned recommended_order_units sums the sales plan across the full coverage window starting now.'
   AS VARCHAR) AS reason
 
-FROM t
+FROM t_classed t
+CROSS JOIN params p
+
+WHERE
+  (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, t.revenue_abcd_class))
 
 ORDER BY po_overdue_days DESC
 LIMIT {{limit_top_n}};

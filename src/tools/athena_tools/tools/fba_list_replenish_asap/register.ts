@@ -58,6 +58,9 @@ export const fbaListReplenishAsapInputSchema = z
     countries: z.array(z.string()).optional(),
     company_id: z.coerce.number().int().min(1).optional(),
 
+    // Optional classification filters (computed from snapshot sales_last_30_days)
+    revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
+
     // Planning window + knobs
     time_window: timeWindowSchema,
     sales_velocity: z.enum(['current', 'target', 'planned']).default('current').optional(),
@@ -124,6 +127,10 @@ export async function executeFbaListReplenishAsap(
   const countriesRaw = countriesFromSelector.length > 0 ? countriesFromSelector : marketplacesNormalized;
   const countries = normalizeCountries(countriesRaw);
 
+  const revenueAbcdClasses = (parsed.revenue_abcd_class ?? [])
+    .map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
+    .filter((v): v is 'A' | 'B' | 'C' | 'D' => v === 'A' || v === 'B' || v === 'C' || v === 'D');
+
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -148,6 +155,7 @@ export async function executeFbaListReplenishAsap(
     skus_array: sqlVarcharArrayExpr(skus),
     inventory_ids_array: sqlBigintArrayExpr(inventoryIds),
     countries_array: sqlVarcharArrayExpr(countries),
+    revenue_abcd_classes_array: sqlVarcharArrayExpr(revenueAbcdClasses),
 
     // Back-compat for older draft templates
     companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
@@ -185,6 +193,7 @@ export async function executeFbaListReplenishAsap(
 
     return {
       company_id,
+      revenue_abcd_class: (getRowValue(record, 'revenue_abcd_class') ?? undefined) as string | undefined,
       item_ref,
       presentation: buildItemPresentation({
         sku: item_ref.sku,

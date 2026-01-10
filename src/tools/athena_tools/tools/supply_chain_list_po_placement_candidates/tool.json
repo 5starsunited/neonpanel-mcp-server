@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_list_po_placement_candidates",
-  "description": "List items needing PO placement based on lead time + safety stock + PO cadence coverage.\n\nThis is the preferred (refactored) version of amazon_supply_chain_inventory_po_schedule.\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection\n- tool_specific: the legacy parameters preserved for backward compatibility\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or tool_specific.company_id.\n- Do NOT pass a freeform company name in query.filters.company (e.g., \"5 stars united\"). This tool will return an error asking you to use company_id.\n- If you only have the company name, first call neonpanel_listCompanies, identify the exact company (e.g., \"5 Stars United LLC\"), then use its numeric id as company_id.\n\nNotes:\n- Tools may ignore unsupported query keys but should return meta.warnings when they do",
+  "description": "List items needing PO placement based on lead time + safety stock + PO cadence coverage.\n\nThis is the preferred (refactored) version of amazon_supply_chain_inventory_po_schedule.\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection\n- tool_specific: the legacy parameters preserved for backward compatibility\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or tool_specific.company_id.\n- Do NOT pass a freeform company name in query.filters.company (e.g., \"5 stars united\"). This tool will return an error asking you to use company_id.\n- If you only have the company name, first call neonpanel_listCompanies, identify the exact company (e.g., \"5 Stars United LLC\"), then use its numeric id as company_id.\n\nSupported classification filters:\n- query.filters.revenue_abcd_class is supported (computed from snapshot sales_last_30_days). If used, the output rows will include revenue_abcd_class.\n\nNotes:\n- Tools may ignore unsupported query keys but should return meta.warnings when they do",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -31,6 +31,7 @@
               "sku": { "type": "array", "items": { "type": "string" } },
               "revenue_abcd_class": {
                 "type": "array",
+                "description": "Revenue ABCD class filter (computed from snapshot sales_last_30_days). If provided, results will include revenue_abcd_class.",
                 "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
               },
               "pareto_abc_class": {
