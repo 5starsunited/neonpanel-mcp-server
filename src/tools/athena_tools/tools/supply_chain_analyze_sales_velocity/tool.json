@@ -1,0 +1,72 @@
+{
+  "name": "supply_chain_analyze_sales_velocity",
+  "description": "Analyze sales velocity for items selected by filters. Computes realized velocity signals, derives a plan-horizon velocity for PO placement decisions, detects inconsistencies, and returns explainable velocity recommendations. Read-only; no side effects.\n\nInput uses the shared query envelope:\n- query: standard filters/limit\n- tool_specific: knobs controlling output shape + computations\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company": { "type": "string" },
+              "company_id": { "type": "integer", "minimum": 1 },
+              "brand": { "type": "array", "items": { "type": "string" } },
+              "marketplace": { "type": "array", "items": { "type": "string" } },
+              "product_family": { "type": "array", "items": { "type": "string" } },
+              "parent_asin": { "type": "array", "items": { "type": "string" } },
+              "asin": { "type": "array", "items": { "type": "string" } },
+              "sku": { "type": "array", "items": { "type": "string" } },
+              "revenue_abcd_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
+              },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": true
+          },
+          "limit": { "type": "integer", "minimum": 1, "default": 200 }
+        },
+        "additionalProperties": true
+      },
+      "tool_specific": {
+        "type": "object",
+        "properties": {
+          "output_mode": {
+            "type": "string",
+            "enum": ["detail_only", "total_only", "detail_plus_total"],
+            "default": "detail_only"
+          },
+          "traffic_weight_3d": { "type": "number", "minimum": 0, "default": 0.5 },
+          "traffic_weight_7d": { "type": "number", "minimum": 0, "default": 0.3 },
+          "traffic_weight_30d": { "type": "number", "minimum": 0, "default": 0.2 },
+          "coverage_days_override": { "type": "integer", "minimum": 1 },
+          "months_ahead": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": { "type": "object", "additionalProperties": true }
+      },
+      "summary": { "type": "object", "additionalProperties": true },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "additionalProperties": true
+  }
+}
