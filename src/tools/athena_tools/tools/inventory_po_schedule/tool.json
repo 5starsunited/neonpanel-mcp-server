@@ -142,6 +142,14 @@
         "items": {
           "type": "object",
           "properties": {
+            "company_id": { "type": "integer" },
+            "revenue_abcd_class": { "type": "string", "enum": ["A", "B", "C", "D"] },
+            "revenue_abcd_class_description": { "type": "string" },
+            "pareto_abc_class": { "type": "string", "enum": ["A", "B", "C"] },
+            "child_asin": { "type": "string" },
+            "parent_asin": { "type": "string" },
+            "brand": { "type": "string" },
+            "product_family": { "type": "string" },
             "item_ref": {
               "type": "object",
               "properties": {

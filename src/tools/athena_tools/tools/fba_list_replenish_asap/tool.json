@@ -223,6 +223,9 @@
                     "inventory_id": { "type": "integer" },
                     "marketplace_code": { "type": "string" }
                   }
+                  "revenue_abcd_class": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                  "revenue_abcd_class_description": { "type": "string" },
+                  "pareto_abc_class": { "type": "string", "enum": ["A", "B", "C"] },
                 },
                 "media": {
                   "type": "object",

@@ -165,6 +165,27 @@ t_classed AS (
       ) <= 0.99 THEN 'C'
       ELSE 'D'
     END AS revenue_abcd_class
+    ,
+    CASE
+      WHEN SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code) <= 0 THEN 'C'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.80 THEN 'A'
+      WHEN (
+        SUM(t.revenue_30d) OVER (
+          PARTITION BY t.company_id, t.country_code
+          ORDER BY t.revenue_30d DESC
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        )
+        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
+      ) <= 0.95 THEN 'B'
+      ELSE 'C'
+    END AS pareto_abc_class
   FROM t
 )
 
@@ -172,6 +193,13 @@ SELECT
   -- company
   t.company_id AS company_id,
   t.revenue_abcd_class AS revenue_abcd_class,
+  CASE t.revenue_abcd_class
+    WHEN 'A' THEN 'Top 80% of 30d revenue (cumulative)'
+    WHEN 'B' THEN 'Next 15% of 30d revenue (80%–95% cumulative)'
+    WHEN 'C' THEN 'Next 4% of 30d revenue (95%–99% cumulative)'
+    ELSE 'Remaining / no revenue (bottom 1%+ or zero)'
+  END AS revenue_abcd_class_description,
+  t.pareto_abc_class AS pareto_abc_class,
   t.child_asin AS child_asin,
   t.parent_asin AS parent_asin,
   t.brand AS brand,

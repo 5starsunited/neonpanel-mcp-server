@@ -206,6 +206,8 @@ export async function executeFbaListReplenishAsap(
     return {
       company_id,
       revenue_abcd_class: (getRowValue(record, 'revenue_abcd_class') ?? undefined) as string | undefined,
+      revenue_abcd_class_description: (getRowValue(record, 'revenue_abcd_class_description') ?? undefined) as string | undefined,
+      pareto_abc_class: (getRowValue(record, 'pareto_abc_class') ?? undefined) as string | undefined,
       child_asin: (getRowValue(record, 'child_asin') ?? undefined) as string | undefined,
       parent_asin: (getRowValue(record, 'parent_asin') ?? undefined) as string | undefined,
       brand: (getRowValue(record, 'brand') ?? undefined) as string | undefined,
