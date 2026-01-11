@@ -83,7 +83,7 @@ const inputSchema = z.object({
   debug: z.boolean().default(false).optional(),
 });
 
-export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
+export function registerSupplyChainInspectInventorySkuSnapshotTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -97,8 +97,8 @@ export function registerInventorySkuDeepDiveTool(registry: ToolRegistry) {
   }
 
   registry.register({
-    name: 'amazon_supply_chain_inventory_sku_deep_dive',
-    description: 'Deep dive of the raw inventory_planning_snapshot row(s) for a specific SKU + marketplace.',
+    name: 'supply_chain_inspect_inventory_sku_snapshot',
+    description: 'Inventory SKU deep dive (raw snapshot inspection) for a specific SKU + marketplace.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },

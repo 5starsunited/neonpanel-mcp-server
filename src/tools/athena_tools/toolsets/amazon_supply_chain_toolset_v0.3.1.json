@@ -566,10 +566,8 @@
                 "label": "Drill into a flagged item",
                 "prompt_to_user": "Want a deep dive on one flagged item (inventory, inbound, pricing/promo context)?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               },
               {
@@ -722,10 +720,8 @@
                 "label": "Deep dive an item",
                 "prompt_to_user": "Want details for one item to decide ship/PO/expedite tradeoffs?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               }
             ]
@@ -867,10 +863,8 @@
                 "label": "Deep dive a slow mover",
                 "prompt_to_user": "Want a deep dive on one slow mover (sell-through, inbound, pricing)?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": false
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               }
             ]
@@ -1014,10 +1008,8 @@
                 "label": "Deep dive a delayed item",
                 "prompt_to_user": "Want details for one item to decide ship/PO/expedite tradeoffs?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               }
             ]
@@ -1353,7 +1345,7 @@
                 "label": "Drill into biggest movers",
                 "prompt_to_user": "Want details on the items with the largest risk change?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
                   "preset_args": {}
                 }
               }
@@ -1640,10 +1632,8 @@
                 "label": "Check listing issues",
                 "prompt_to_user": "Should we drill into listing/price/returns for the top candidates before discontinuing?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_costs": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               },
               {
@@ -1833,87 +1823,22 @@
       }
     },
     {
-      "name": "inventory_sku_deep_dive",
-      "description": "Deep dive for a specific item: coverage drivers, inbound, constraints, and key metrics for decisioning.",
+      "name": "supply_chain_inspect_inventory_sku_snapshot",
+      "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for authorized company_id(s).",
       "parameters": {
         "type": "object",
         "properties": {
-          "company_uuid": {
-            "type": "string"
-          },
-          "inventory_id": {
-            "type": "integer"
-          },
-          "sku": {
-            "type": "string"
-          },
-          "asin": {
-            "type": "string"
-          },
-          "include_inbound": {
-            "type": "boolean",
-            "default": true
-          },
-          "include_costs": {
-            "type": "boolean",
-            "default": false
-          }
+          "sku": { "type": "string" },
+          "marketplace": { "type": "string", "enum": ["US", "UK"] },
+          "company_id": { "type": "integer", "minimum": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 5 },
+          "debug": { "type": "boolean", "default": false }
         },
-        "required": [],
-        "description": "Provide at least one identifier: inventory_id OR sku OR asin."
+        "required": []
       },
       "output_schema": {
         "type": "object",
-        "properties": {
-          "item_ref": {
-            "$ref": "#/common_types/item_ref"
-          },
-          "metrics": {
-            "type": "object",
-            "properties": {
-              "days_to_oos": {
-                "type": "number"
-              },
-              "days_of_supply": {
-                "type": "number"
-              },
-              "fba_on_hand": {
-                "type": "integer"
-              },
-              "fba_inbound": {
-                "type": "integer"
-              },
-              "network_on_hand": {
-                "type": "integer"
-              },
-              "supplier_lead_time_days": {
-                "type": "integer"
-              },
-              "safety_stock_days": {
-                "type": "integer"
-              },
-              "current_units_per_day": {
-                "type": "number"
-              },
-              "planned_units_per_day": {
-                "type": "number"
-              }
-            }
-          },
-          "drivers": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "notes": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "item_ref",
-          "metrics"
-        ]
+        "additionalProperties": true
       },
       "ui_playbook": {
         "post_response": {
