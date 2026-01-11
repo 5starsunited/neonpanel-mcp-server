@@ -1,4 +1,4 @@
--- Tool: amazon_supply_chain.product_list_logistic_parameters
+-- Tool: supply_chain_list_product_logistics_parameters
 -- Purpose: return product logistics parameters (vendor, product_spec, dimensions, box params, MOQ)
 --          from the latest inventory_planning_snapshot partition.
 -- Notes:

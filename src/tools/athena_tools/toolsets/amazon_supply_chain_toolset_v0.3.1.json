@@ -302,152 +302,6 @@
   },
   "tools": [
     {
-      "name": "fba_list_replenish_asap",
-      "description": "List items that need to be replenished to FBA ASAP based on projected stockout risk and inbound coverage.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "sku_selector": {
-            "$ref": "#/common_types/sku_selector"
-          },
-          "time_window": {
-            "$ref": "#/common_types/time_window"
-          },
-          "sales_velocity": {
-            "$ref": "#/common_types/sales_velocity"
-          },
-          "use_seasonality": {
-            "type": "boolean",
-            "default": true
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "default": 200
-          },
-          "stockout_threshold_days": {
-            "type": "integer",
-            "minimum": 0,
-            "default": 7
-          }
-        },
-        "required": [
-          "sku_selector"
-        ]
-      },
-      "output_schema": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "item_ref": {
-                  "$ref": "#/common_types/item_ref"
-                },
-                "days_to_oos": {
-                  "type": "number"
-                },
-                "fba_on_hand": {
-                  "type": "integer"
-                },
-                "fba_inbound": {
-                  "type": "integer"
-                },
-                "recommended_ship_units": {
-                  "type": "integer"
-                },
-                "priority": {
-                  "$ref": "#/common_types/severity"
-                },
-                "reason": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "item_ref",
-                "days_to_oos",
-                "recommended_ship_units",
-                "priority"
-              ]
-            }
-          }
-        },
-        "required": [
-          "items"
-        ]
-      },
-      "ui_playbook": {
-        "post_response": {
-          "ask_user_next": {
-            "mode": "menu",
-            "max_options": 3,
-            "options": [
-              {
-                "id": "dig_sku",
-                "label": "Dig into a specific item",
-                "prompt_to_user": "Want me to pull full details for one item (coverage drivers, inbound, constraints)?",
-                "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true,
-                    "include_costs": false
-                  }
-                }
-              },
-              {
-                "id": "draft_shipment",
-                "label": "Create a shipment draft",
-                "prompt_to_user": "Should I turn the top recommendations into a shipment draft (quantities + priorities)?",
-                "suggested_tool_call": {
-                  "tool_name": "fba_create_shipment_draft",
-                  "preset_args": {
-                    "sort_by": "priority",
-                    "cap_units_per_sku": null
-                  }
-                }
-              },
-              {
-                "id": "unexpected_behavior",
-                "label": "Check unexpected behavior",
-                "prompt_to_user": "Want to scan these items for demand spikes/drops vs plan before we ship?",
-                "suggested_tool_call": {
-                  "tool_name": "monitor_sales_vs_plan_alerts",
-                  "preset_args": {
-                    "baseline": "planned",
-                    "comparison_window_days": 14,
-                    "deviation_pct_threshold": 25
-                  }
-                }
-              }
-            ]
-          },
-          "reference_reports": {
-            "max_reports": 3,
-            "selection_rule": "Select the most relevant reports for this intent (prefer operational execution + diagnosis).",
-            "recommended_reports": [
-              {
-                "report_key": "fba_replenishment",
-                "reason": "Validate list and urgency ranking in NeonPanel."
-              },
-              {
-                "report_key": "inventory_health_scorecard",
-                "reason": "See stockout/overstock exposure quickly."
-              },
-              {
-                "report_key": "sales_velocity_anomalies",
-                "reason": "Investigate spikes/drops impacting replenishment."
-              }
-            ],
-            "link_policy": {
-              "$ref": "#/common_types/report_link_policy"
-            }
-          }
-        }
-      }
-    },
-    {
       "name": "po_list_items_to_order_now",
       "description": "List items that require a supplier PO to be placed now to avoid stockouts (considering supplier lead times and safety stock).",
       "parameters": {
@@ -712,21 +566,8 @@
                 "label": "Drill into a flagged item",
                 "prompt_to_user": "Want a deep dive on one flagged item (inventory, inbound, pricing/promo context)?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true
-                  }
-                }
-              },
-              {
-                "id": "recompute_replenishment",
-                "label": "Recompute replenishment using current velocity",
-                "prompt_to_user": "Should we rerun replenishment using current run-rate to avoid missing demand?",
-                "suggested_tool_call": {
-                  "tool_name": "fba_list_replenish_asap",
-                  "preset_args": {
-                    "sales_velocity": "current"
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               },
               {
@@ -879,10 +720,8 @@
                 "label": "Deep dive an item",
                 "prompt_to_user": "Want details for one item to decide ship/PO/expedite tradeoffs?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               }
             ]
@@ -1024,10 +863,8 @@
                 "label": "Deep dive a slow mover",
                 "prompt_to_user": "Want a deep dive on one slow mover (sell-through, inbound, pricing)?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": false
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               }
             ]
@@ -1171,10 +1008,8 @@
                 "label": "Deep dive a delayed item",
                 "prompt_to_user": "Want details for one item to decide ship/PO/expedite tradeoffs?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_inbound": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               }
             ]
@@ -1510,7 +1345,7 @@
                 "label": "Drill into biggest movers",
                 "prompt_to_user": "Want details on the items with the largest risk change?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
                   "preset_args": {}
                 }
               }
@@ -1797,10 +1632,8 @@
                 "label": "Check listing issues",
                 "prompt_to_user": "Should we drill into listing/price/returns for the top candidates before discontinuing?",
                 "suggested_tool_call": {
-                  "tool_name": "inventory_sku_deep_dive",
-                  "preset_args": {
-                    "include_costs": true
-                  }
+                  "tool_name": "supply_chain_inspect_inventory_sku_snapshot",
+                  "preset_args": {}
                 }
               },
               {
@@ -1962,17 +1795,6 @@
                     "coverage_days_threshold": 120
                   }
                 }
-              },
-              {
-                "id": "replenish_now",
-                "label": "Generate replenish-now list",
-                "prompt_to_user": "Want the replenish-now list for items that are both important and urgent?",
-                "suggested_tool_call": {
-                  "tool_name": "fba_list_replenish_asap",
-                  "preset_args": {
-                    "stockout_threshold_days": 7
-                  }
-                }
               }
             ]
           },
@@ -2001,87 +1823,22 @@
       }
     },
     {
-      "name": "inventory_sku_deep_dive",
-      "description": "Deep dive for a specific item: coverage drivers, inbound, constraints, and key metrics for decisioning.",
+      "name": "supply_chain_inspect_inventory_sku_snapshot",
+      "description": "Inventory SKU deep dive (raw snapshot inspection). Returns raw inventory_planning_snapshot row(s) from the latest snapshot partition for authorized company_id(s).",
       "parameters": {
         "type": "object",
         "properties": {
-          "company_uuid": {
-            "type": "string"
-          },
-          "inventory_id": {
-            "type": "integer"
-          },
-          "sku": {
-            "type": "string"
-          },
-          "asin": {
-            "type": "string"
-          },
-          "include_inbound": {
-            "type": "boolean",
-            "default": true
-          },
-          "include_costs": {
-            "type": "boolean",
-            "default": false
-          }
+          "sku": { "type": "string" },
+          "marketplace": { "type": "string", "enum": ["US", "UK"] },
+          "company_id": { "type": "integer", "minimum": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 5 },
+          "debug": { "type": "boolean", "default": false }
         },
-        "required": [],
-        "description": "Provide at least one identifier: inventory_id OR sku OR asin."
+        "required": []
       },
       "output_schema": {
         "type": "object",
-        "properties": {
-          "item_ref": {
-            "$ref": "#/common_types/item_ref"
-          },
-          "metrics": {
-            "type": "object",
-            "properties": {
-              "days_to_oos": {
-                "type": "number"
-              },
-              "days_of_supply": {
-                "type": "number"
-              },
-              "fba_on_hand": {
-                "type": "integer"
-              },
-              "fba_inbound": {
-                "type": "integer"
-              },
-              "network_on_hand": {
-                "type": "integer"
-              },
-              "supplier_lead_time_days": {
-                "type": "integer"
-              },
-              "safety_stock_days": {
-                "type": "integer"
-              },
-              "current_units_per_day": {
-                "type": "number"
-              },
-              "planned_units_per_day": {
-                "type": "number"
-              }
-            }
-          },
-          "drivers": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "notes": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "item_ref",
-          "metrics"
-        ]
+        "additionalProperties": true
       },
       "ui_playbook": {
         "post_response": {
@@ -2089,17 +1846,6 @@
             "mode": "menu",
             "max_options": 3,
             "options": [
-              {
-                "id": "replenish_for_item",
-                "label": "Replenishment recommendation",
-                "prompt_to_user": "Want a replenishment recommendation just for this item?",
-                "suggested_tool_call": {
-                  "tool_name": "fba_list_replenish_asap",
-                  "preset_args": {
-                    "limit": 50
-                  }
-                }
-              },
               {
                 "id": "po_for_item",
                 "label": "PO need check",
@@ -2267,9 +2013,9 @@
                 "label": "Add more items",
                 "prompt_to_user": "Want to expand the draft (next 20 by urgency) or keep it tight?",
                 "suggested_tool_call": {
-                  "tool_name": "fba_list_replenish_asap",
+                  "tool_name": "risk_out_of_stock_list",
                   "preset_args": {
-                    "limit": 50
+                    "risk_horizon_days": 21
                   }
                 }
               }

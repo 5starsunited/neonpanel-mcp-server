@@ -1,4 +1,4 @@
--- Tool: amazon_supply_chain.inventory_sku_deep_dive
+-- Tool: supply_chain_inspect_inventory_sku_snapshot
 -- Purpose: return the raw inventory_planning_snapshot row(s) for a specific SKU + marketplace.
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.

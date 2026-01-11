@@ -1,4 +1,4 @@
--- Tool: amazon_supply_chain.fba_list_replenish_asap
+-- Tool: supply_chain_list_fba_replenishment_candidates
 -- Base SQL tested in Athena UI, templated for MCP runtime.
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.

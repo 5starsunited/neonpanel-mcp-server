@@ -359,45 +359,6 @@
       },
 
       {
-        "name": "supply_chain_evaluate_fba_replenishment_timing",
-        "status": "pending",
-        "description": "Decision tool (no side effects). Determine whether to ship to FBA now vs wait; returns urgency score, estimated stockout date, latest safe ship date. Intended for single SKU/ASIN reasoning.",
-        "annotations": {
-          "readOnlyHint": true,
-          "idempotentHint": true,
-          "destructiveHint": false,
-          "openWorldHint": false
-        },
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "company": { "type": "string" },
-            "company_id": { "type": "integer", "minimum": 1 },
-            "marketplace": { "type": "string" },
-            "sku": { "type": "string" },
-            "asin": { "type": "string" },
-            "as_of_date": { "type": "string", "format": "date" },
-            "policy": { "type": "object", "additionalProperties": true },
-            "assumptions": { "type": "object", "additionalProperties": true }
-          },
-          "additionalProperties": false
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "decision": { "type": "string", "enum": ["ship_now", "wait", "do_not_ship"] },
-            "urgency_score": { "type": "number", "minimum": 0, "maximum": 1 },
-            "estimated_stockout_date": { "type": "string", "format": "date" },
-            "latest_safe_ship_date": { "type": "string", "format": "date" },
-            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-            "constraints_checked": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-            "risk_flags": { "type": "array", "items": { "type": "string" } }
-          },
-          "required": ["decision", "urgency_score"]
-        }
-      },
-
-      {
         "name": "supply_chain_evaluate_fba_replenishment_quantity",
         "status": "pending",
         "description": "Decision tool (no side effects). Compute recommended quantity to replenish to FBA given demand, cadence, lead time, and safety stock. Output includes recommended units and coverage days.",
@@ -434,43 +395,6 @@
             "risk_flags": { "type": "array", "items": { "type": "string" } }
           },
           "required": ["recommended_ship_units"]
-        }
-      },
-
-      {
-        "name": "supply_chain_evaluate_po_placement_timing",
-        "status": "pending",
-        "description": "Decision tool (no side effects). Determine whether to place PO now vs wait vs do not place. Intended for single SKU/ASIN reasoning and gap-based planning after checking available inventory.",
-        "annotations": {
-          "readOnlyHint": true,
-          "idempotentHint": true,
-          "destructiveHint": false,
-          "openWorldHint": false
-        },
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "company": { "type": "string" },
-            "company_id": { "type": "integer", "minimum": 1 },
-            "marketplace": { "type": "string" },
-            "sku": { "type": "string" },
-            "asin": { "type": "string" },
-            "as_of_date": { "type": "string", "format": "date" },
-            "lead_time_days": { "type": "integer", "minimum": 0 },
-            "safety_stock_days": { "type": "integer", "minimum": 0 },
-            "velocity_mode": { "type": "string", "enum": ["current", "target", "planned"], "default": "planned" }
-          },
-          "additionalProperties": false
-        },
-        "outputSchema": {
-          "type": "object",
-          "properties": {
-            "decision": { "type": "string", "enum": ["place_now", "wait", "do_not_place"] },
-            "urgency_score": { "type": "number", "minimum": 0, "maximum": 1 },
-            "latest_safe_po_date": { "type": "string", "format": "date" },
-            "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
-          },
-          "required": ["decision", "urgency_score"]
         }
       },
 

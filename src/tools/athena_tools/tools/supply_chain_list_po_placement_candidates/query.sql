@@ -1,4 +1,4 @@
--- Tool: amazon_supply_chain.inventory_po_schedule
+-- Tool: supply_chain_list_po_placement_candidates
 -- Purpose: decide when a purchase order (PO) is due to maintain coverage through
 --          (lead_time + safety_stock + PO cadence), using the latest snapshot partition.
 -- Notes:
