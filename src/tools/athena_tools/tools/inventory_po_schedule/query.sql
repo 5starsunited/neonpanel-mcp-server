@@ -149,6 +149,7 @@ t AS (
     b.product_family,
     b.asin_img_path,
     b.product_name,
+    b.revenue_30d,
     b.selected_sales_velocity,
     b.target_units_per_day,
     b.current_units_per_day,
