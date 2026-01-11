@@ -77,7 +77,11 @@ Supported now:
 - `query.filters.brand` (returns `brand`)
 - `query.filters.product_family` (returns `product_family`)
 - `query.filters.sku`
-- `query.filters.revenue_abcd_class` (returns `revenue_abcd_class`)
+- `query.filters.revenue_abcd_class` (returns `revenue_abcd_class` plus `revenue_abcd_class_description`)
+
+Returned classification fields (even when not used as filters):
+- `revenue_abcd_class_description` (human-readable description of the ABCD bucket)
+- `pareto_abc_class` (A/B/C Pareto bucket derived from the same cumulative revenue thresholds)
 
 Not supported yet:
 - `query.filters.tags` (no tags column in snapshot)
