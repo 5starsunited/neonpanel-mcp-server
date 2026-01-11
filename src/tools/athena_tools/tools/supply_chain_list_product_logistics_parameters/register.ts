@@ -99,7 +99,7 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
   return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
-export function registerProductListLogisticParametersTool(registry: ToolRegistry) {
+export function registerSupplyChainListProductLogisticsParametersTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -113,8 +113,8 @@ export function registerProductListLogisticParametersTool(registry: ToolRegistry
   }
 
   registry.register({
-    name: 'amazon_supply_chain_product_list_logistic_parameters',
-    description: 'List product logistics parameters from the latest inventory planning snapshot.',
+    name: 'supply_chain_list_product_logistics_parameters',
+    description: 'List product logistics parameters (vendor/spec/dimensions/case pack/MOQ) from the latest snapshot.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
