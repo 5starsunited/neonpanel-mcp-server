@@ -373,4 +373,4 @@ ORDER BY
   COALESCE(CAST(sales_last_30_days AS DOUBLE), 0.0) DESC,
   COALESCE(CAST(units_sold_last_30_days AS DOUBLE), 0.0) DESC
 
-LIMIT {{limit_top_n}};
+LIMIT {{limit_top_n}}

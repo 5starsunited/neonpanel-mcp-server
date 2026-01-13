@@ -88,7 +88,8 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
 
     if (state === 'FAILED' || state === 'CANCELLED') {
       const reason = execution.QueryExecution?.Status?.StateChangeReason;
-      throw new AppError(`Athena query ${state.toLowerCase()}.`, {
+      const reasonText = reason ? ` Reason: ${reason}` : '';
+      throw new AppError(`Athena query ${state.toLowerCase()} (QueryExecutionId: ${queryExecutionId}).${reasonText}`, {
         status: 502,
         code: 'athena_query_failed',
         details: {
