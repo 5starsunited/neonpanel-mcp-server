@@ -95,6 +95,22 @@ export interface ToolListEntry {
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
 
+  private normalizeToolInputSchema(schema: unknown): Record<string, unknown> {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+      return {
+        type: 'object',
+        properties: {},
+        additionalProperties: true,
+      };
+    }
+
+    const record = schema as Record<string, unknown>;
+    if (record.type !== 'object') {
+      record.type = 'object';
+    }
+    return record;
+  }
+
   private inferConsequentiality(toolName: string): boolean {
     const lowered = toolName.toLowerCase();
     // Conservative: anything that suggests creation/import/write is consequential.
@@ -137,6 +153,10 @@ export class ToolRegistry {
       } else {
         inputSchema = jsonSchema as Record<string, unknown>;
       }
+
+      // Some strict tool validators require the root schema type to be exactly "object".
+      // Guard against schemas that flatten to a $ref-only or otherwise non-object shape.
+      inputSchema = this.normalizeToolInputSchema(inputSchema);
 
       const isConsequential =
         spec?.isConsequential ?? tool.isConsequential ?? this.inferConsequentiality(tool.name);

@@ -43,6 +43,14 @@ const RawConfigSchema = z.object({
   ATHENA_CATALOG: z.string().default('awsdatacatalog'),
   ATHENA_DATABASE: z.string().default('inventory_planning'),
   ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT: z.string().default('inventory_planning_snapshot_iceberg'),
+
+  // Forecasting tables (Athena)
+  ATHENA_FORECASTING_DATABASE: z.string().default('fc_forecasting_prod'),
+  ATHENA_TABLE_SALES_FORECAST: z.string().default('fc_sales_forecast_iceberg'),
+  ATHENA_TABLE_SALES_HISTORY: z.string().default('fc_dataset_sales_history'),
+  // Write target for user/AI overrides (Iceberg). Schema must match the INSERT used by the tool.
+  // Default to the primary forecast Iceberg table unless an overrides table is configured.
+  ATHENA_TABLE_SALES_FORECAST_WRITES: z.string().default('fc_sales_forecast_iceberg'),
   ATHENA_ASSUME_ROLE_ARN: z.string().optional(),
   ATHENA_ASSUME_ROLE_SESSION_NAME: z.string().default('neonpanel-mcp-athena'),
 });
@@ -97,6 +105,10 @@ function buildConfig() {
       database: parsed.ATHENA_DATABASE,
       tables: {
         inventoryPlanningSnapshot: parsed.ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT,
+        forecastingDatabase: parsed.ATHENA_FORECASTING_DATABASE,
+        salesForecast: parsed.ATHENA_TABLE_SALES_FORECAST,
+        salesHistory: parsed.ATHENA_TABLE_SALES_HISTORY,
+        salesForecastWrites: parsed.ATHENA_TABLE_SALES_FORECAST_WRITES,
       },
       assumeRoleArn: parsed.ATHENA_ASSUME_ROLE_ARN,
       assumeRoleSessionName: parsed.ATHENA_ASSUME_ROLE_SESSION_NAME,

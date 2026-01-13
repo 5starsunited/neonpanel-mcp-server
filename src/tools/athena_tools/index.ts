@@ -4,9 +4,15 @@ import { registerSupplyChainAnalyzeSalesVelocityTool } from './tools/supply_chai
 import { registerSupplyChainListProductLogisticsParametersTool } from './tools/supply_chain_list_product_logistics_parameters/register';
 import { registerSupplyChainListFbaReplenishmentCandidatesTool } from './tools/supply_chain_list_fba_replenishment_candidates/register';
 import { registerSupplyChainListPoPlacementCandidatesTool } from './tools/supply_chain_list_po_placement_candidates/register';
+import { registerForecastingListLatestSalesForecastTool } from './tools/forecasting_list_latest_sales_forecast/register';
+import { registerForecastingCompareSalesForecastScenariosTool } from './tools/forecasting_compare_sales_forecast_scenarios/register';
+import { registerForecastingWriteSalesForecastTool } from './tools/forecasting_write_sales_forecast/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
+  registerForecastingListLatestSalesForecastTool(registry);
+  registerForecastingCompareSalesForecastScenariosTool(registry);
+  registerForecastingWriteSalesForecastTool(registry);
   registerSupplyChainListFbaReplenishmentCandidatesTool(registry);
   registerSupplyChainListPoPlacementCandidatesTool(registry);
   registerSupplyChainAnalyzeSalesVelocityTool(registry);

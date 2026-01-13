@@ -23,7 +23,9 @@ async function main() {
   }
 
   const files = await walk(SRC);
-  const assets = files.filter((p) => p.endsWith('tool.json') || p.endsWith('query.sql'));
+  const assets = files.filter((p) =>
+    p.endsWith('tool.json') || p.endsWith('query.sql') || p.endsWith('insert.sql'),
+  );
 
   let copied = 0;
   for (const srcFile of assets) {
