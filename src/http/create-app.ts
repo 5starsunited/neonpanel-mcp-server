@@ -126,6 +126,7 @@ function buildServerMetadata() {
     endpoints: {
       health: '/healthz',
       oauth_discovery: '/.well-known/oauth-authorization-server',
+      mcp_config: '/.well-known/mcp-config',
       openapi_json: '/openapi.json',
       openapi_yaml: '/openapi.yaml',
       sse: '/sse',
@@ -214,6 +215,23 @@ export function createApp(deps: AppDependencies): Application {
   // Dedicated MCP discovery endpoint for clients like ChatGPT Workspace
   app.get('/mcp', (_req, res) => {
     res.json(buildServerMetadata());
+  });
+
+  // Smithery session configuration schema (JSON Schema Draft 07)
+  // External MCPs can expose this endpoint to enable a configuration UI.
+  // This server uses OAuth, so no per-session API keys are required; we keep the schema empty.
+  app.get('/.well-known/mcp-config', (req, res) => {
+    res.json({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      $id: buildAbsoluteUrl(req, '/.well-known/mcp-config'),
+      title: 'NeonPanel MCP Session Configuration',
+      description: 'Optional configuration for connecting to the NeonPanel MCP server. OAuth authentication is used; no API keys are required.',
+      'x-query-style': 'dot+bracket',
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    });
   });
 
   app.get('/.well-known/ai-plugin.json', (req, res) => {
