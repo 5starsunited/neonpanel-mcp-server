@@ -153,6 +153,7 @@
     "anyOf": [
       {
         "description": "Use inventory_id as the item selector.",
+        "type": "object",
         "properties": {
           "query": {
             "properties": {
@@ -163,6 +164,7 @@
       },
       {
         "description": "Use SKU + marketplace + company_id as the item selector.",
+        "type": "object",
         "properties": {
           "query": {
             "properties": {
