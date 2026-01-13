@@ -277,7 +277,56 @@ t_grouped AS (
 -- Return either item rows (default) or aggregated group rows (aggregate=true)
 
 SELECT
-  t.*,
+  t.company_id,
+  t.company_name,
+  t.company_short_name,
+  t.company_uuid,
+
+  t.inventory_id,
+  t.sku,
+  t.country,
+  t.country_code,
+
+  t.child_asin,
+  t.parent_asin,
+  t.asin,
+  t.fnsku,
+  t.merchant_sku,
+
+  t.brand,
+  t.product_family,
+
+  t.revenue_abcd_class,
+  t.revenue_abcd_class_description,
+  t.pareto_abc_class,
+  t.revenue_share,
+  t.cumulative_revenue_share,
+
+  t.sales_last_30_days,
+  t.units_sold_last_30_days,
+  t.revenue_30d,
+  t.units_30d,
+
+  t.sales_forecast_scenario_id,
+  t.sales_forecast_scenario_name,
+  t.sales_forecast_scenario_uuid,
+  t.seasonality_pattern,
+
+  t.asin_img_path,
+  t.product_name,
+  t.avg_units_30d,
+  t.avg_units_7d,
+  t.avg_units_3d,
+
+  t.sales_share_basis_value,
+  t.group_key,
+
+  t.snapshot_year,
+  t.snapshot_month,
+  t.snapshot_day,
+
+  t.forecast_run_period,
+  t.forecast_run_updated_at,
 
   CASE
     WHEN p.include_item_sales_share AND NOT p.aggregate THEN
@@ -340,8 +389,6 @@ SELECT
   CAST(NULL AS DOUBLE) AS avg_units_30d,
   CAST(NULL AS DOUBLE) AS avg_units_7d,
   CAST(NULL AS DOUBLE) AS avg_units_3d,
-
-  CAST(NULL AS VARCHAR) AS next_12_month_sales_plan_units,
   CAST(NULL AS DOUBLE) AS sales_share_basis_value,
   g.group_key,
 
