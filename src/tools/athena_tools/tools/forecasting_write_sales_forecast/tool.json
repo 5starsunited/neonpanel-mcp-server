@@ -96,8 +96,8 @@
           "required": ["forecast_period", "units_sold"],
           "additionalProperties": false,
           "anyOf": [
-            { "required": ["inventory_id"] },
-            { "required": ["sku", "marketplace"] }
+            { "type": "object", "required": ["inventory_id"] },
+            { "type": "object", "required": ["sku", "marketplace"] }
           ]
         }
       }
