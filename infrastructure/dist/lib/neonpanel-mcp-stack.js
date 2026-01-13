@@ -41,6 +41,7 @@ const ecsPatterns = __importStar(require("aws-cdk-lib/aws-ecs-patterns"));
 const elbv2 = __importStar(require("aws-cdk-lib/aws-elasticloadbalancingv2"));
 const logs = __importStar(require("aws-cdk-lib/aws-logs"));
 const acm = __importStar(require("aws-cdk-lib/aws-certificatemanager"));
+const iam = __importStar(require("aws-cdk-lib/aws-iam"));
 const aws_ecr_assets_1 = require("aws-cdk-lib/aws-ecr-assets");
 class NeonpanelMcpStack extends cdk.Stack {
     constructor(scope, id, props) {
@@ -71,7 +72,21 @@ class NeonpanelMcpStack extends cdk.Stack {
                 environment: {
                     NODE_ENV: 'production',
                     PORT: '3030',
-                    NEONPANEL_BASE_URL: 'https://my.neonpanel.com',
+                    AWS_REGION: 'us-east-1',
+                    NEONPANEL_API_BASE: 'https://my.neonpanel.com',
+                    NEONPANEL_OPENAPI_URL: 'https://my.neonpanel.com/api/v1/scheme/3.1.0',
+                    NEONPANEL_OAUTH_ISSUER: 'https://my.neonpanel.com',
+                    NEONPANEL_OAUTH_JWKS_URI: 'https://my.neonpanel.com/.well-known/jwks.json',
+                    // Scope requested by the ChatGPT connector and advertised by this MCP server.
+                    NEONPANEL_OAUTH_REQUIRED_SCOPES: 'neonpanel.mcp',
+                    // Athena-backed planning tools (defaults match current prod mock dataset)
+                    ATHENA_CATALOG: 'awsdatacatalog',
+                    ATHENA_DATABASE: 'inventory_planning',
+                    // Optional: set these if you use a non-default workgroup or need an explicit results bucket.
+                    ATHENA_WORKGROUP: 'neonpanel-prod',
+                    // ATHENA_OUTPUT_LOCATION: 's3://your-athena-results-prefix/',
+                    // Optional: cross-account access (e.g. assume role in aap-prod-administrator account)
+                    ATHENA_ASSUME_ROLE_ARN: 'arn:aws:iam::451729026804:role/NeonpanelMcpAthenaReadRole',
                     BUILD_VERSION: 'v3.1.1' // Dynamic MCP with fresh API capabilities
                 },
                 logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'neonpanel-mcp', logGroup }),
@@ -83,6 +98,13 @@ class NeonpanelMcpStack extends cdk.Stack {
             // Enable public IP assignment for ECR access
             assignPublicIp: true,
         });
+        // Allow the service (dev account) to assume the prod role for Athena/Glue/S3 reads.
+        // The prod role trust policy must allow this task role (or dev account) as principal.
+        service.taskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: ['sts:AssumeRole'],
+            resources: ['arn:aws:iam::451729026804:role/NeonpanelMcpAthenaReadRole'],
+        }));
         // Using existing issued certificate for mcp.neonasphera.com
         service.targetGroup.configureHealthCheck({
             path: '/healthz',

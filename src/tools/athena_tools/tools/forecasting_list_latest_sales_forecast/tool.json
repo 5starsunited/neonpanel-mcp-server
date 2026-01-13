@@ -1,0 +1,173 @@
+{
+  "name": "forecasting_list_latest_sales_forecast",
+  "description": "List items with the latest/current sales forecast and core inventory attributes. This is a portfolio/list tool (many items). Read-only; no side effects.\n\nUse cases:\n- Show the current (latest) forecast plan per SKU/inventory item\n- Filter by brand/product_family/ASIN/SKU and sort by sales or forecast KPIs\n- Optionally group results (brand/product_family/parent_asin)\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection/grouping\n- tool_specific: forecasting-specific knobs (horizon, which plan fields to include)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nSupported selector filters (applied in SQL):\n- query.filters.asin (child ASIN), query.filters.parent_asin, query.filters.brand, query.filters.product_family, query.filters.sku\n- If you filter on any of these, output rows will include: child_asin, parent_asin, brand, product_family, sku\n\nSupported classification filters:\n- query.filters.revenue_abcd_class (computed from sales_last_30_days)\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for list/portfolio tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters. Tools should support a meaningful subset and warn on unsupported keys.",
+            "properties": {
+              "company": {
+                "type": "string",
+                "description": "Deprecated alias for company_id. Only numeric strings are accepted (treated as company_id)."
+              },
+              "company_id": { "type": "integer", "minimum": 1 },
+
+              "brand": { "type": "array", "items": { "type": "string" } },
+              "marketplace": { "type": "array", "items": { "type": "string" } },
+              "currency": { "type": "array", "items": { "type": "string" } },
+              "product_family": { "type": "array", "items": { "type": "string" } },
+              "parent_asin": { "type": "array", "items": { "type": "string" } },
+              "asin": { "type": "array", "items": { "type": "string" } },
+              "sku": { "type": "array", "items": { "type": "string" } },
+
+              "revenue_abcd_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
+              },
+              "pareto_abc_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] }
+              },
+              "tags": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter-only tags. Multi-agent safe. Agent must not infer meaning. Not supported by this tool yet."
+              }
+            },
+            "additionalProperties": true
+          },
+
+          "aggregation": {
+            "type": "object",
+            "description": "Optional aggregation. If group_by is used, tool may return aggregated rows rather than SKU-level rows.",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": ["none"],
+                "description": "Hierarchical grouping. Order matters. Example: [\"brand\",\"product_family\",\"parent_asin\"]."
+              },
+              "time": {
+                "type": "object",
+                "description": "Optional time bucketing. This tool is latest-forecast oriented; time bucketing may be unsupported.",
+                "properties": {
+                  "periodicity": { "type": "string", "enum": ["day", "week", "month", "quarter", "year"] },
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+
+          "sort": {
+            "type": "object",
+            "description": "Sort by any returned output field/KPI.",
+            "properties": {
+              "field": { "type": "string" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+              "nulls": { "type": "string", "enum": ["first", "last"], "default": "last" }
+            },
+            "additionalProperties": false
+          },
+
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection (projection). If omitted, tool returns defaults."
+          },
+
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 50
+          },
+
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor for pagination (if supported)."
+          }
+        },
+        "additionalProperties": false
+      },
+
+      "tool_specific": {
+        "type": "object",
+        "description": "Forecasting-specific knobs controlling which plan fields to include.",
+        "properties": {
+          "horizon_months": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 24,
+            "default": 12,
+            "description": "How many months of the forward forecast plan to include (when available)."
+          },
+          "include_plan_series": {
+            "type": "boolean",
+            "default": true,
+            "description": "If true, include the forward plan series field (e.g., next_12_month_sales_plan_units or equivalent)."
+          },
+          "include_sales_history_signals": {
+            "type": "boolean",
+            "default": true,
+            "description": "If true, include recent actual sales signals (e.g., sales_last_30_days / revenue_30d)."
+          },
+          "aggregate": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, return one row per group (aggregate_by) with summed forecast plan and summed recent sales signals."
+          },
+          "aggregate_by": {
+            "type": "string",
+            "enum": ["parent_asin", "product_family"],
+            "default": "parent_asin",
+            "description": "Grouping key when aggregate=true."
+          },
+          "include_item_sales_share": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true (and aggregate=false), include item_sales_share = item's share of the group's recent sales/units (partitioned by aggregate_by)."
+          },
+          "sales_share_basis": {
+            "type": "string",
+            "enum": ["sales_last_30_days", "units_sold_last_30_days"],
+            "default": "sales_last_30_days",
+            "description": "Which signal to use when computing item_sales_share (only when include_item_sales_share=true)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": { "type": "object", "additionalProperties": true }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "applied_sort": { "type": "object", "additionalProperties": true },
+          "selected_fields": { "type": "array", "items": { "type": "string" } },
+          "included_fields": { "type": "array", "items": { "type": "string" } },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  }
+}

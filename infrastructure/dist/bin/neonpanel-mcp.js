@@ -36,10 +36,19 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const cdk = __importStar(require("aws-cdk-lib"));
 const neonpanel_mcp_stack_1 = require("../lib/neonpanel-mcp-stack");
+const neonpanel_mcp_prod_athena_access_stack_1 = require("../lib/neonpanel-mcp-prod-athena-access-stack");
 const app = new cdk.App();
 new neonpanel_mcp_stack_1.NeonpanelMcpStack(app, 'NeonpanelMcpStackV3', {
     env: {
         account: process.env.CDK_DEFAULT_ACCOUNT || '303498144074',
         region: process.env.CDK_DEFAULT_REGION || 'us-east-1'
+    },
+});
+// Deploy this stack to the PROD account to create/update the cross-account role that
+// the MCP service assumes for Athena/Iceberg operations.
+new neonpanel_mcp_prod_athena_access_stack_1.NeonpanelMcpProdAthenaAccessStack(app, 'NeonpanelMcpProdAthenaAccessStack', {
+    env: {
+        account: '451729026804',
+        region: 'us-east-1',
     },
 });

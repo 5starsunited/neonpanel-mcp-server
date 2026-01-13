@@ -1,0 +1,142 @@
+{
+  "name": "forecasting_write_sales_forecast",
+  "description": "Write user/AI-adjusted sales forecast values into an Iceberg table for auditability and downstream planning. Consequential (writes data).\n\nUse cases:\n- Persist manual overrides to a forecast for specific item(s) and period(s)\n- Persist AI-recommended adjustments with an explainable reason\n\nSafety / audit:\n- Always include company_id and an explicit item selector (inventory_id or sku+marketplace)\n- Always include a reason and an author/source\n- Prefer dry_run=true for validation before writing\n\nImportant (company selection):\n- Use company_id (preferred) or query.filters.company (numeric string). Do NOT pass a freeform company name.",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Company id the write applies to. Must be authorized."
+      },
+      "author": {
+        "type": "object",
+        "description": "Who/what is making this change (for audit).",
+        "properties": {
+          "type": { "type": "string", "enum": ["user", "ai", "system"], "default": "user" },
+          "name": { "type": "string", "description": "Display name or agent name." },
+          "id": { "type": "string", "description": "Optional stable identifier for the actor (user id / agent id)." }
+        },
+        "required": ["type"],
+        "additionalProperties": false
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 3,
+        "description": "Human-readable reason for the adjustment (stored for audit)."
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, validate and preview writes without persisting."
+      },
+      "idempotency_key": {
+        "type": "string",
+        "description": "Optional idempotency key to prevent duplicate writes on retries."
+      },
+      "writes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 500,
+        "description": "One or more forecast write operations (period-level).",
+        "items": {
+          "type": "object",
+          "properties": {
+            "inventory_id": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Preferred item selector."
+            },
+            "sku": {
+              "type": "string",
+              "description": "Alternative item selector when inventory_id is not available."
+            },
+            "marketplace": {
+              "type": "string",
+              "description": "Marketplace for SKU-based writes (e.g., US/UK or amazon marketplace id depending on your schema)."
+            },
+
+            "scenario": {
+              "type": "object",
+              "description": "Which forecast scenario this write targets.",
+              "properties": {
+                "id": { "type": "integer", "minimum": 1 },
+                "uuid": { "type": "string" },
+                "name": { "type": "string" }
+              },
+              "additionalProperties": false
+            },
+
+            "forecast_period": {
+              "type": "string",
+              "description": "Forecast period key (e.g., YYYY-MM)."
+            },
+
+            "units_sold": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Adjusted forecast units for the period."
+            },
+            "sales_amount": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Optional adjusted revenue for the period (if stored)."
+            },
+            "currency": {
+              "type": "string",
+              "description": "Optional currency code for sales_amount."
+            },
+
+            "note": {
+              "type": "string",
+              "description": "Optional per-write note (e.g., promo, stockout, seasonality adjustment)."
+            }
+          },
+          "required": ["forecast_period", "units_sold"],
+          "additionalProperties": false,
+          "anyOf": [
+            { "required": ["inventory_id"] },
+            { "required": ["sku", "marketplace"] }
+          ]
+        }
+      }
+    },
+    "required": ["company_id", "reason", "writes"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "accepted": { "type": "integer", "description": "Count of writes accepted for processing." },
+      "written": { "type": "integer", "description": "Count of rows actually written (0 in dry-run)." },
+      "items": {
+        "type": "array",
+        "description": "Per-write results (success/error) for transparency.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["ok", "skipped", "error"] },
+            "inventory_id": { "type": "integer" },
+            "sku": { "type": "string" },
+            "marketplace": { "type": "string" },
+            "forecast_period": { "type": "string" },
+            "scenario": { "type": "object", "additionalProperties": true },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["dry_run", "accepted", "written"],
+    "additionalProperties": true
+  }
+}

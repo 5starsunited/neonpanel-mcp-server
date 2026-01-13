@@ -1,0 +1,219 @@
+{
+  "name": "forecasting_compare_sales_forecast_scenarios",
+  "description": "Deep-dive forecasting comparison for a single item. Compares forecast outputs across scenarios and/or across forecast runs (history), and optionally overlays actual sales history (included by default). Read-only; no side effects.\n\nThis tool is for a SINGLE item (inventory_id or sku+marketplace+company_id). For portfolio-level listing of current/latest forecast across many items, use forecasting_list_latest_sales_forecast.\n\nInput uses the shared query envelope:\n- query: filters + limit\n- tool_specific: comparison options (mode, scenario selection, run selection, include_actuals)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nComparison modes:\n- scenarios: compare multiple scenarios for the same run window\n- runs: compare multiple runs (different updated_at) for the same scenario\n- scenarios_and_runs: compare both axes\n\nActuals:\n- include_actuals=true by default; tool will overlay sales history from the dataset sales history table when available.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Item selector and optional filters. This tool expects a single item selector.",
+            "properties": {
+              "company": {
+                "type": "string",
+                "description": "Deprecated alias for company_id. Only numeric strings are accepted (treated as company_id)."
+              },
+              "company_id": { "type": "integer", "minimum": 1 },
+
+              "inventory_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Preferred item selector when available."
+              },
+
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Alternative item selector (single SKU). Use with marketplace + company_id."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Marketplace selector for SKU-based lookups. Use values consistent with your data (e.g., ATVPDKIKX0DER or US), depending on how your snapshot is keyed."
+              },
+
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 1,
+                "description": "Optional: constrain/validate the selected item by ASIN."
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 1,
+                "description": "Optional: constrain/validate the selected item by parent ASIN."
+              }
+            },
+            "additionalProperties": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 200,
+            "description": "Max rows (periods x series) to return."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": true
+      },
+
+      "tool_specific": {
+        "type": "object",
+        "properties": {
+          "compare": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["scenarios", "runs", "scenarios_and_runs"],
+                "default": "scenarios",
+                "description": "Comparison axis selection."
+              },
+
+              "scenario_ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Optional: scenario id(s) to include."
+              },
+              "scenario_uuids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: scenario uuid(s) to include."
+              },
+              "scenario_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: scenario name(s) to include (exact match recommended)."
+              },
+
+              "run_selector": {
+                "type": "object",
+                "description": "Select which forecast runs (updated_at) to compare.",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["latest_n", "date_range"],
+                    "default": "latest_n"
+                  },
+                  "n": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 3,
+                    "description": "When type=latest_n: number of most recent runs to include."
+                  },
+                  "updated_at_from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When type=date_range: inclusive lower bound for updated_at."
+                  },
+                  "updated_at_to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When type=date_range: exclusive upper bound for updated_at."
+                  }
+                },
+                "additionalProperties": false
+              },
+
+              "include_actuals": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true (default), include sales history actuals for the item and align by period."
+              },
+
+              "period": {
+                "type": "object",
+                "description": "Optional period/window selection for the time series output.",
+                "properties": {
+                  "start": { "type": "string", "description": "Start period (e.g., 2025-01)." },
+                  "end": { "type": "string", "description": "End period (e.g., 2026-12)." }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false,
+
+    "anyOf": [
+      {
+        "description": "Use inventory_id as the item selector.",
+        "properties": {
+          "query": {
+            "properties": {
+              "filters": { "required": ["inventory_id"] }
+            }
+          }
+        }
+      },
+      {
+        "description": "Use SKU + marketplace + company_id as the item selector.",
+        "properties": {
+          "query": {
+            "properties": {
+              "filters": { "required": ["company_id", "sku", "marketplace"] }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "item_ref": {
+        "type": "object",
+        "description": "Resolved identity for the item that was analyzed.",
+        "properties": {
+          "company_id": { "type": "integer" },
+          "inventory_id": { "type": "integer" },
+          "sku": { "type": "string" },
+          "asin": { "type": "string" },
+          "child_asin": { "type": "string" },
+          "parent_asin": { "type": "string" },
+          "marketplace": { "type": "string" },
+          "product_name": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+
+      "rows": {
+        "type": "array",
+        "description": "Time series rows aligned by period. Each row may contain actuals plus one or more forecast series columns (scenario/run).",
+        "items": { "type": "object", "additionalProperties": true }
+      },
+
+      "summary": {
+        "type": "object",
+        "description": "Optional summary metrics and comparisons derived from the rows (e.g., deltas, error metrics).",
+        "additionalProperties": true
+      },
+
+      "meta": {
+        "type": "object",
+        "properties": {
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "applied_compare": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["rows"],
+    "additionalProperties": true
+  }
+}
