@@ -202,7 +202,7 @@ t_base AS (
     AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
     AND (cardinality(p.marketplaces) = 0 OR contains(p.marketplaces, pil.country_code))
     AND (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, pil.revenue_abcd_class))
-)
+),
 
 -- Expand the per-item plan series into (group_key, month_index, value) for aggregation.
 t_plan_expanded AS (
