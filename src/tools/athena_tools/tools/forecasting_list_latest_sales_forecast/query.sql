@@ -4,7 +4,7 @@
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
 -- - "Latest" forecast is derived from the Iceberg forecast table: per inventory_id, take the row with
 --   the greatest period, then (within that) the greatest updated_at.
--- - Inventory attributes are joined from the inventory snapshot for *yesterday* in America/Los_Angeles.
+-- - Inventory attributes are joined from the latest (year,month,day) snapshot partition available for the requested company_ids.
 
 WITH params AS (
   SELECT
@@ -30,17 +30,14 @@ WITH params AS (
     {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
 
-snapshot_yesterday AS (
-  SELECT
-    date_add('day', -1, CAST(at_timezone(current_timestamp, 'America/Los_Angeles') AS DATE)) AS snapshot_date
-),
-
-snapshot_parts AS (
-  SELECT
-    CAST(year(snapshot_date) AS VARCHAR) AS year,
-    CAST(month(snapshot_date) AS VARCHAR) AS month,
-    CAST(day(snapshot_date) AS VARCHAR) AS day
-  FROM snapshot_yesterday
+latest_snapshot AS (
+  SELECT pil.year, pil.month, pil.day
+  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+  CROSS JOIN params p
+  WHERE contains(p.company_ids, pil.company_id)
+  GROUP BY 1, 2, 3
+  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  LIMIT 1
 ),
 
 forecast_latest_key AS (
@@ -183,8 +180,8 @@ t_base AS (
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
   CROSS JOIN params p
-  CROSS JOIN snapshot_parts s
-  INNER JOIN forecast_item_plan fp
+  CROSS JOIN latest_snapshot s
+  LEFT JOIN forecast_item_plan fp
     ON fp.company_id = pil.company_id
     AND fp.inventory_id = pil.inventory_id
 
