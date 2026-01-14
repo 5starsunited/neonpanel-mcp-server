@@ -62,7 +62,10 @@ echo ""
 
 echo "Step 2: Deploy via AWS CDK (ECS/Fargate)"
 cd "$INFRA_DIR"
-npm run cdk -- deploy NeonpanelMcpStackV3 --require-approval never --profile "$AWS_PROFILE"
+# Avoid occasional "Other CLIs ... are currently reading from cdk.out" conflicts
+# when another deploy/synth is running in a different terminal.
+CDK_OUT_DIR="cdk.out.$(date +%s)"
+npm run cdk -- deploy NeonpanelMcpStackV3 --require-approval never --profile "$AWS_PROFILE" --output "$CDK_OUT_DIR"
 echo "✅ CDK deploy complete"
 echo ""
 

@@ -12,6 +12,8 @@ build/
 .dcr/
 cdk.out/
 infrastructure/cdk.out/
+cdk.out.*/
+infrastructure/cdk.out.*/
 .cdk.staging/
 *.js.map
 coverage/
