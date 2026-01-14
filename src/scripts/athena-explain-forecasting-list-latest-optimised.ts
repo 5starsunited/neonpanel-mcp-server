@@ -16,7 +16,7 @@ async function main() {
     'athena_tools',
     'tools',
     'forecasting_list_latest_sales_forecast',
-    'query.sql',
+    'query_optimised.sql',
   );
 
   const template = fs.readFileSync(toolSqlPath, 'utf8');
@@ -64,7 +64,6 @@ async function main() {
     maxRows: 50,
   });
 
-  // Athena EXPLAIN typically returns a single column; print the rows.
   for (const row of res.rows) {
     const values = Object.values(row);
     // eslint-disable-next-line no-console
