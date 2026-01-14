@@ -10,7 +10,7 @@
         "properties": {
           "filters": {
             "type": "object",
-            "description": "Item selector and optional filters. This tool expects a single item selector.",
+            "description": "Item selector and optional filters. This tool expects a single item selector. Provide either: (a) inventory_id OR (b) sku + marketplace + company_id.",
             "properties": {
               "company": {
                 "type": "string",
@@ -148,32 +148,7 @@
       }
     },
     "required": ["query"],
-    "additionalProperties": false,
-
-    "anyOf": [
-      {
-        "description": "Use inventory_id as the item selector.",
-        "type": "object",
-        "properties": {
-          "query": {
-            "properties": {
-              "filters": { "required": ["inventory_id"] }
-            }
-          }
-        }
-      },
-      {
-        "description": "Use SKU + marketplace + company_id as the item selector.",
-        "type": "object",
-        "properties": {
-          "query": {
-            "properties": {
-              "filters": { "required": ["company_id", "sku", "marketplace"] }
-            }
-          }
-        }
-      }
-    ]
+    "additionalProperties": false
   },
   "outputSchema": {
     "type": "object",
