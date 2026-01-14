@@ -71,7 +71,7 @@ item AS (
     AND pil.month = s.month
     AND pil.day = s.day
 
-    AND (p.apply_inventory_id_filter = false OR pil.inventory_id = p.inventory_id)
+    AND (p.apply_inventory_id_filter = false OR pil.inventory_id = CAST(p.inventory_id AS VARCHAR))
     AND (p.apply_sku_filter = false OR pil.sku = p.sku)
     AND (p.apply_marketplace_filter = false OR pil.country_code = p.marketplace)
 
@@ -175,7 +175,7 @@ actual_rows AS (
   WHERE
     p.include_actuals
 
-    AND h.company_id = r.company_id
+    AND CAST(h.company_id AS VARCHAR) = CAST(r.company_id AS VARCHAR)
     AND h.sku = r.sku
     AND h.amazon_marketplace_id = r.marketplace_key
 
