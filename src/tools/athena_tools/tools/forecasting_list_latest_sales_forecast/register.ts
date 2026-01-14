@@ -144,7 +144,6 @@ async function getAllowedCompanyIds(requestedCompanyId: number | undefined, cont
 
 export function registerForecastingListLatestSalesForecastTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const sqlPath = path.join(__dirname, 'query.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -220,6 +219,10 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
       const salesForecastTable = config.athena.tables.salesForecast;
 
       const limit = Math.min(2000, query.limit ?? 50);
+
+      // Use optimised query for the dominant path (details).
+      // Keep baseline query for aggregate output (optimised SQL is detail-only).
+      const sqlPath = path.join(__dirname, toolSpecific.aggregate ? 'query.sql' : 'query_optimised.sql');
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {

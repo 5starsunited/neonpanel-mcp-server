@@ -4,6 +4,7 @@ import {
   GetQueryResultsCommand,
   StartQueryExecutionCommand,
   type ColumnInfo,
+  type GetQueryExecutionCommandOutput,
   type Row,
 } from '@aws-sdk/client-athena';
 import { AssumeRoleCommand, STSClient } from '@aws-sdk/client-sts';
@@ -26,12 +27,18 @@ export type AthenaQueryResult = {
   query: string;
   columns: Array<{ name: string; type?: string }>; // Athena type strings can vary
   rows: Array<Record<string, string | null>>;
+  stats?: {
+    dataScannedInBytes?: number;
+    engineExecutionTimeInMillis?: number;
+    totalExecutionTimeInMillis?: number;
+    queryPlanningTimeInMillis?: number;
+    serviceProcessingTimeInMillis?: number;
+    queryQueueTimeInMillis?: number;
+  };
 };
 
 export async function runAthenaQuery(options: AthenaQueryOptions): Promise<AthenaQueryResult> {
-  const region =
-    options.database ? (config.athena.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION) :
-      (config.athena.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION);
+  const region = config.athena.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
   if (!region) {
     throw new AppError('AWS region is not configured (AWS_REGION).', {
       status: 500,
@@ -73,12 +80,16 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
   const pollIntervalMs = options.pollIntervalMs ?? 1_000;
   const deadline = Date.now() + maxWaitMs;
 
+  let lastExecution: GetQueryExecutionCommandOutput | undefined;
+
   while (true) {
     const execution = await client.send(
       new GetQueryExecutionCommand({
         QueryExecutionId: queryExecutionId,
       }),
     );
+
+    lastExecution = execution;
 
     const state = execution.QueryExecution?.Status?.State;
 
@@ -116,6 +127,8 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
 
   const maxRows = Math.max(1, Math.min(1000, options.maxRows ?? 200));
 
+  const executionStats = lastExecution?.QueryExecution?.Statistics;
+
   const results = await client.send(
     new GetQueryResultsCommand({
       QueryExecutionId: queryExecutionId,
@@ -140,6 +153,16 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
     query: options.query,
     columns,
     rows: dataRows.map((row) => rowToObject(row, columnInfo)),
+    stats: executionStats
+      ? {
+          dataScannedInBytes: executionStats.DataScannedInBytes,
+          engineExecutionTimeInMillis: executionStats.EngineExecutionTimeInMillis,
+          totalExecutionTimeInMillis: executionStats.TotalExecutionTimeInMillis,
+          queryPlanningTimeInMillis: executionStats.QueryPlanningTimeInMillis,
+          serviceProcessingTimeInMillis: executionStats.ServiceProcessingTimeInMillis,
+          queryQueueTimeInMillis: executionStats.QueryQueueTimeInMillis,
+        }
+      : undefined,
   };
 }
 

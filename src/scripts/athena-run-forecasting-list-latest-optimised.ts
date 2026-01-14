@@ -4,10 +4,18 @@ import { runAthenaQuery } from '../clients/athena';
 import { config } from '../config';
 import { renderSqlTemplate } from '../tools/athena_tools/runtime/render-sql';
 
+function sqlVarcharArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
+  const escaped = values.map((v) => `'${String(v).replace(/'/g, "''")}'`);
+  return `CAST(ARRAY[${escaped.join(',')}] AS ARRAY(VARCHAR))`;
+}
+
 async function main() {
-  process.stdout.on('error', (err: any) => {
-    if (err && err.code === 'EPIPE') process.exit(0);
-  });
+  const companyId = Number(process.env.COMPANY_ID ?? '106');
+  const marketplaces = (process.env.MARKETPLACES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const toolSqlPath = path.join(
     process.cwd(),
@@ -16,15 +24,10 @@ async function main() {
     'athena_tools',
     'tools',
     'forecasting_list_latest_sales_forecast',
-    'query.sql',
+    'query_optimised.sql',
   );
 
   const template = fs.readFileSync(toolSqlPath, 'utf8');
-
-  // For EXPLAIN, we can use a dummy company_id; query planning/type-checking
-  // does not require actual matching rows.
-  const companyId = Number(process.env.COMPANY_ID ?? '1');
-
   const rendered = renderSqlTemplate(template, {
     catalog: config.athena.catalog,
     database: config.athena.database,
@@ -32,10 +35,10 @@ async function main() {
     forecasting_database: config.athena.tables.forecastingDatabase,
     sales_forecast_table: config.athena.tables.salesForecast,
 
-    limit_top_n: 1,
+    limit_top_n: 10,
     horizon_months: 12,
     include_plan_series_sql: 'TRUE',
-    include_sales_history_signals_sql: 'FALSE',
+    include_sales_history_signals_sql: 'TRUE',
 
     aggregate_sql: 'FALSE',
     aggregate_by_sql: `'parent_asin'`,
@@ -48,28 +51,24 @@ async function main() {
     parent_asins_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
     brands_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
     product_families_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
-    marketplaces_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    marketplaces_array: sqlVarcharArrayExpr(marketplaces),
     revenue_abcd_classes_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
   });
 
-  const explainQuery = `EXPLAIN ${rendered}`;
-
   const res = await runAthenaQuery({
-    query: explainQuery,
+    query: rendered,
     database: config.athena.database,
     workGroup: config.athena.workgroup,
     outputLocation: config.athena.outputLocation,
-    maxWaitMs: 60_000,
+    maxWaitMs: 120_000,
     pollIntervalMs: 1_000,
-    maxRows: 50,
+    maxRows: 20,
   });
 
-  // Athena EXPLAIN typically returns a single column; print the rows.
-  for (const row of res.rows) {
-    const values = Object.values(row);
-    // eslint-disable-next-line no-console
-    console.log(values.join('\t'));
-  }
+  // eslint-disable-next-line no-console
+  console.log(`Rows returned: ${res.rows.length}`);
+  // eslint-disable-next-line no-console
+  console.log(res.rows.slice(0, 3));
 }
 
 main().catch((err) => {

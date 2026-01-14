@@ -386,7 +386,10 @@ SELECT
   CAST(NULL AS DOUBLE) AS avg_units_30d,
   CAST(NULL AS DOUBLE) AS avg_units_7d,
   CAST(NULL AS DOUBLE) AS avg_units_3d,
-  CAST(NULL AS DOUBLE) AS sales_share_basis_value,
+  CASE
+    WHEN p.sales_share_basis = 'units_sold_last_30_days' THEN COALESCE(CAST(g.units_sold_last_30_days AS DOUBLE), 0.0)
+    ELSE COALESCE(CAST(g.sales_last_30_days AS DOUBLE), 0.0)
+  END AS sales_share_basis_value,
   g.group_key,
 
   g.snapshot_year,
