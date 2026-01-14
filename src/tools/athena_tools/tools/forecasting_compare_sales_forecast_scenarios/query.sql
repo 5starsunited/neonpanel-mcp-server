@@ -91,28 +91,37 @@ resolved AS (
 
 run_candidates AS (
   -- Select which updated_at values (runs) to include.
-  SELECT DISTINCT f.updated_at
-  FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
+  SELECT updated_at
+  FROM (
+    SELECT
+      updated_at,
+      row_number() OVER (ORDER BY updated_at DESC) AS rn
+    FROM (
+      SELECT DISTINCT f.updated_at
+      FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
+      CROSS JOIN params p
+      CROSS JOIN resolved r
+      WHERE
+        f.company_id = r.company_id
+        AND f.sku = r.sku
+        AND f.amazon_marketplace_id = r.marketplace_key
+
+        AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
+
+        AND (
+          p.run_selector_type = 'latest_n'
+          OR (
+            p.run_selector_type = 'date_range'
+            AND (p.updated_at_from IS NULL OR f.updated_at >= p.updated_at_from)
+            AND (p.updated_at_to IS NULL OR f.updated_at < p.updated_at_to)
+          )
+        )
+    ) d
+  ) ranked
   CROSS JOIN params p
-  CROSS JOIN resolved r
   WHERE
-    f.company_id = r.company_id
-    AND f.sku = r.sku
-    AND f.amazon_marketplace_id = r.marketplace_key
-
-    AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
-
-    AND (
-      p.run_selector_type = 'latest_n'
-      OR (
-        p.run_selector_type = 'date_range'
-        AND (p.updated_at_from IS NULL OR f.updated_at >= p.updated_at_from)
-        AND (p.updated_at_to IS NULL OR f.updated_at < p.updated_at_to)
-      )
-    )
-
-  ORDER BY f.updated_at DESC
-  LIMIT (CASE WHEN (SELECT run_selector_type FROM params) = 'latest_n' THEN (SELECT run_latest_n FROM params) ELSE 1000 END)
+    (p.run_selector_type = 'latest_n' AND ranked.rn <= p.run_latest_n)
+    OR (p.run_selector_type <> 'latest_n' AND ranked.rn <= 1000)
 ),
 
 forecast_rows AS (
