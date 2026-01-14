@@ -79,7 +79,7 @@ forecast_latest_rows AS (
     f.dataset,
     f.scenario_uuid,
     f.currency,
-    f.marketplace_id,
+    f.amazon_marketplace_id,
     f.sku
 
   FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
@@ -99,7 +99,7 @@ forecast_item_plan AS (
     MAX(fr.dataset) AS dataset,
     MAX(fr.scenario_uuid) AS scenario_uuid,
     MAX(fr.currency) AS currency,
-    MAX(fr.marketplace_id) AS marketplace_id,
+    MAX(fr.amazon_marketplace_id) AS marketplace_id,
     MAX(fr.sku) AS sku,
 
     slice(
@@ -178,7 +178,7 @@ t_base AS (
     pil.month AS snapshot_month,
     pil.day AS snapshot_day,
 
-    fp.run_period AS forecast_run_period,
+    CAST(fp.run_period AS VARCHAR) AS forecast_run_period,
     fp.run_updated_at AS forecast_run_updated_at
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
@@ -396,7 +396,7 @@ SELECT
   g.snapshot_month,
   g.snapshot_day,
 
-  CAST(NULL AS DATE) AS forecast_run_period,
+  CAST(NULL AS VARCHAR) AS forecast_run_period,
   CAST(NULL AS TIMESTAMP) AS forecast_run_updated_at,
 
   CAST(NULL AS DOUBLE) AS item_sales_share,
