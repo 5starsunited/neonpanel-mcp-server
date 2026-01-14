@@ -71,7 +71,7 @@ item AS (
     AND pil.month = s.month
     AND pil.day = s.day
 
-    AND (p.apply_inventory_id_filter = false OR pil.inventory_id = CAST(p.inventory_id AS VARCHAR))
+    AND (p.apply_inventory_id_filter = false OR TRY_CAST(pil.inventory_id AS BIGINT) = p.inventory_id)
     AND (p.apply_sku_filter = false OR pil.sku = p.sku)
     AND (p.apply_marketplace_filter = false OR pil.country_code = p.marketplace)
 
@@ -99,12 +99,14 @@ run_candidates AS (
     FROM (
       SELECT DISTINCT f.updated_at
       FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
+      INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+        ON m.amazon_marketplace_id = f.amazon_marketplace_id
       CROSS JOIN params p
       CROSS JOIN resolved r
       WHERE
         f.company_id = r.company_id
         AND f.sku = r.sku
-        AND f.amazon_marketplace_id = r.marketplace_key
+        AND m.code = r.marketplace_key
 
         AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
 
@@ -134,13 +136,15 @@ forecast_rows AS (
     CAST(f.sales_amount AS DOUBLE) AS sales_amount,
     f.currency AS currency
   FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
+  INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+    ON m.amazon_marketplace_id = f.amazon_marketplace_id
   CROSS JOIN params p
   CROSS JOIN resolved r
 
   WHERE
     f.company_id = r.company_id
     AND f.sku = r.sku
-    AND f.amazon_marketplace_id = r.marketplace_key
+    AND m.code = r.marketplace_key
 
     AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
     AND (p.compare_mode <> 'runs' OR cardinality(p.scenario_names) > 0)
@@ -169,6 +173,8 @@ actual_rows AS (
     CAST(h.sales_amount AS DOUBLE) AS sales_amount,
     h.currency AS currency
   FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_history}}" h
+  INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+    ON m.amazon_marketplace_id = h.amazon_marketplace_id
   CROSS JOIN params p
   CROSS JOIN resolved r
 
@@ -177,7 +183,7 @@ actual_rows AS (
 
     AND CAST(h.company_id AS VARCHAR) = CAST(r.company_id AS VARCHAR)
     AND h.sku = r.sku
-    AND h.amazon_marketplace_id = r.marketplace_key
+    AND m.code = r.marketplace_key
 
     AND (p.period_start IS NULL OR h.period >= p.period_start)
     AND (p.period_end IS NULL OR h.period <= p.period_end)

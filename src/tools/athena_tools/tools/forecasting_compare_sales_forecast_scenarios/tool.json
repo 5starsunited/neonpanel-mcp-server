@@ -1,6 +1,6 @@
 {
   "name": "forecasting_compare_sales_forecast_scenarios",
-  "description": "Deep-dive forecasting comparison for a single item. Compares forecast outputs across scenarios and/or across forecast runs (history), and optionally overlays actual sales history (included by default). Read-only; no side effects.\n\nThis tool is for a SINGLE item (inventory_id or sku+marketplace+company_id). For portfolio-level listing of current/latest forecast across many items, use forecasting_list_latest_sales_forecast.\n\nInput uses the shared query envelope:\n- query: filters + limit\n- tool_specific: comparison options (mode, scenario selection, run selection, include_actuals)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nComparison modes:\n- scenarios: compare multiple scenarios for the same run window\n- runs: compare multiple runs (different updated_at) for the same scenario\n- scenarios_and_runs: compare both axes\n\nActuals:\n- include_actuals=true by default; tool will overlay sales history from the dataset sales history table when available.",
+  "description": "Deep-dive forecasting comparison for a single item. Compares forecast outputs across scenarios and/or across forecast runs (history), and optionally overlays actual sales history (included by default). Read-only; no side effects.\n\nThis tool is for a SINGLE item (inventory_id or sku+country_code+company_id). For portfolio-level listing of current/latest forecast across many items, use forecasting_list_latest_sales_forecast.\n\nInput uses the shared query envelope:\n- query: filters + limit\n- tool_specific: comparison options (mode, scenario selection, run selection, include_actuals)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nMarketplace / country selection:\n- Prefer query.filters.country_code (single value array like [\"US\"], [\"UK\"], [\"AU\"]).\n- query.filters.marketplace is a deprecated alias for country_code.\n\nComparison modes:\n- scenarios: compare multiple scenarios for the same run window\n- runs: compare multiple runs (different updated_at) for the same scenario\n- scenarios_and_runs: compare both axes\n\nActuals:\n- include_actuals=true by default; tool will overlay sales history from the dataset sales history table when available.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -36,7 +36,15 @@
                 "items": { "type": "string" },
                 "minItems": 1,
                 "maxItems": 1,
-                "description": "Marketplace selector for SKU-based lookups. Use values consistent with your data (e.g., ATVPDKIKX0DER or US), depending on how your snapshot is keyed."
+                "description": "Deprecated alias for country_code. Use query.filters.country_code instead."
+              },
+
+              "country_code": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Country code selector for SKU-based lookups (single value). Examples: [\"US\"], [\"UK\"], [\"AU\"]."
               },
 
               "asin": {

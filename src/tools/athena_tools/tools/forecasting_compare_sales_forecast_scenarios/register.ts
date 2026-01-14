@@ -63,6 +63,7 @@ const querySchema = z
         inventory_id: z.coerce.number().int().min(1).optional(),
         sku: z.array(z.string()).min(1).max(1).optional(),
         marketplace: z.array(z.string()).min(1).max(1).optional(),
+        country_code: z.array(z.string()).min(1).max(1).optional(),
 
         asin: z.array(z.string()).max(1).optional(),
         parent_asin: z.array(z.string()).max(1).optional(),
@@ -164,7 +165,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
   registry.register({
     name: 'forecasting_compare_sales_forecast_scenarios',
     description:
-      'Deep-dive comparison for a single item across forecast scenarios and/or run history; overlays actuals by default.',
+      'Deep-dive comparison for a single item across forecast scenarios and/or run history; overlays actuals by default. Use country_code (e.g., US/UK/AU) for SKU-based lookups.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -193,16 +194,21 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
       const inventoryId = filters.inventory_id ? Number(filters.inventory_id) : undefined;
       const sku = Array.isArray(filters.sku) ? String(filters.sku[0] ?? '').trim() : '';
-      const marketplace = Array.isArray(filters.marketplace) ? String(filters.marketplace[0] ?? '').trim() : '';
+      const countryCodeRaw = Array.isArray(filters.country_code)
+        ? String(filters.country_code[0] ?? '').trim()
+        : Array.isArray(filters.marketplace)
+          ? String(filters.marketplace[0] ?? '').trim()
+          : '';
 
       const hasInventoryId = Boolean(inventoryId && Number.isFinite(inventoryId) && inventoryId > 0);
-      const hasSkuSelector = sku.length > 0 && marketplace.length > 0;
+      const hasSkuSelector = sku.length > 0 && countryCodeRaw.length > 0;
       if (!hasInventoryId && !hasSkuSelector) {
         return {
           rows: [],
           meta: {
             warnings,
-            error: 'Item selector required: provide query.filters.inventory_id OR (query.filters.sku[0] and query.filters.marketplace[0]).',
+            error:
+              'Item selector required: provide query.filters.inventory_id OR (query.filters.sku[0] and query.filters.country_code[0]). (query.filters.marketplace is a deprecated alias for country_code.)',
           },
         };
       }
@@ -236,7 +242,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
         inventory_id_sql: hasInventoryId ? String(Math.trunc(inventoryId!)) : 'CAST(NULL AS BIGINT)',
         sku_sql: hasSkuSelector ? sqlStringLiteral(sku) : 'CAST(NULL AS VARCHAR)',
-        marketplace_sql: hasSkuSelector ? sqlStringLiteral(marketplace) : 'CAST(NULL AS VARCHAR)',
+        marketplace_sql: hasSkuSelector ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS VARCHAR)',
 
         apply_inventory_id_filter_sql: sqlBooleanLiteral(hasInventoryId),
         apply_sku_filter_sql: sqlBooleanLiteral(hasSkuSelector),
