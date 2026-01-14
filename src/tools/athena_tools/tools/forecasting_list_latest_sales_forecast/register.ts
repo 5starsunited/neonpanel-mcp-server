@@ -262,7 +262,8 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
       // Defensive: if caller requests a specific company_id, enforce it client-side as well.
       if (companyId) {
         return {
-          items: items.filter((it) => (it as any).company_id === companyId),
+          // Athena rows are string-typed; compare as strings to avoid filtering out valid rows.
+          items: items.filter((it) => String((it as any).company_id) === String(companyId)),
           meta: {
             warnings,
             applied_sort: query.sort ?? null,
