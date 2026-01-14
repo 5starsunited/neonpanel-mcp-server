@@ -9,7 +9,8 @@
     "start": "node dist/main.js",
     "test": "tsx --test tests/**/*.test.ts",
     "openapi:refresh": "tsx src/scripts/refresh-openapi.ts",
-    "smoke:discovery": "bash scripts/discovery-smoke.sh"
+    "smoke:discovery": "bash scripts/discovery-smoke.sh",
+    "athena:explain:forecasting_list_latest_sales_forecast": "tsx src/scripts/athena-explain-forecasting-list-latest.ts"
   },
   "license": "MIT",
   "dependencies": {
