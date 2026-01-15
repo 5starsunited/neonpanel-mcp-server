@@ -174,7 +174,8 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
       const currencyExpr = sqlNullableVarcharExpr(w.currency ?? null);
       const noteExpr = sqlNullableVarcharExpr(w.note ?? null);
 
-      return `(${[
+      // Use ROW(...) so the SQL template can consume via UNNEST(ARRAY[...]).
+      return `ROW(${[
         inventoryIdExpr,
         skuExpr,
         marketplaceExpr,
@@ -333,6 +334,8 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
       const writesValuesSql = buildWritesValuesSql(writes as any);
 
       const rendered = renderSqlTemplate(template, {
+        forecast_catalog: config.athena.catalog,
+        forecast_database: config.athena.tables.forecastingDatabase,
         company_id: companyId,
         dry_run_sql: sqlBooleanLiteral(dryRun),
         reason_sql: sqlStringLiteral(parsed.reason),
@@ -382,7 +385,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
         if (!okSalesAmount) problems.push('invalid sales_amount');
         if (!okItemSelector) problems.push('missing item selector');
 
-        const status = problems.length === 0 ? (dryRun ? 'ok' : 'skipped') : 'error';
+        const status = problems.length === 0 ? 'ok' : 'error';
 
         return {
           status,
@@ -400,7 +403,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
               ? `Validation failed: ${problems.join(', ')}.`
               : dryRun
                 ? 'Validated (dry run).'
-                : 'Validated, but writes are not enabled yet (dry_run=false is currently blocked).',
+                : 'Validated (ready to write).',
         };
       });
 
@@ -444,11 +447,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           written: writableRows,
           items: items.map((it) => ({
             ...it,
-            status: (it as any).status === 'ok' ? 'ok' : (it as any).status,
-            message:
-              (it as any).status === 'ok'
-                ? 'Written (append-only).'
-                : (it as any).message,
+            message: it.status === 'ok' ? 'Written (append-only).' : it.message,
           })),
           meta: { warnings },
         };

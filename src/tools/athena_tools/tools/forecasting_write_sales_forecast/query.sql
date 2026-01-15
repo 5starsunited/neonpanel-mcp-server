@@ -21,7 +21,7 @@ WITH params AS (
 ),
 
 writes_input AS (
-  -- The server renders {{writes_values_sql}} as a VALUES list.
+  -- The server renders {{writes_values_sql}} as an array of ROW(...) items.
   -- Columns (in order):
   -- inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
   -- forecast_period, units_sold, sales_amount, currency, note
@@ -40,9 +40,10 @@ writes_input AS (
     CAST(v.currency AS VARCHAR) AS currency,
     CAST(v.note AS VARCHAR) AS note
 
-  FROM (
-    VALUES
+  FROM UNNEST(
+    ARRAY[
       {{writes_values_sql}}
+    ]
   ) AS v(
     inventory_id,
     sku,
@@ -62,9 +63,14 @@ normalized AS (
   SELECT
     p.company_id,
 
+    p.created_at,
+
+    -- Interpret marketplace as either country_code (e.g., US) or amazon marketplace id.
+    COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')) AS amazon_marketplace_id,
+    NULLIF(TRIM(w.marketplace), '') AS marketplace,
+
     w.inventory_id,
     NULLIF(TRIM(w.sku), '') AS sku,
-    NULLIF(TRIM(w.marketplace), '') AS marketplace,
 
     w.scenario_id,
     NULLIF(TRIM(w.scenario_uuid), '') AS scenario_uuid,
@@ -79,7 +85,7 @@ normalized AS (
 
     -- derived join key used across forecasting tables
     CASE
-      WHEN w.sku IS NOT NULL AND w.marketplace IS NOT NULL THEN concat(w.sku, '-', CAST(p.company_id AS VARCHAR), '-', w.marketplace)
+      WHEN w.sku IS NOT NULL AND COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')) IS NOT NULL THEN concat(w.sku, '-', CAST(p.company_id AS VARCHAR), '-', COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')))
       ELSE CAST(NULL AS VARCHAR)
     END AS sku_key,
 
@@ -88,11 +94,12 @@ normalized AS (
     p.author_name,
     p.author_id,
     p.idempotency_key,
-    p.dry_run,
-    p.received_at
+    p.dry_run
 
   FROM writes_input w
   CROSS JOIN params p
+  LEFT JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+    ON m.code = w.marketplace OR m.amazon_marketplace_id = w.marketplace
 )
 
 SELECT

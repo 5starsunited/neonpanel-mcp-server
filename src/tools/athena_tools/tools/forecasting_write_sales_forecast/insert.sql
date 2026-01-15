@@ -31,9 +31,10 @@ writes_input AS (
     CAST(v.currency AS VARCHAR) AS currency,
     CAST(v.note AS VARCHAR) AS note
 
-  FROM (
-    VALUES
+  FROM UNNEST(
+    ARRAY[
       {{writes_values_sql}}
+    ]
   ) AS v(
     inventory_id,
     sku,
@@ -53,8 +54,9 @@ normalized AS (
   SELECT
     p.company_id,
 
-    NULLIF(TRIM(w.marketplace), '') AS amazon_marketplace_id,
-    NULLIF(TRIM(w.marketplace), '') AS marketplace_id,
+    -- Interpret marketplace as either country_code (e.g., US) or amazon marketplace id.
+    COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')) AS amazon_marketplace_id,
+    COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')) AS marketplace_id,
     NULLIF(TRIM(w.currency), '') AS currency,
 
     w.inventory_id,
@@ -76,6 +78,8 @@ normalized AS (
 
   FROM writes_input w
   CROSS JOIN params p
+  LEFT JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+    ON m.code = w.marketplace OR m.amazon_marketplace_id = w.marketplace
 ),
 
 valid AS (
@@ -108,17 +112,12 @@ SELECT
   amazon_marketplace_id,
   marketplace_id,
   currency,
-  sku,
   company_id,
   inventory_id,
   scenario_uuid,
-  forecast_period,
-  units_sold,
   sales_amount,
   currency,
   author_name,
   dataset,
-  period,
-  updated_at
 FROM valid
 WHERE ok_forecast_period AND ok_units_sold AND ok_sales_amount AND ok_item_selector;
