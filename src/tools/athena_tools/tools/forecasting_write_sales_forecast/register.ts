@@ -193,6 +193,11 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
     .join(',\n      ');
 }
 
+function truncateForDebug(value: string, maxLen: number): string {
+  if (value.length <= maxLen) return value;
+  return `${value.slice(0, maxLen)}\n-- [truncated]`;
+}
+
 async function resolveSkuAndMarketplaceFromSnapshot(
   companyId: number,
   inventoryIds: number[],
@@ -367,6 +372,11 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           ? { code: error.code, details: error.details }
           : undefined;
 
+        // Always include a small snippet to aid debugging parse errors in production.
+        // Full SQL can still be included via debug_sql.
+        const valuesSqlSnippet = truncateForDebug(writesValuesSql, 4_000);
+        const renderedSqlSnippet = truncateForDebug(rendered, 8_000);
+
         return {
           dry_run: true,
           accepted: parsed.writes.length,
@@ -377,6 +387,8 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
             error: {
               message,
               ...(details ? { details } : {}),
+              values_sql: valuesSqlSnippet,
+              rendered_sql_snippet: renderedSqlSnippet,
             },
             ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
           },
@@ -476,6 +488,9 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
             ? { code: error.code, details: error.details }
             : undefined;
 
+          const valuesSqlSnippet = truncateForDebug(writesValuesSql, 4_000);
+          const insertSqlSnippet = truncateForDebug(insertRendered, 8_000);
+
           return {
             dry_run: true,
             accepted,
@@ -486,6 +501,8 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
               error: {
                 message,
                 ...(details ? { details } : {}),
+                values_sql: valuesSqlSnippet,
+                insert_rendered_sql_snippet: insertSqlSnippet,
               },
               ...(debugSql
                 ? { debug: { rendered_sql: rendered, insert_rendered_sql: insertRendered } }
