@@ -4,6 +4,7 @@ import { registerSupplyChainAnalyzeSalesVelocityTool } from './tools/supply_chai
 import { registerSupplyChainListProductLogisticsParametersTool } from './tools/supply_chain_list_product_logistics_parameters/register';
 import { registerSupplyChainListFbaReplenishmentCandidatesTool } from './tools/supply_chain_list_fba_replenishment_candidates/register';
 import { registerSupplyChainListPoPlacementCandidatesTool } from './tools/supply_chain_list_po_placement_candidates/register';
+import { registerSupplyChainListStockReplenishmentRiskItemsTool } from './tools/supply_chain_list_stock_replenishment_risk_items/register';
 import { registerForecastingListLatestSalesForecastTool } from './tools/forecasting_list_latest_sales_forecast/register';
 import { registerForecastingCompareSalesForecastScenariosTool } from './tools/forecasting_compare_sales_forecast_scenarios/register';
 import { registerForecastingWriteSalesForecastTool } from './tools/forecasting_write_sales_forecast/register';
@@ -15,6 +16,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerForecastingWriteSalesForecastTool(registry);
   registerSupplyChainListFbaReplenishmentCandidatesTool(registry);
   registerSupplyChainListPoPlacementCandidatesTool(registry);
+  registerSupplyChainListStockReplenishmentRiskItemsTool(registry);
   registerSupplyChainAnalyzeSalesVelocityTool(registry);
   registerSupplyChainInspectInventorySkuSnapshotTool(registry);
   registerSupplyChainListProductLogisticsParametersTool(registry);

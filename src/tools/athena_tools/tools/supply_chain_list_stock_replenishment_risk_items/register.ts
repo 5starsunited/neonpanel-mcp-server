@@ -128,8 +128,10 @@ async function resolveCompanyIds(
   // Fallback: fetch from NeonPanel API
   if (companyIds.length === 0) {
     try {
-      const response = await neonPanelRequest<CompaniesWithPermissionResponse>('/authorization/companies', 'GET', {
-        token: context.bearerToken,
+      const permission = 'view:quicksight_group.business_planning_new';
+      const response = await neonPanelRequest<CompaniesWithPermissionResponse>({
+        token: context.userToken,
+        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
       });
       const companies = response.companies ?? [];
       companyIds = companies
@@ -146,7 +148,7 @@ async function resolveCompanyIds(
 
 function enrichWithRecommendations(rows: any[]): any[] {
   return rows.map((row) => {
-    const warehouse_options = [];
+    const warehouse_options: any[] = [];
     const po_rec = {
       recommended_po_qty: 100, // TODO: compute based on risk tier + velocity
       rationale: 'Restore supply to minimum threshold',
@@ -167,152 +169,185 @@ function enrichWithRecommendations(rows: any[]): any[] {
   });
 }
 
-export const register: ToolRegistry = {
-  name: 'supply_chain_list_stock_replenishment_risk_items',
-  description: 'List items at risk of stockout or insufficient days-of-supply with replenishment recommendations',
-  handler: async (input: unknown, context: ToolExecutionContext): Promise<any> => {
-    try {
-      // Parse and validate input
-      const parsed = inputSchema.parse(input);
-      const toolSpecific = toolSpecificSchema.parse(parsed.tool_specific ?? {});
-      const query = parsed.query;
+export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry: ToolRegistry) {
+  const toolJsonPath = path.join(__dirname, 'tool.json');
 
-      // Resolve company IDs
-      const companyIds = await resolveCompanyIds(query.filters?.company_id ?? query.filters?.company, context);
-      if (companyIds.length === 0) {
-        return {
-          items: [],
-          meta: {
-            warnings: ['No authorized companies found'],
-            risk_distribution: {},
-          },
+  let specJson: ToolSpecJson | undefined;
+  try {
+    if (fs.existsSync(toolJsonPath)) {
+      specJson = JSON.parse(fs.readFileSync(toolJsonPath, 'utf8')) as ToolSpecJson;
+    }
+  } catch {
+    specJson = undefined;
+  }
+
+  registry.register({
+    name: 'supply_chain_list_stock_replenishment_risk_items',
+    description: 'List items at risk of stockout or insufficient days-of-supply with replenishment recommendations',
+    isConsequential: false,
+    inputSchema,
+    outputSchema: specJson?.outputSchema ?? fallbackOutputSchema,
+    specJson,
+    execute: async (args: unknown, context: ToolExecutionContext): Promise<any> => {
+      try {
+        // Parse and validate input
+        const parsed = inputSchema.parse(args);
+        const toolSpecific = toolSpecificSchema.parse(parsed.tool_specific ?? {});
+        const query = parsed.query;
+
+        // Resolve company IDs
+        const companyIds = await resolveCompanyIds(query.filters?.company_id ?? query.filters?.company, context);
+        if (companyIds.length === 0) {
+          return {
+            items: [],
+            meta: {
+              warnings: ['No authorized companies found'],
+              risk_distribution: {},
+            },
+          };
+        }
+
+        // Load SQL template
+        const sqlPath = path.join(__dirname, 'query.sql');
+        const sqlTemplate = await loadTextFile(sqlPath);
+
+        // Render template with parameters
+        const renderedSql = renderSqlTemplate(sqlTemplate, {
+          company_ids_array: sqlCompanyIdArrayExpr(companyIds),
+          skus_array: sqlVarcharArrayExpr(query.filters?.sku ?? []),
+          inventory_ids_array: sqlVarcharArrayExpr((query.filters?.inventory_id as any) ?? []),
+          asins_array: sqlVarcharArrayExpr(query.filters?.asin ?? []),
+          parent_asins_array: sqlVarcharArrayExpr(query.filters?.parent_asin ?? []),
+          brands_array: sqlVarcharArrayExpr(query.filters?.brand ?? []),
+          product_families_array: sqlVarcharArrayExpr(query.filters?.product_family ?? []),
+          countries_array: sqlVarcharArrayExpr(query.filters?.marketplace ?? []),
+          revenue_abcd_classes_array: sqlVarcharArrayExpr(query.filters?.revenue_abcd_class ?? []),
+
+          min_days_of_supply: sqlIntegerLiteral(toolSpecific.min_days_of_supply ?? 28),
+          p80_arrival_buffer_days: sqlIntegerLiteral(toolSpecific.p80_arrival_buffer_days ?? 0),
+          include_warehouse_stock: sqlBooleanLiteral(toolSpecific.include_warehouse_stock ?? true),
+          include_inbound_details: sqlBooleanLiteral(toolSpecific.include_inbound_details ?? true),
+          velocity_weighting_mode: sqlStringLiteral(toolSpecific.velocity_weighting_mode ?? 'balanced'),
+          weight_30d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_30d ?? 0.5),
+          weight_7d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_7d ?? 0.3),
+          weight_3d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_3d ?? 0.2),
+          stockout_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.stockout_risk_filter ?? []),
+          supply_buffer_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.supply_buffer_risk_filter ?? []),
+
+          limit_top_n: sqlIntegerLiteral(query.limit ?? 50),
+          sort_field: sqlStringLiteralExpr(query.sort?.field ?? null),
+          sort_direction: sqlStringLiteralExpr(query.sort?.direction ?? 'asc'),
+
+          catalog: config.athena.catalog,
+          database: config.athena.database,
+        });
+
+        // Execute query
+        const results = await runAthenaQuery({
+          query: renderedSql,
+          database: config.athena.database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: query.limit ?? 50,
+        });
+
+        if (!results?.rows || results.rows.length === 0) {
+          return {
+            items: [],
+            meta: {
+              applied_sort: query.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
+              selected_fields: query.select_fields,
+              included_fields: [
+                'inventory_id',
+                'sku',
+                'country_code',
+                'current_fba_stock',
+                'warehouse_stock',
+                'sales_velocity_30d',
+                'inbound_units',
+                'days_of_supply_p50',
+                'days_of_supply_p80',
+                'days_of_supply_p95',
+                'stockout_risk_tier',
+                'supply_buffer_risk_tier',
+                'recommendation',
+              ],
+              risk_distribution: { stockout_risk: {}, supply_buffer_risk: {} },
+              warnings: [],
+            },
+          };
+        }
+
+        // Enrich with recommendations
+        const enriched = enrichWithRecommendations(results.rows);
+
+        // Compute risk distribution
+        const risk_dist = {
+          stockout_risk: { high: 0, moderate: 0, low: 0, ok: 0 },
+          supply_buffer_risk: { high: 0, moderate: 0, low: 0, ok: 0 },
         };
-      }
+        for (const row of enriched) {
+          const stockout_tier = row.stockout_risk_tier as string | undefined;
+          const buffer_tier = row.supply_buffer_risk_tier as string | undefined;
+          if (stockout_tier && stockout_tier in risk_dist.stockout_risk) {
+            risk_dist.stockout_risk[stockout_tier as keyof typeof risk_dist.stockout_risk]++;
+          }
+          if (buffer_tier && buffer_tier in risk_dist.supply_buffer_risk) {
+            risk_dist.supply_buffer_risk[buffer_tier as keyof typeof risk_dist.supply_buffer_risk]++;
+          }
+        }
 
-      // Load SQL template
-      const sqlPath = path.join(__dirname, 'query.sql');
-      const sqlTemplate = loadTextFile(sqlPath);
-
-      // Render template with parameters
-      const renderedSql = renderSqlTemplate(sqlTemplate, {
-        company_ids_array: sqlCompanyIdArrayExpr(companyIds),
-        skus_array: sqlVarcharArrayExpr(query.filters?.sku ?? []),
-        inventory_ids_array: sqlVarcharArrayExpr((query.filters?.inventory_id as any) ?? []),
-        asins_array: sqlVarcharArrayExpr(query.filters?.asin ?? []),
-        parent_asins_array: sqlVarcharArrayExpr(query.filters?.parent_asin ?? []),
-        brands_array: sqlVarcharArrayExpr(query.filters?.brand ?? []),
-        product_families_array: sqlVarcharArrayExpr(query.filters?.product_family ?? []),
-        countries_array: sqlVarcharArrayExpr(query.filters?.marketplace ?? []),
-        revenue_abcd_classes_array: sqlVarcharArrayExpr(query.filters?.revenue_abcd_class ?? []),
-
-        min_days_of_supply: sqlIntegerLiteral(toolSpecific.min_days_of_supply ?? 28),
-        p80_arrival_buffer_days: sqlIntegerLiteral(toolSpecific.p80_arrival_buffer_days ?? 0),
-        include_warehouse_stock: sqlBooleanLiteral(toolSpecific.include_warehouse_stock ?? true),
-        include_inbound_details: sqlBooleanLiteral(toolSpecific.include_inbound_details ?? true),
-        velocity_weighting_mode: sqlStringLiteral(toolSpecific.velocity_weighting_mode ?? 'balanced'),
-        weight_30d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_30d ?? 0.5),
-        weight_7d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_7d ?? 0.3),
-        weight_3d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_3d ?? 0.2),
-        stockout_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.stockout_risk_filter ?? []),
-        supply_buffer_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.supply_buffer_risk_filter ?? []),
-
-        limit_top_n: sqlIntegerLiteral(query.limit ?? 50),
-        sort_field: sqlStringLiteralExpr(query.sort?.field ?? null),
-        sort_direction: sqlStringLiteralExpr(query.sort?.direction ?? 'asc'),
-
-        catalog: config.AthenaConfig.Catalog,
-        database: config.AthenaConfig.Database,
-      });
-
-      // Execute query
-      const results = await runAthenaQuery(renderedSql, {
-        profile: config.AthenaConfig.AwsProfile,
-        outputLocation: config.AthenaConfig.OutputLocation,
-        workGroup: config.AthenaConfig.WorkGroup,
-      });
-
-      if (!results?.rows || results.rows.length === 0) {
         return {
-          items: [],
+          items: enriched,
           meta: {
             applied_sort: query.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
             selected_fields: query.select_fields,
             included_fields: [
               'inventory_id',
               'sku',
+              'child_asin',
+              'parent_asin',
+              'brand',
+              'product_family',
+              'product_name',
               'country_code',
               'current_fba_stock',
               'warehouse_stock',
+              'total_available_stock',
               'sales_velocity_30d',
+              'sales_velocity_7d',
+              'sales_velocity_3d',
+              'weighted_velocity',
               'inbound_units',
+              'inbound_p50_days',
+              'inbound_p80_days',
+              'inbound_p95_days',
+              'inbound_shipment_count',
               'days_of_supply_p50',
               'days_of_supply_p80',
               'days_of_supply_p95',
               'stockout_risk_tier',
               'supply_buffer_risk_tier',
-              'recommendation',
+              'stockout_critical_velocity',
+              'supply_buffer_critical_velocity',
+              'warehouse_replenishment_options',
+              'purchase_order_recommendation',
             ],
-            risk_distribution: { stockout_risk: {}, supply_buffer_risk: {} },
+            risk_distribution: risk_dist,
             warnings: [],
           },
         };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          items: [],
+          meta: {
+            warnings: [message],
+            risk_distribution: { stockout_risk: {}, supply_buffer_risk: {} },
+            error: message,
+          },
+        };
       }
-
-      // Enrich with recommendations
-      const enriched = enrichWithRecommendations(results.rows);
-
-      // Compute risk distribution
-      const risk_dist = {
-        stockout_risk: { high: 0, moderate: 0, low: 0, ok: 0 },
-        supply_buffer_risk: { high: 0, moderate: 0, low: 0, ok: 0 },
-      };
-      for (const row of enriched) {
-        if (row.stockout_risk_tier) risk_dist.stockout_risk[row.stockout_risk_tier]++;
-        if (row.supply_buffer_risk_tier) risk_dist.supply_buffer_risk[row.supply_buffer_risk_tier]++;
-      }
-
-      return {
-        items: enriched,
-        meta: {
-          applied_sort: query.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
-          selected_fields: query.select_fields,
-          included_fields: [
-            'inventory_id',
-            'sku',
-            'country_code',
-            'current_fba_stock',
-            'warehouse_stock',
-            'sales_velocity_30d',
-            'sales_velocity_7d',
-            'sales_velocity_3d',
-            'inbound_units',
-            'inbound_p50_days',
-            'inbound_p80_days',
-            'inbound_p95_days',
-            'days_of_supply_p50',
-            'days_of_supply_p80',
-            'days_of_supply_p95',
-            'stockout_risk_tier',
-            'supply_buffer_risk_tier',
-            'stockout_critical_velocity',
-            'supply_buffer_critical_velocity',
-            'warehouse_replenishment_options',
-            'purchase_order_recommendation',
-            'recommendation',
-          ],
-          risk_distribution: risk_dist,
-          warnings: [],
-        },
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        items: [],
-        meta: {
-          warnings: [`Error: ${message}`],
-          risk_distribution: {},
-        },
-      };
-    }
-  },
-};
+    },
+  });
+}
