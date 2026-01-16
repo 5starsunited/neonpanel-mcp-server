@@ -526,6 +526,7 @@ async function executeSupplyChainListFbaReplenishmentCandidates(
       days_overdue: toNumber(getRowValue(record, 'days_overdue')) ?? 0,
       fba_on_hand: toInt(getRowValue(record, 'fba_on_hand')) ?? 0,
       fba_inbound: toInt(getRowValue(record, 'fba_inbound')) ?? 0,
+      fba_shipments_json: (getRowValue(record, 'fba_shipments_json') ?? undefined) as string | undefined,
       recommended_ship_units: toInt(getRowValue(record, 'recommended_ship_units')) ?? 0,
       recommended_by_amazon_replenishment_quantity:
         toInt(getRowValue(record, 'recommended_by_amazon_replenishment_quantity')) ?? 0,

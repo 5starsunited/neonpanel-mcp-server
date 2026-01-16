@@ -148,23 +148,16 @@ async function resolveCompanyIds(
 
 function enrichWithRecommendations(rows: any[]): any[] {
   return rows.map((row) => {
-    const warehouse_options: any[] = [];
-    const po_rec = {
-      recommended_po_qty: 100, // TODO: compute based on risk tier + velocity
-      rationale: 'Restore supply to minimum threshold',
-      urgency:
-        row.stockout_risk_tier === 'high' || row.supply_buffer_risk_tier === 'high'
-          ? 'immediate'
-          : row.stockout_risk_tier === 'moderate' || row.supply_buffer_risk_tier === 'moderate'
-            ? 'urgent'
-            : 'soon',
-      lead_time_estimate_days: 7, // TODO: fetch from supplier data
-    };
+    const po_recommended =
+      row.stockout_risk_tier === 'high' ||
+      row.stockout_risk_tier === 'moderate' ||
+      row.supply_buffer_risk_tier === 'high' ||
+      row.supply_buffer_risk_tier === 'moderate';
 
     return {
       ...row,
-      warehouse_replenishment_options: warehouse_options,
-      purchase_order_recommendation: po_rec,
+      po_recommended,
+      po_recommendation_note: 'Review supply_chain_list_po_placement_candidates for PO details.',
     };
   });
 }
@@ -344,8 +337,8 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
               'supply_buffer_risk_tier',
               'stockout_critical_velocity',
               'supply_buffer_critical_velocity',
-              'warehouse_replenishment_options',
-              'purchase_order_recommendation',
+              'po_recommended',
+              'po_recommendation_note',
             ],
             risk_distribution: risk_dist,
             warnings: [],

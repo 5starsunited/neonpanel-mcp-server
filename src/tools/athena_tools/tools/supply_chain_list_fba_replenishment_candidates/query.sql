@@ -57,6 +57,7 @@ t AS (
     pil.asin_img_path,
     pil.product_name,
     pil.recommended_replenishment_qty AS recommended_by_amazon_replenishment_quantity,
+    COALESCE(pil.fba_shipments_json, '[]') AS fba_shipments_json,
 
     -- Revenue proxy used for ABCD classification.
     COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
@@ -64,10 +65,10 @@ t AS (
     CAST(
       CASE p.sales_velocity
         WHEN 'target' THEN COALESCE(pil.daily_unit_sales_target, 0)
-        WHEN 'current' THEN COALESCE(
-          COALESCE(pil.avg_units_30d, 0.0),
-          (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
-          0
+        WHEN 'current' THEN (
+          0.5 * COALESCE(pil.avg_units_30d, 0.0)
+          + 0.3 * COALESCE(pil.avg_units_7d, 0.0)
+          + 0.2 * COALESCE(pil.avg_units_3d, 0.0)
         )
         WHEN 'planned' THEN (
           COALESCE(
@@ -75,10 +76,10 @@ t AS (
             0.0
           ) / 30.0
         )
-        ELSE COALESCE(
-          COALESCE(pil.avg_units_30d, 0.0),
-          (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
-          0
+        ELSE (
+          0.5 * COALESCE(pil.avg_units_30d, 0.0)
+          + 0.3 * COALESCE(pil.avg_units_7d, 0.0)
+          + 0.2 * COALESCE(pil.avg_units_3d, 0.0)
         )
       END
     AS DOUBLE) AS sales_velocity,
@@ -204,6 +205,7 @@ SELECT
   t.parent_asin AS parent_asin,
   t.brand AS brand,
   t.product_family AS product_family,
+  t.fba_shipments_json AS fba_shipments_json,
 
   -- item_ref
   t.inventory_id AS item_ref_inventory_id,

@@ -270,9 +270,9 @@ final_output AS (
       supply_buffer_critical_velocity_p95
     ) AS ROW(p50_units_per_day DOUBLE, p80_units_per_day DOUBLE, p95_units_per_day DOUBLE)) AS supply_buffer_critical_velocity,
     
-    -- Placeholder for warehouse_replenishment_options and purchase_order_recommendation (filled by runtime).
-    CAST(NULL AS VARCHAR) AS warehouse_replenishment_options_json,
-    CAST(NULL AS VARCHAR) AS purchase_order_recommendation_json,
+    -- PO signal only (no PO details in this tool).
+    CASE WHEN stockout_risk_tier IN ('high','moderate') OR supply_buffer_risk_tier IN ('high','moderate') THEN TRUE ELSE FALSE END AS po_recommended,
+    CAST('Review supply_chain_list_po_placement_candidates for PO details.' AS VARCHAR) AS po_recommendation_note,
     
     -- Generic recommendation (to be enhanced by runtime logic).
     CONCAT(

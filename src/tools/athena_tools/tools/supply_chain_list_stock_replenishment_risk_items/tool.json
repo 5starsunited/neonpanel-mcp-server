@@ -225,34 +225,8 @@
               }
             },
 
-            "warehouse_replenishment_options": {
-              "type": "array",
-              "description": "Actionable warehouse transfer options ranked by effectiveness. Empty if no warehouse stock available.",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "warehouse_id": { "type": "string", "description": "Source warehouse ID/code." },
-                  "warehouse_name": { "type": "string", "description": "Warehouse name/location." },
-                  "available_qty": { "type": "integer", "description": "Units available in this warehouse." },
-                  "lead_time_days": { "type": "number", "description": "Estimated days to ship and deliver to FBA." },
-                  "recommended_qty_to_ship": { "type": "integer", "description": "Recommended units to transfer (optimized for buffer target or immediate risk reduction)." },
-                  "estimated_arrival_date": { "type": "string", "format": "date", "description": "Projected arrival date in FBA after transfer." },
-                  "impact_on_buffer": { "type": "string", "description": "Expected days-of-supply improvement (e.g., '+5 days' or 'moves from critical to moderate')." }
-                },
-                "additionalProperties": true
-              }
-            },
-
-            "purchase_order_recommendation": {
-              "type": "object",
-              "description": "PO guidance when warehouse stock insufficient or unavailable. Use supply_chain_place_purchase_order tool to execute orders based on these recommendations.",
-              "properties": {
-                "recommended_po_qty": { "type": "integer", "description": "Recommended purchase order quantity." },
-                "rationale": { "type": "string", "description": "Why this quantity (e.g., 'restore to 60d supply at p80 arrival + safety buffer')." },
-                "urgency": { "type": "string", "enum": ["immediate", "urgent", "soon", "planned"], "description": "Order urgency based on risk tier." },
-                "lead_time_estimate_days": { "type": "number", "description": "Typical supplier lead time in days (if available)." }
-              }
-            },
+            "po_recommended": { "type": "boolean", "description": "True when a PO is recommended based on risk tiers." },
+            "po_recommendation_note": { "type": "string", "description": "Next-step guidance to review PO placement candidates." },
 
             "recommendation": { "type": "string", "description": "Actionable suggestion based on both risk tiers, inbound timing, velocity trends, and risk severity (e.g., 'Urgent: expedite 500 units (p50 arrival in 12d, buffer critical)', 'Monitor velocity spike: p80 arrival covers 22d vs 28d target', 'Order 300 units (p95 scenario tight)')." }
           },
