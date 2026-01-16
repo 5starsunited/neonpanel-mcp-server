@@ -3,7 +3,7 @@
 -- Target schema (example): fc_forecasting_prod.fc_sales_forecast_iceberg
 -- Notes:
 -- - Append-only (INSERT INTO). No MERGE/UPSERT.
--- - Server renders {{writes_values_sql}} and audit fields.
+-- - Server renders writes_values_sql and audit fields.
 
 WITH params AS (
   SELECT

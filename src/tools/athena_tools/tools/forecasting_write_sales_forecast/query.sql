@@ -21,7 +21,7 @@ WITH params AS (
 ),
 
 writes_input AS (
-  -- The server renders {{writes_values_sql}} as a VALUES list.
+  -- The server renders writes_values_sql as a VALUES list.
   -- Columns (in order):
   -- inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
   -- forecast_period, units_sold, sales_amount, currency, note
