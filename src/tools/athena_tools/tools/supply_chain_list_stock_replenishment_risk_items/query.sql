@@ -207,11 +207,13 @@ risk_classification AS (
 
 filtered_results AS (
   -- Apply risk tier filters (stockout_risk_filter and supply_buffer_risk_filter use OR logic).
-  SELECT * FROM risk_classification
+  SELECT rc.*
+  FROM risk_classification rc
+  CROSS JOIN params p
   WHERE (
-    (CARDINALITY(stockout_risk_filter) = 0 OR contains(stockout_risk_filter, stockout_risk_tier))
+    (CARDINALITY(p.stockout_risk_filter) = 0 OR contains(p.stockout_risk_filter, rc.stockout_risk_tier))
     OR
-    (CARDINALITY(supply_buffer_risk_filter) = 0 OR contains(supply_buffer_risk_filter, supply_buffer_risk_tier))
+    (CARDINALITY(p.supply_buffer_risk_filter) = 0 OR contains(p.supply_buffer_risk_filter, rc.supply_buffer_risk_tier))
   )
 ),
 
