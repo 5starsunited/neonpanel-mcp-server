@@ -89,7 +89,18 @@ const authorSchema = z
     name: z.string().optional(),
     id: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((a, ctx) => {
+    if (a.type === 'ai') {
+      const name = (a.name ?? '').trim();
+      if (name.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'author.name is required when author.type is "ai" (ask the user what name to record).',
+        });
+      }
+    }
+  });
 
 const writeItemSchema = z
   .object({
@@ -109,7 +120,7 @@ const writeItemSchema = z
     forecast_period: z.string().min(1),
     units_sold: z.coerce.number().min(0),
 
-    sales_amount: z.coerce.number().min(0).optional(),
+    sales_amount: z.coerce.number().min(0),
     currency: z.string().optional(),
 
     note: z.string().optional(),

@@ -76,7 +76,7 @@ normalized AS (
 
     -- In fc_sales_forecast_iceberg, this is the dataset/scenario label.
     COALESCE(NULLIF(TRIM(w.scenario_name), ''), 'override') AS dataset,
-    NULLIF(TRIM(w.scenario_uuid), '') AS scenario_uuid,
+    'manual' AS scenario_uuid,
 
     -- Partition key; use forecast_period by default.
     NULLIF(TRIM(w.forecast_period), '') AS period,
@@ -95,7 +95,7 @@ valid AS (
     *,
     (forecast_period IS NOT NULL) AS ok_forecast_period,
     (units_sold IS NOT NULL AND units_sold >= 0) AS ok_units_sold,
-    (sales_amount IS NULL OR sales_amount >= 0) AS ok_sales_amount,
+    (sales_amount IS NOT NULL AND sales_amount >= 0) AS ok_sales_amount,
     (sku IS NOT NULL AND amazon_marketplace_id IS NOT NULL) AS ok_item_selector
   FROM normalized
 )
