@@ -185,6 +185,8 @@
             "current_fba_stock": { "type": "integer", "description": "Current available units in FBA inventory." },
             "warehouse_stock": { "type": "integer", "description": "Current units in non-FBA warehouses/3PL (if include_warehouse_stock=true)." },
             "total_available_stock": { "type": "integer", "description": "sum(current_fba_stock, warehouse_stock)." },
+            "inbound_shipments_json": { "type": "string", "description": "Raw FBA inbound shipments JSON from snapshot." },
+            "warehouse_balance_details_json": { "type": "string", "description": "Raw warehouse balance details JSON from snapshot." },
 
             "sales_velocity_30d": { "type": "number", "description": "Avg daily sales rate (units/day) over last 30 days." },
             "sales_velocity_7d": { "type": "number", "description": "Avg daily sales rate over last 7 days." },

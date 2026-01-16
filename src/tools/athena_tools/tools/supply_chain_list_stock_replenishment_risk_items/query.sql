@@ -68,6 +68,7 @@ inventory_base AS (
     
     -- Warehouse stock (aggregated from warehouse_balance_details_json)
     COALESCE(SUM(CAST(json_extract_scalar(warehouse, '$.balance_quantity') AS BIGINT)), 0) AS warehouse_stock,
+    COALESCE(s.warehouse_balance_details_json, '[]') AS warehouse_balance_details_json,
     
     -- Sales velocity (precalculated windows)
     COALESCE(CAST(s.avg_units_30d AS DOUBLE), 0.0) AS sales_velocity_30d,
@@ -103,7 +104,7 @@ inventory_base AS (
   
   GROUP BY s.company_id, s.inventory_id, s.sku, s.country_code, s.child_asin, s.parent_asin, s.brand, s.product_family, s.product_name,
            s.inbound, s.available, s.fc_transfer, s.fc_processing, s.avg_units_30d, s.avg_units_7d, s.avg_units_3d,
-           s.sales_last_30_days, s.revenue_abcd_class, s.pareto_abc_class, s.fba_shipments_json
+           s.sales_last_30_days, s.revenue_abcd_class, s.pareto_abc_class, s.fba_shipments_json, s.warehouse_balance_details_json
 ),
 
 inbound_analysis AS (
@@ -235,6 +236,8 @@ final_output AS (
     current_fba_stock,
     warehouse_stock,
     (current_fba_stock + warehouse_stock) AS total_available_stock,
+    fba_shipments_json AS inbound_shipments_json,
+    warehouse_balance_details_json,
     
     sales_velocity_30d,
     sales_velocity_7d,
