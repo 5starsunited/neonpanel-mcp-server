@@ -1,6 +1,5 @@
 INSERT INTO "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast_writes}}" (
   amazon_marketplace_id,
-  marketplace_id,
   currency,
   sku,
   company_id,
@@ -103,7 +102,6 @@ valid AS (
 
 SELECT
   amazon_marketplace_id,
-  marketplace_id,
   currency,
   sku,
   company_id,
