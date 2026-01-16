@@ -27,7 +27,7 @@ WITH params AS (
     {{supply_buffer_risk_filter_array}} AS supply_buffer_risk_filter,
     
     -- Velocity weighting (mode or individual weights)
-    STRUCT({{weight_30d}} AS w30d, {{weight_7d}} AS w7d, {{weight_3d}} AS w3d) AS velocity_weights,
+    CAST(ROW({{weight_30d}}, {{weight_7d}}, {{weight_3d}}) AS ROW(w30d DOUBLE, w7d DOUBLE, w3d DOUBLE)) AS velocity_weights,
     
     CAST({{limit_top_n}} AS INTEGER) AS limit_results,
     {{sort_field}} AS sort_field,
@@ -64,8 +64,8 @@ inventory_base AS (
     COALESCE(s.fc_processing, 0) AS fba_fc_processing,
     (COALESCE(s.available, 0) + COALESCE(s.fc_transfer, 0) + COALESCE(s.fc_processing, 0)) AS current_fba_stock,
     
-    -- Warehouse stock (if available)
-    COALESCE(w.total_warehouse_qty, 0) AS warehouse_stock,
+    -- Warehouse stock (aggregated from warehouse_balance_details_json)
+    COALESCE(SUM(CAST(json_extract_scalar(warehouse, '$.balance_quantity') AS BIGINT)), 0) AS warehouse_stock,
     
     -- Sales velocity (precalculated windows)
     COALESCE(CAST(s.avg_units_30d AS DOUBLE), 0.0) AS sales_velocity_30d,
@@ -79,13 +79,10 @@ inventory_base AS (
     -- Inbound shipments (JSON array of {p50_days, p80_days, p95_days, units_shipped, shipped_at})
     COALESCE(s.fba_shipments_json, '[]') AS fba_shipments_json
     
-  FROM "{{catalog}}"."{{database}}"."inventory_planning_snapshot" s
+  FROM "{{catalog}}"."{{database}}"."inventory_planning_snapshot_iceberg" s
   CROSS JOIN latest_snapshot ls
-  LEFT JOIN "{{catalog}}"."{{database}}"."warehouse_stock" w 
-    ON s.company_id = w.company_id 
-    AND s.inventory_id = w.inventory_id
-    AND w.year = ls.year AND w.month = ls.month AND w.day = ls.day
   CROSS JOIN params p
+  LEFT JOIN UNNEST(CAST(JSON_PARSE(COALESCE(s.warehouse_balance_details_json, '[]')) AS ARRAY(JSON))) AS t(warehouse) ON TRUE
   
   WHERE s.year = ls.year 
     AND s.month = ls.month 
@@ -100,6 +97,10 @@ inventory_base AS (
     AND (CARDINALITY(p.product_families) = 0 OR contains(p.product_families, s.product_family))
     AND (CARDINALITY(p.countries) = 0 OR contains(p.countries, s.country_code))
     AND (CARDINALITY(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, s.revenue_abcd_class))
+  
+  GROUP BY s.company_id, s.inventory_id, s.sku, s.country_code, s.child_asin, s.parent_asin, s.brand, s.product_family, s.product_name,
+           s.inbound, s.available, s.fc_transfer, s.fc_processing, s.avg_units_30d, s.avg_units_7d, s.avg_units_3d,
+           s.sales_last_30_days, s.revenue_abcd_class, s.fba_shipments_json
 ),
 
 inbound_analysis AS (
