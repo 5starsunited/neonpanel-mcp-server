@@ -21,7 +21,7 @@ WITH params AS (
 ),
 
 writes_input AS (
-  -- The server renders {{writes_values_sql}} as an array of ROW(...) items.
+  -- The server renders {{writes_values_sql}} as a VALUES list.
   -- Columns (in order):
   -- inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
   -- forecast_period, units_sold, sales_amount, currency, note
@@ -40,10 +40,9 @@ writes_input AS (
     CAST(v.currency AS VARCHAR) AS currency,
     CAST(v.note AS VARCHAR) AS note
 
-  FROM UNNEST(
-    ARRAY[
+  FROM (
+    VALUES
       {{writes_values_sql}}
-    ]
   ) AS v(
     inventory_id,
     sku,

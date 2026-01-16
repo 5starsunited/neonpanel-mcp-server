@@ -31,10 +31,9 @@ writes_input AS (
     CAST(v.currency AS VARCHAR) AS currency,
     CAST(v.note AS VARCHAR) AS note
 
-  FROM UNNEST(
-    ARRAY[
+  FROM (
+    VALUES
       {{writes_values_sql}}
-    ]
   ) AS v(
     inventory_id,
     sku,

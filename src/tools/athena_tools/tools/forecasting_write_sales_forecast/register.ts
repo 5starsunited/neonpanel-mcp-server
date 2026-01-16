@@ -174,8 +174,7 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
       const currencyExpr = sqlNullableVarcharExpr(w.currency ?? null);
       const noteExpr = sqlNullableVarcharExpr(w.note ?? null);
 
-      // Use ROW(...) so the SQL template can consume via UNNEST(ARRAY[...]).
-      return `ROW(${[
+      return `(${[
         inventoryIdExpr,
         skuExpr,
         marketplaceExpr,
