@@ -1,6 +1,6 @@
 {
   "name": "forecasting_write_sales_forecast",
-  "description": "Write user/AI-adjusted sales forecast values into an Iceberg table for auditability and downstream planning. Consequential (writes data).\n\nUse cases:\n- Persist manual overrides to a forecast for specific item(s) and period(s)\n- Persist AI-recommended adjustments with an explainable reason\n\nSafety / audit:\n- Always include company_id and an explicit item selector (inventory_id or sku+marketplace)\n- Always include a reason and an author/source\n- Prefer dry_run=true for validation before writing\n\nAuthor (important):\n- If author.type=ai, author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nSales amount (required):\n- sales_amount is REQUIRED for each write. Derive it as: sales_amount = units_sold * unit_price.\n- If unit_price is unknown, either (a) compute it from the latest existing forecast (sales_amount / units_sold) for the same SKU+marketplace, or (b) ask the user to provide an assumed unit price.\n\nScenario handling:\n- scenario_uuid is always written as \"manual\" for these overrides.\n\nImportant (company selection):\n- Use company_id (preferred) or query.filters.company (numeric string). Do NOT pass a freeform company name.\n\nMarketplace input note:\n- marketplace accepts a country code like US/UK (preferred) and will be mapped to the correct amazon_marketplace_id when writing.\n\nExample (dry run, inventory_id only):\n{\n  \"company_id\": 103,\n  \"reason\": \"Velocity adjustment based on recent sales\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    { \"inventory_id\": 29972, \"forecast_period\": \"2026-01\", \"units_sold\": 151, \"sales_amount\": 1234.56, \"currency\": \"USD\" }\n  ]\n}\n\nExample (dry run, sku + marketplace):\n{\n  \"company_id\": 103,\n  \"reason\": \"Promo uplift adjustment for Q1\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    {\n      \"sku\": \"KEM-ASC-LG-BL1520-XL\",\n      \"marketplace\": \"US\",\n      \"forecast_period\": \"2026-01\",\n      \"units_sold\": 151,\n      \"sales_amount\": 1234.56,\n      \"currency\": \"USD\"\n    }\n  ]\n}",
+  "description": "Write user/AI-adjusted sales forecast values into an Iceberg table for auditability and downstream planning. Consequential (writes data).\n\nUse cases:\n- Persist manual overrides to a forecast for specific item(s) and period(s)\n- Persist AI-recommended adjustments with an explainable reason\n\nSafety / audit:\n- Always include company_id and an explicit item selector (inventory_id or sku+marketplace)\n- Always include a reason and an author/source\n- Prefer dry_run=true for validation before writing\n\nAuthor (important):\n- If author.type=ai, author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nSales amount (required):\n- sales_amount is REQUIRED for each write. Derive it as: sales_amount = units_sold * unit_price.\n- If unit_price is unknown, either (a) compute it from the latest existing forecast (sales_amount / units_sold) for the same SKU+marketplace, or (b) ask the user to provide an assumed unit price.\n\nScenario handling:\n- All writes are tagged with scenario_uuid=\"manual\" automatically (no need to provide).\n\nImportant (company selection):\n- Use company_id (preferred) or query.filters.company (numeric string). Do NOT pass a freeform company name.\n\nMarketplace input note:\n- marketplace accepts a country code like US/UK (preferred) and will be mapped to the correct amazon_marketplace_id when writing.\n\nExample (dry run, inventory_id only):\n{\n  \"company_id\": 103,\n  \"reason\": \"Velocity adjustment based on recent sales\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    { \"inventory_id\": 29972, \"forecast_period\": \"2026-01\", \"units_sold\": 151, \"sales_amount\": 1234.56, \"currency\": \"USD\" }\n  ]\n}\n\nExample (dry run, sku + marketplace):\n{\n  \"company_id\": 103,\n  \"reason\": \"Promo uplift adjustment for Q1\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    {\n      \"sku\": \"KEM-ASC-LG-BL1520-XL\",\n      \"marketplace\": \"US\",\n      \"forecast_period\": \"2026-01\",\n      \"units_sold\": 151,\n      \"sales_amount\": 1234.56,\n      \"currency\": \"USD\"\n    }\n  ]\n}",
   "isConsequential": true,
   "inputSchema": {
     "type": "object",
@@ -12,23 +12,19 @@
       },
       "author": {
         "type": "object",
-        "description": "Who/what is making this change (for audit).",
+        "description": "Who/what is making this change (for audit). If type='ai', name MUST be provided (ask the user for their name or team).",
         "properties": {
           "type": { "type": "string", "enum": ["user", "ai", "system"], "default": "user" },
-          "name": { "type": "string", "description": "Display name or agent name." },
+          "name": { "type": "string", "description": "Display name or agent name. Required when type='ai'." },
           "id": { "type": "string", "description": "Optional stable identifier for the actor (user id / agent id)." }
         },
         "required": ["type"],
-        "anyOf": [
-          { "type": "object", "properties": { "type": { "const": "ai" } }, "required": ["type", "name"] },
-          { "type": "object", "properties": { "type": { "enum": ["user", "system"] } }, "required": ["type"] }
-        ],
         "additionalProperties": false
       },
       "reason": {
         "type": "string",
-        "minLength": 3,
-        "description": "Human-readable reason for the adjustment (stored for audit)."
+        "minLength": 10,
+        "description": "Human-readable reason for the adjustment (stored for audit). Be specific (minimum 10 characters)."
       },
       "dry_run": {
         "type": "boolean",
@@ -42,7 +38,7 @@
       "debug_sql": {
         "type": "boolean",
         "default": false,
-        "description": "If true (and dry_run=true), include the rendered Athena SQL in meta.debug for troubleshooting."
+        "description": "If true during dry_run, include rendered Athena SQL in meta.debug for troubleshooting. (Ignored when dry_run=false.)"
       },
       "writes": {
         "type": "array",
@@ -63,23 +59,13 @@
             },
             "marketplace": {
               "type": "string",
-              "description": "Marketplace for SKU-based writes (e.g., US/UK or amazon marketplace id depending on your schema)."
-            },
-
-            "scenario": {
-              "type": "object",
-              "description": "Which forecast scenario this write targets.",
-              "properties": {
-                "id": { "type": "integer", "minimum": 1 },
-                "uuid": { "type": "string" },
-                "name": { "type": "string" }
-              },
-              "additionalProperties": false
+              "description": "Marketplace for SKU-based writes (e.g., US/UK or amazon marketplace id)."
             },
 
             "forecast_period": {
               "type": "string",
-              "description": "Forecast period key (e.g., YYYY-MM)."
+              "pattern": "^\\d{4}-\\d{2}$",
+              "description": "Forecast period key in YYYY-MM format (e.g., 2026-01)."
             },
 
             "units_sold": {
@@ -94,7 +80,9 @@
             },
             "currency": {
               "type": "string",
-              "description": "Optional currency code for sales_amount."
+              "minLength": 3,
+              "maxLength": 3,
+              "description": "Required currency code for sales_amount (e.g., USD, GBP, EUR)."
             },
 
             "note": {
@@ -102,7 +90,7 @@
               "description": "Optional per-write note (e.g., promo, stockout, seasonality adjustment)."
             }
           },
-          "required": ["forecast_period", "units_sold", "sales_amount"],
+          "required": ["forecast_period", "units_sold", "sales_amount", "currency"],
           "additionalProperties": false,
           "anyOf": [
             { "type": "object", "required": ["inventory_id"] },
