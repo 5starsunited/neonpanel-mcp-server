@@ -38,9 +38,8 @@ latest_snapshot AS (
   -- Get latest snapshot partition for authorized companies.
   SELECT year, month, day
   FROM "{{catalog}}"."{{database}}"."inventory_planning_snapshot"
-  CROSS JOIN params p
-  WHERE contains(p.company_ids, company_id)
-  GROUP BY 1, 2, 3
+  WHERE company_id IN (SELECT DISTINCT company_id FROM "{{catalog}}"."{{database}}"."inventory_planning_snapshot" WHERE company_id > 0)
+  GROUP BY year, month, day
   ORDER BY CAST(year AS INTEGER) DESC, CAST(month AS INTEGER) DESC, CAST(day AS INTEGER) DESC
   LIMIT 1
 ),
