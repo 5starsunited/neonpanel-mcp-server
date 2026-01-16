@@ -111,12 +111,16 @@ SELECT
   amazon_marketplace_id,
   marketplace_id,
   currency,
+  sku,
   company_id,
   inventory_id,
-  scenario_uuid,
+  forecast_period,
+  units_sold,
   sales_amount,
-  currency,
-  author_name,
   dataset,
+  scenario_uuid,
+  period,
+  author_name,
+  updated_at
 FROM valid
 WHERE ok_forecast_period AND ok_units_sold AND ok_sales_amount AND ok_item_selector;
