@@ -275,7 +275,7 @@ final_output AS (
     CASE stockout_risk_tier WHEN 'high' THEN 1 WHEN 'moderate' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
     CASE supply_buffer_risk_tier WHEN 'high' THEN 1 WHEN 'moderate' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
     dos_p80_fba ASC
-  LIMIT (SELECT limit_results FROM params LIMIT 1)
+  LIMIT {{limit_top_n}}
 )
 
 SELECT * FROM final_output
