@@ -77,8 +77,9 @@ inventory_base AS (
     -- Revenue for ABCD classification
     COALESCE(CAST(s.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
     s.revenue_abcd_class,
+    s.pareto_abc_class,
     
-    -- Inbound shipments (JSON array of {p50_days, p80_days, p95_days, units_shipped, shipped_at})
+    -- Inbound shipments (JSON array of {p50_days, p80_days, p95_days, qty, ref, shipped})
     COALESCE(s.fba_shipments_json, '[]') AS fba_shipments_json
     
   FROM "{{catalog}}"."{{database}}"."inventory_planning_snapshot_iceberg" s
@@ -102,7 +103,7 @@ inventory_base AS (
   
   GROUP BY s.company_id, s.inventory_id, s.sku, s.country_code, s.child_asin, s.parent_asin, s.brand, s.product_family, s.product_name,
            s.inbound, s.available, s.fc_transfer, s.fc_processing, s.avg_units_30d, s.avg_units_7d, s.avg_units_3d,
-           s.sales_last_30_days, s.revenue_abcd_class, s.fba_shipments_json
+           s.sales_last_30_days, s.revenue_abcd_class, s.pareto_abc_class, s.fba_shipments_json
 ),
 
 inbound_analysis AS (
@@ -110,12 +111,12 @@ inbound_analysis AS (
   SELECT
     company_id,
     inventory_id,
-    COALESCE(SUM(CAST(json_extract_scalar(shipment, '$.units_shipped') AS INTEGER)), 0) AS inbound_units,
+    COALESCE(SUM(CAST(json_extract_scalar(shipment, '$.qty') AS INTEGER)), 0) AS inbound_units,
     -- p50, p80, p95 are max of all shipments' likelihood days (conservative: use worst case).
     CAST(MAX(COALESCE(CAST(json_extract_scalar(shipment, '$.p50_days') AS DOUBLE), 0)) AS DOUBLE) AS inbound_p50_days_raw,
     CAST(MAX(COALESCE(CAST(json_extract_scalar(shipment, '$.p80_days') AS DOUBLE), 0)) AS DOUBLE) AS inbound_p80_days_raw,
     CAST(MAX(COALESCE(CAST(json_extract_scalar(shipment, '$.p95_days') AS DOUBLE), 0)) AS DOUBLE) AS inbound_p95_days_raw,
-    COUNT(DISTINCT json_extract_scalar(shipment, '$.shipment_id')) AS inbound_shipment_count
+    COUNT(DISTINCT json_extract_scalar(shipment, '$.ref')) AS inbound_shipment_count
   FROM inventory_base ib
   CROSS JOIN UNNEST(CAST(JSON_PARSE(ib.fba_shipments_json) AS ARRAY(JSON))) AS t(shipment)
   GROUP BY 1, 2
@@ -155,13 +156,13 @@ velocity_calculations AS (
     
     -- Days-of-supply scenarios (avoiding division by zero)
      IF((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d) > 0, 
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p50_days / GREATEST(1.0, inb.inbound_p50_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
+       ib.current_fba_stock / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p50_fba,
      IF((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d) > 0,
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p80_days / GREATEST(1.0, inb.inbound_p80_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
+       ib.current_fba_stock / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p80_fba,
      IF((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d) > 0,
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p95_days / GREATEST(1.0, inb.inbound_p95_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
+       ib.current_fba_stock / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p95_fba,
        
     inb.inbound_p50_days,
@@ -198,9 +199,9 @@ risk_classification AS (
     IF(current_fba_stock >= 0, current_fba_stock / GREATEST(0.1, inbound_p80_days), 999.0) AS stockout_critical_velocity_p80,
     IF(current_fba_stock >= 0, current_fba_stock / GREATEST(0.1, inbound_p95_days), 999.0) AS stockout_critical_velocity_p95,
     
-    IF(weighted_velocity > 0, (current_fba_stock + inbound_units) / GREATEST(0.1, CAST(min_days_of_supply AS DOUBLE)), 0.0) AS supply_buffer_critical_velocity_p50,
-    IF(weighted_velocity > 0, (current_fba_stock + inbound_units) / GREATEST(0.1, CAST(min_days_of_supply AS DOUBLE)), 0.0) AS supply_buffer_critical_velocity_p80,
-    IF(weighted_velocity > 0, (current_fba_stock + inbound_units) / GREATEST(0.1, CAST(min_days_of_supply AS DOUBLE)), 0.0) AS supply_buffer_critical_velocity_p95
+    IF(weighted_velocity > 0, current_fba_stock / GREATEST(0.1, CAST(min_days_of_supply AS DOUBLE)), 0.0) AS supply_buffer_critical_velocity_p50,
+    IF(weighted_velocity > 0, current_fba_stock / GREATEST(0.1, CAST(min_days_of_supply AS DOUBLE)), 0.0) AS supply_buffer_critical_velocity_p80,
+    IF(weighted_velocity > 0, current_fba_stock / GREATEST(0.1, CAST(min_days_of_supply AS DOUBLE)), 0.0) AS supply_buffer_critical_velocity_p95
     
   FROM velocity_calculations
 ),
@@ -228,6 +229,8 @@ final_output AS (
     brand,
     product_family,
     product_name,
+    revenue_abcd_class,
+    pareto_abc_class,
     
     current_fba_stock,
     warehouse_stock,

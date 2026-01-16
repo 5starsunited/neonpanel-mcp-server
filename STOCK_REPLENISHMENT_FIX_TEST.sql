@@ -76,11 +76,11 @@ inbound_analysis AS (
   SELECT
     ib.company_id,
     ib.inventory_id,
-    COALESCE(SUM(CAST(json_extract_scalar(shipment, '$.units_shipped') AS BIGINT)), 0) AS inbound_units,
+    COALESCE(SUM(CAST(json_extract_scalar(shipment, '$.qty') AS BIGINT)), 0) AS inbound_units,
     COALESCE(MAX(CAST(json_extract_scalar(shipment, '$.p50_days') AS INTEGER)), 0) AS inbound_p50_days_raw,
     COALESCE(MAX(CAST(json_extract_scalar(shipment, '$.p80_days') AS INTEGER)), 0) AS inbound_p80_days_raw,
     COALESCE(MAX(CAST(json_extract_scalar(shipment, '$.p95_days') AS INTEGER)), 0) AS inbound_p95_days_raw,
-    COUNT(DISTINCT json_extract_scalar(shipment, '$.shipment_id')) AS inbound_shipment_count
+    COUNT(DISTINCT json_extract_scalar(shipment, '$.ref')) AS inbound_shipment_count
   FROM inventory_base ib
   LEFT JOIN UNNEST(CAST(JSON_PARSE(COALESCE(ib.inbound_details_json, '[]')) AS ARRAY(JSON))) AS t(shipment) ON TRUE
   GROUP BY ib.company_id, ib.inventory_id
@@ -117,14 +117,14 @@ velocity_calculations AS (
     CASE WHEN p.include_warehouse_stock THEN ib.current_fba_stock + ib.warehouse_stock ELSE ib.current_fba_stock END AS total_available_stock,
     
     -- Days-of-supply scenarios (avoiding division by zero)
-    IF(((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d)) > 0, 
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p50_days / GREATEST(1.0, inb.inbound_p50_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
+     IF(((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d)) > 0, 
+       ib.current_fba_stock / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p50_fba,
-    IF(((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d)) > 0,
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p80_days / GREATEST(1.0, inb.inbound_p80_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
+     IF(((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d)) > 0,
+       ib.current_fba_stock / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p80_fba,
-    IF(((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d)) > 0,
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p95_days / GREATEST(1.0, inb.inbound_p95_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
+     IF(((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d)) > 0,
+       ib.current_fba_stock / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p95_fba,
        
     inb.inbound_p50_days,

@@ -179,6 +179,8 @@
             "brand": { "type": "string" },
             "product_family": { "type": "string" },
             "product_name": { "type": "string" },
+            "revenue_abcd_class": { "type": "string", "description": "Revenue class from sales_last_30_days (A/B/C/D)." },
+            "pareto_abc_class": { "type": "string", "description": "Pareto ABC class from inventory snapshot." },
 
             "current_fba_stock": { "type": "integer", "description": "Current available units in FBA inventory." },
             "warehouse_stock": { "type": "integer", "description": "Current units in non-FBA warehouses/3PL (if include_warehouse_stock=true)." },
