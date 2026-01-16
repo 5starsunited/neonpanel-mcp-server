@@ -27,11 +27,7 @@ WITH params AS (
     {{supply_buffer_risk_filter_array}} AS supply_buffer_risk_filter,
     
     -- Velocity weighting (mode or individual weights)
-    CASE {{velocity_weighting_mode}}
-      WHEN 'conservative' THEN STRUCT(0.7 AS w30d, 0.2 AS w7d, 0.1 AS w3d)
-      WHEN 'aggressive' THEN STRUCT(0.2 AS w30d, 0.3 AS w7d, 0.5 AS w3d)
-      ELSE STRUCT({{weight_30d}} AS w30d, {{weight_7d}} AS w7d, {{weight_3d}} AS w3d)
-    END AS velocity_weights,
+    STRUCT({{weight_30d}} AS w30d, {{weight_7d}} AS w7d, {{weight_3d}} AS w3d) AS velocity_weights,
     
     CAST({{limit_top_n}} AS INTEGER) AS limit_results,
     {{sort_field}} AS sort_field,

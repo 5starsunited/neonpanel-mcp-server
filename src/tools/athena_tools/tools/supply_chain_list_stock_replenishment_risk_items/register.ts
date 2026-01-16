@@ -211,6 +211,21 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
         const sqlPath = path.join(__dirname, 'query.sql');
         const sqlTemplate = await loadTextFile(sqlPath);
 
+        // Resolve velocity weights based on mode or custom weights
+        const mode = toolSpecific.velocity_weighting_mode ?? 'balanced';
+        let weight30d = 0.5, weight7d = 0.3, weight3d = 0.2;
+        
+        if (mode === 'conservative') {
+          weight30d = 0.7; weight7d = 0.2; weight3d = 0.1;
+        } else if (mode === 'aggressive') {
+          weight30d = 0.2; weight7d = 0.3; weight3d = 0.5;
+        } else if (mode === 'balanced' || mode === 'custom') {
+          // Use provided weights or defaults
+          weight30d = toolSpecific.velocity_weighting?.weight_30d ?? 0.5;
+          weight7d = toolSpecific.velocity_weighting?.weight_7d ?? 0.3;
+          weight3d = toolSpecific.velocity_weighting?.weight_3d ?? 0.2;
+        }
+
         // Render template with parameters
         const renderedSql = renderSqlTemplate(sqlTemplate, {
           company_ids_array: sqlCompanyIdArrayExpr(companyIds),
@@ -227,10 +242,9 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
           p80_arrival_buffer_days: sqlIntegerLiteral(toolSpecific.p80_arrival_buffer_days ?? 0),
           include_warehouse_stock: sqlBooleanLiteral(toolSpecific.include_warehouse_stock ?? true),
           include_inbound_details: sqlBooleanLiteral(toolSpecific.include_inbound_details ?? true),
-          velocity_weighting_mode: sqlStringLiteral(toolSpecific.velocity_weighting_mode ?? 'balanced'),
-          weight_30d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_30d ?? 0.5),
-          weight_7d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_7d ?? 0.3),
-          weight_3d: sqlDoubleLiteral(toolSpecific.velocity_weighting?.weight_3d ?? 0.2),
+          weight_30d: sqlDoubleLiteral(weight30d),
+          weight_7d: sqlDoubleLiteral(weight7d),
+          weight_3d: sqlDoubleLiteral(weight3d),
           stockout_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.stockout_risk_filter ?? []),
           supply_buffer_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.supply_buffer_risk_filter ?? []),
 
