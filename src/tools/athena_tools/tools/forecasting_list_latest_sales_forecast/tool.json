@@ -1,6 +1,6 @@
 {
   "name": "forecasting_list_latest_sales_forecast",
-  "description": "List items with the latest/current sales forecast and core inventory attributes. This is a portfolio/list tool (many items). Read-only; no side effects.\n\nUse cases:\n- Show the current (latest) forecast plan per SKU/inventory item\n- Filter by brand/product_family/ASIN/SKU and sort by sales or forecast KPIs\n- Optionally group results (brand/product_family/parent_asin)\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection/grouping\n- tool_specific: forecasting-specific knobs (horizon, which plan fields to include)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nSupported selector filters (applied in SQL):\n- query.filters.asin (child ASIN), query.filters.parent_asin, query.filters.brand, query.filters.product_family, query.filters.sku\n- If you filter on any of these, output rows will include: child_asin, parent_asin, brand, product_family, sku\n\nSupported classification filters:\n- query.filters.revenue_abcd_class (computed from sales_last_30_days)\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
+  "description": "List items with the latest/current sales forecast and core inventory attributes. This is a portfolio/list tool (many items). Read-only; no side effects.\n\nUse cases:\n- Show the current (latest) forecast plan per SKU/inventory item\n- Filter by brand/product_family/ASIN/SKU and sort by sales or forecast KPIs\n- Optionally group results (brand/product_family/parent_asin)\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection/grouping\n- tool_specific: forecasting-specific knobs (horizon, which plan fields to include)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred, integer) or query.filters.company (numeric string only; NOT freeform names)\n- If both provided, company_id takes precedence\n- At least one must be provided for authorization\n\nFilter logic (selector filters):\n- query.filters.asin (child ASIN), query.filters.parent_asin, query.filters.brand, query.filters.product_family, query.filters.sku\n- Array filters use OR logic: filter.brand=[\"Nike\",\"Adidas\"] returns items with EITHER brand\n- Multiple filter types use AND: (brand=Nike) AND (sku=ABC123)\n- If you filter on any of these, output rows will include: child_asin, parent_asin, brand, product_family, sku\n\nSupported classification filters:\n- query.filters.revenue_abcd_class (computed from sales_last_30_days): [\"A\", \"B\"] returns A+B items (OR logic)\n\nAggregation (two modes):\n- query.aggregation.group_by=[\"brand\", \"product_family\"]: hierarchical grouping, returns one row per group\n- tool_specific.aggregate=true: deprecated legacy aggregation mode; group_by is preferred\n\nItem sales share (include_item_sales_share):\n- Only available when aggregate=false (SKU-level view)\n- Computes item's share of the group's recent sales/units, partitioned by aggregate_by value\n\nField selection:\n- query.select_fields: optional output projection (array of field names)\n- If omitted, tool returns: inventory_id, sku, company_id, marketplace, units_sold_last_30_days, sales_last_30_days, plus plan fields if include_plan_series=true\n- Invalid field names in select_fields or sort.field will produce a warning; rows may have null values for unavailable fields\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -15,7 +15,7 @@
             "properties": {
               "company": {
                 "type": "string",
-                "description": "Deprecated alias for company_id. Only numeric strings are accepted (treated as company_id)."
+                "description": "Numeric company ID as string. Deprecated; use company_id (integer) instead. If both provided, company_id takes precedence."
               },
               "company_id": { "type": "integer", "minimum": 1 },
 
@@ -123,7 +123,7 @@
           "aggregate": {
             "type": "boolean",
             "default": false,
-            "description": "If true, return one row per group (aggregate_by) with summed forecast plan and summed recent sales signals."
+            "description": "If true, return one row per group (aggregate_by) with summed forecast plan and summed recent sales signals. Use query.aggregation.group_by instead for finer control."
           },
           "aggregate_by": {
             "type": "string",
@@ -134,7 +134,7 @@
           "include_item_sales_share": {
             "type": "boolean",
             "default": false,
-            "description": "If true (and aggregate=false), include item_sales_share = item's share of the group's recent sales/units (partitioned by aggregate_by)."
+            "description": "If true, include item_sales_share = item's share of the group's recent sales/units (partitioned by aggregate_by). ONLY effective when aggregate=false and group_by is not used (SKU-level detail mode). Ignored otherwise."
           },
           "sales_share_basis": {
             "type": "string",

@@ -1,6 +1,6 @@
 {
   "name": "forecasting_compare_sales_forecast_scenarios",
-  "description": "Deep-dive forecasting comparison for a single item. Compares forecast outputs across scenarios and/or across forecast runs (history), and optionally overlays actual sales history (included by default). Read-only; no side effects.\n\nThis tool is for a SINGLE item (inventory_id or sku+country_code+company_id). For portfolio-level listing of current/latest forecast across many items, use forecasting_list_latest_sales_forecast.\n\nInput uses the shared query envelope:\n- query: filters + limit\n- tool_specific: comparison options (mode, scenario selection, run selection, include_actuals)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nMarketplace / country selection:\n- Prefer query.filters.country_code (single value array like [\"US\"], [\"UK\"], [\"AU\"]).\n- query.filters.marketplace is a deprecated alias for country_code.\n\nComparison modes:\n- scenarios: compare multiple scenarios for the same run window\n- runs: compare multiple runs (different updated_at) for the same scenario\n- scenarios_and_runs: compare both axes\n\nActuals:\n- include_actuals=true by default; tool will overlay sales history from the dataset sales history table when available.",
+  "description": "Deep-dive forecasting comparison for a single item. Compares forecast outputs across scenarios and/or across forecast runs (history), and optionally overlays actual sales history (included by default). Read-only; no side effects.\n\nThis tool is for a SINGLE item (inventory_id or sku+country_code+company_id). For portfolio-level listing of current/latest forecast across many items, use forecasting_list_latest_sales_forecast.\n\nInput uses the shared query envelope:\n- query: filters + limit\n- tool_specific: comparison options (mode, scenario selection, run selection, include_actuals)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred, integer) or query.filters.company (numeric string only)\n- If both provided, company_id takes precedence\n\nItem selector (MUST provide exactly one path):\n- Path 1 (preferred): query.filters.inventory_id alone\n- Path 2: query.filters.sku + country_code + company_id\n- Optional constraints: add asin or parent_asin to validate/constrain the selected item\n\nMarketplace / country selection:\n- Prefer query.filters.country_code (single value array like [\"US\"], [\"UK\"], [\"AU\"])\n- query.filters.marketplace is deprecated alias; if both provided, country_code takes precedence\n\nScenario selection (all optional; if multiple provided, precedence: ids > uuids > names):\n- scenario_ids: list of numeric scenario IDs\n- scenario_uuids: list of scenario UUIDs (e.g., 'manual', 'baseline')\n- scenario_names: list of scenario names (exact match recommended)\n- If none provided, all available scenarios for the item are included\n\nComparison modes:\n- scenarios: compare multiple scenarios for the same run window (uses run_selector.latest_n most recent runs)\n- runs: compare multiple runs (different updated_at) for the same scenario (first scenario selected)\n- scenarios_and_runs: compare both axes (scenarios selected vs. runs selected)\n\nRun selector (controls updated_at window):\n- type=latest_n (default): includes n most recent forecast runs\n- type=date_range: includes runs with updated_at in [updated_at_from, updated_at_to)\n\nActuals:\n- include_actuals=true by default; tool overlays sales history from dataset when available\n\nOutput size:\n- limit controls max rows returned (default 200, max 500)\n- Actual rows = periods × scenarios × runs (limited by limit)\n- If limit exceeded, most recent periods are returned first",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -14,14 +14,14 @@
             "properties": {
               "company": {
                 "type": "string",
-                "description": "Deprecated alias for company_id. Only numeric strings are accepted (treated as company_id)."
+                "description": "Numeric company ID as string. Deprecated; use company_id (integer) instead. If both provided, company_id takes precedence."
               },
               "company_id": { "type": "integer", "minimum": 1 },
 
               "inventory_id": {
                 "type": "integer",
                 "minimum": 1,
-                "description": "Preferred item selector when available."
+                "description": "Preferred item selector (single item). Mutually exclusive with sku+country_code path. If both inventory_id and sku are provided, inventory_id takes precedence."
               },
 
               "sku": {
@@ -36,7 +36,7 @@
                 "items": { "type": "string" },
                 "minItems": 1,
                 "maxItems": 1,
-                "description": "Deprecated alias for country_code. Use query.filters.country_code instead."
+                "description": "Deprecated alias for country_code. If both provided, country_code takes precedence."
               },
 
               "country_code": {
@@ -67,7 +67,7 @@
             "minimum": 1,
             "maximum": 500,
             "default": 200,
-            "description": "Max rows (periods x series) to return."
+            "description": "Max rows returned (each row = one period + actuals + forecast series). Output rows = periods × scenarios × runs (limited by this). If limit exceeded, most recent periods are prioritized and returned first."
           }
         },
         "required": ["filters"],
@@ -90,22 +90,22 @@
               "scenario_ids": {
                 "type": "array",
                 "items": { "type": "integer", "minimum": 1 },
-                "description": "Optional: scenario id(s) to include."
+                "description": "Optional: scenario id(s) to include. If scenario_ids are provided, scenario_uuids and scenario_names are ignored."
               },
               "scenario_uuids": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Optional: scenario uuid(s) to include."
+                "description": "Optional: scenario uuid(s) to include (e.g., 'manual', 'baseline'). If scenario_ids not provided but scenario_uuids are, scenario_names are ignored."
               },
               "scenario_names": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Optional: scenario name(s) to include (exact match recommended)."
+                "description": "Optional: scenario name(s) to include (exact match recommended). Used only if neither scenario_ids nor scenario_uuids are provided. If none of the three are provided, all available scenarios are included."
               },
 
               "run_selector": {
                 "type": "object",
-                "description": "Select which forecast runs (updated_at) to compare.",
+                "description": "Select which forecast runs (updated_at timestamps) to compare. Defaults to latest_n=3. Used in scenarios/scenarios_and_runs modes; ignored in runs mode (which always selects single scenario's runs).",
                 "properties": {
                   "type": {
                     "type": "string",
@@ -141,10 +141,10 @@
 
               "period": {
                 "type": "object",
-                "description": "Optional period/window selection for the time series output.",
+                "description": "Optional period/window selection for the time series output. Periods must be in YYYY-MM format (e.g., 2025-01, 2026-12).",
                 "properties": {
-                  "start": { "type": "string", "description": "Start period (e.g., 2025-01)." },
-                  "end": { "type": "string", "description": "End period (e.g., 2026-12)." }
+                  "start": { "type": "string", "description": "Start period inclusive (e.g., 2025-01). If omitted, all available past periods included." },
+                  "end": { "type": "string", "description": "End period inclusive (e.g., 2026-12). If omitted, all available future periods included." }
                 },
                 "additionalProperties": false
               }
