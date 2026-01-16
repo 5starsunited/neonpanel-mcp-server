@@ -1,9 +1,19 @@
--- Tool: forecasting_write_sales_forecast
--- Purpose: append new forecast rows into an Iceberg table.
--- Target schema (example): fc_forecasting_prod.fc_sales_forecast_iceberg
--- Notes:
--- - Append-only (INSERT INTO). No MERGE/UPSERT.
--- - Server renders writes_values_sql and audit fields.
+INSERT INTO "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast_writes}}" (
+  amazon_marketplace_id,
+  marketplace_id,
+  currency,
+  sku,
+  company_id,
+  inventory_id,
+  forecast_period,
+  units_sold,
+  sales_amount,
+  dataset,
+  scenario_uuid,
+  period,
+  author_name,
+  updated_at
+)
 
 WITH params AS (
   SELECT
@@ -91,22 +101,6 @@ valid AS (
   FROM normalized
 )
 
-INSERT INTO "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast_writes}}" (
-  amazon_marketplace_id,
-  marketplace_id,
-  currency,
-  sku,
-  company_id,
-  inventory_id,
-  forecast_period,
-  units_sold,
-  sales_amount,
-  dataset,
-  scenario_uuid,
-  period,
-  author_name,
-  updated_at
-)
 SELECT
   amazon_marketplace_id,
   marketplace_id,
