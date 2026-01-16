@@ -26,8 +26,10 @@ WITH params AS (
     {{stockout_risk_filter_array}} AS stockout_risk_filter,
     {{supply_buffer_risk_filter_array}} AS supply_buffer_risk_filter,
     
-    -- Velocity weighting (mode or individual weights)
-    CAST(ROW({{weight_30d}}, {{weight_7d}}, {{weight_3d}}) AS ROW(w30d DOUBLE, w7d DOUBLE, w3d DOUBLE)) AS velocity_weights,
+    -- Velocity weighting (individual weights)
+    CAST({{weight_30d}} AS DOUBLE) AS weight_30d,
+    CAST({{weight_7d}} AS DOUBLE) AS weight_7d,
+    CAST({{weight_3d}} AS DOUBLE) AS weight_3d,
     
     CAST({{limit_top_n}} AS INTEGER) AS limit_results,
     {{sort_field}} AS sort_field,
@@ -136,14 +138,16 @@ velocity_calculations AS (
   -- Calculate weighted velocity and days-of-supply for three scenarios (p50, p80, p95).
   SELECT
     ib.*,
-    p.velocity_weights,
+    p.weight_30d,
+    p.weight_7d,
+    p.weight_3d,
     p.min_days_of_supply,
     p.include_warehouse_stock,
     
     -- Weighted velocity
-    (p.velocity_weights.w30d * ib.sales_velocity_30d 
-     + p.velocity_weights.w7d * ib.sales_velocity_7d 
-     + p.velocity_weights.w3d * ib.sales_velocity_3d) AS weighted_velocity,
+    (p.weight_30d * ib.sales_velocity_30d 
+     + p.weight_7d * ib.sales_velocity_7d 
+     + p.weight_3d * ib.sales_velocity_3d) AS weighted_velocity,
     
     -- Available supply for each scenario
     ib.current_fba_stock AS supply_fba_only,
