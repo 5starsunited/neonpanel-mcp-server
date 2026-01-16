@@ -7,6 +7,7 @@ import { config } from '../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../types';
 import { loadTextFile } from '../../runtime/load-assets';
 import { renderSqlTemplate } from '../../runtime/render-sql';
+import { isAppError } from '../../../../lib/errors';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -351,13 +352,36 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
         writes_values_sql: writesValuesSql,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: config.athena.database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 500,
-      });
+      let athenaResult: Awaited<ReturnType<typeof runAthenaQuery>>;
+      try {
+        athenaResult = await runAthenaQuery({
+          query: rendered,
+          database: config.athena.database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: 500,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown Athena error.';
+        const details = isAppError(error)
+          ? { code: error.code, details: error.details }
+          : undefined;
+
+        return {
+          dry_run: true,
+          accepted: parsed.writes.length,
+          written: 0,
+          items: [],
+          meta: {
+            warnings,
+            error: {
+              message,
+              ...(details ? { details } : {}),
+            },
+            ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
+          },
+        };
+      }
 
       const previewRows = (athenaResult.rows ?? []) as Array<Record<string, unknown>>;
 
@@ -438,13 +462,37 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
         });
 
         // Execute INSERT. Athena returns an execution id; result rows are ignored.
-        await runAthenaQuery({
-          query: insertRendered,
-          database: config.athena.tables.forecastingDatabase,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 1,
-        });
+        try {
+          await runAthenaQuery({
+            query: insertRendered,
+            database: config.athena.tables.forecastingDatabase,
+            workGroup: config.athena.workgroup,
+            outputLocation: config.athena.outputLocation,
+            maxRows: 1,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown Athena error.';
+          const details = isAppError(error)
+            ? { code: error.code, details: error.details }
+            : undefined;
+
+          return {
+            dry_run: true,
+            accepted,
+            written: 0,
+            items,
+            meta: {
+              warnings,
+              error: {
+                message,
+                ...(details ? { details } : {}),
+              },
+              ...(debugSql
+                ? { debug: { rendered_sql: rendered, insert_rendered_sql: insertRendered } }
+                : {}),
+            },
+          };
+        }
 
         return {
           dry_run: false,
