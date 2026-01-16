@@ -154,14 +154,14 @@ velocity_calculations AS (
     CASE WHEN p.include_warehouse_stock THEN ib.current_fba_stock + ib.warehouse_stock ELSE ib.current_fba_stock END AS total_available_stock,
     
     -- Days-of-supply scenarios (avoiding division by zero)
-    IF(weighted_velocity > 0, 
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p50_days / GREATEST(1.0, inb.inbound_p50_days))))) / weighted_velocity,
+     IF((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d) > 0, 
+       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p50_days / GREATEST(1.0, inb.inbound_p50_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p50_fba,
-    IF(weighted_velocity > 0,
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p80_days / GREATEST(1.0, inb.inbound_p80_days))))) / weighted_velocity,
+     IF((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d) > 0,
+       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p80_days / GREATEST(1.0, inb.inbound_p80_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p80_fba,
-    IF(weighted_velocity > 0,
-       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p95_days / GREATEST(1.0, inb.inbound_p95_days))))) / weighted_velocity,
+     IF((p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d) > 0,
+       (ib.current_fba_stock + (inb.inbound_units / GREATEST(1.0, 1.0 + (inb.inbound_p95_days / GREATEST(1.0, inb.inbound_p95_days))))) / (p.weight_30d * ib.sales_velocity_30d + p.weight_7d * ib.sales_velocity_7d + p.weight_3d * ib.sales_velocity_3d),
        999.0) AS dos_p95_fba,
        
     inb.inbound_p50_days,
