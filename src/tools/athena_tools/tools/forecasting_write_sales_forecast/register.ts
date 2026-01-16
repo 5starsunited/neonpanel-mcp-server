@@ -125,6 +125,7 @@ const inputSchema = z
     reason: z.string().min(3),
     dry_run: z.boolean().default(true).optional(),
     idempotency_key: z.string().optional(),
+    debug_sql: z.boolean().optional(),
     writes: z.array(writeItemSchema).min(1).max(500),
   })
   .strict();
@@ -332,6 +333,8 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
       const template = await loadTextFile(sqlPath);
       const writesValuesSql = buildWritesValuesSql(writes as any);
 
+      const debugSql = parsed.debug_sql === true;
+
       const rendered = renderSqlTemplate(template, {
         forecast_catalog: config.athena.catalog,
         forecast_database: config.athena.tables.forecastingDatabase,
@@ -415,7 +418,10 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
             accepted,
             written: 0,
             items,
-            meta: { warnings },
+            meta: {
+              warnings,
+              ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
+            },
           };
         }
 
@@ -448,7 +454,10 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
             ...it,
             message: it.status === 'ok' ? 'Written (append-only).' : it.message,
           })),
-          meta: { warnings },
+          meta: {
+            warnings,
+            ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
+          },
         };
       }
 
@@ -457,7 +466,10 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
         accepted,
         written: 0,
         items,
-        meta: { warnings },
+        meta: {
+          warnings,
+          ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
+        },
       };
     },
   });

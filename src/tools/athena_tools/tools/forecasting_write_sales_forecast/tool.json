@@ -35,6 +35,11 @@
         "type": "string",
         "description": "Optional idempotency key to prevent duplicate writes on retries."
       },
+      "debug_sql": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true (and dry_run=true), include the rendered Athena SQL in meta.debug for troubleshooting."
+      },
       "writes": {
         "type": "array",
         "minItems": 1,
