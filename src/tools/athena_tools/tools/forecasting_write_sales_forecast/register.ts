@@ -315,7 +315,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
       // The target schema (fc_sales_forecast_iceberg) does not have these fields.
       warnings.push(
-        'Note: audit metadata (reason, note, author_type, author_id, idempotency_key) is write-only and not persisted in the forecast table. Only author_name and updated_at are stored there.',
+        'Note: audit metadata (reason, note, author_type, author_id, idempotency_key) is write-only and not persisted in the forecast table. Only author_name, scenario name, and updated_at are stored there. Use a consistent scenario name across writes to track iterations.',
       );
 
       // Resolve inventory_id-only writes to include sku + marketplace (required by the forecast table schema).
