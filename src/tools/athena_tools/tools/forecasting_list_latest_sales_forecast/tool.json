@@ -113,7 +113,7 @@
           "include_plan_series": {
             "type": "boolean",
             "default": true,
-            "description": "If true, include the forward plan series field (e.g., next_12_month_sales_plan_units or equivalent)."
+            "description": "If true, include forecast_series_json: array of forecast rows with period (YYYY-MM), units_sold, sales_amount, unit_price, seasonality_index=1.0."
           },
           "include_sales_history_signals": {
             "type": "boolean",

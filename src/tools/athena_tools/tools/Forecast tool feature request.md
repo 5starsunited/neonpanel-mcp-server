@@ -274,3 +274,28 @@ For implementation questions or clarifications on this feature request, please r
 ---
 
 **End of Feature Request Document**
+
+
+DISCOVERY: Audit metadata is stripped from write operations
+
+Current behavior:
+- reason field: DISCARDED ❌
+- author.type field: DISCARDED ❌
+- idempotency_key: DISCARDED ❌
+- Only author_name + updated_at saved ✅
+
+Requested: Persist full audit context
+
+Either:
+A) Extend forecast table schema to include:
+   - reason (255 char)
+   - author_type (enum: user/ai/system)
+   - author_id (uuid)
+   
+B) Create audit_log table (forecast_id → reason/author_type/idempotency)
+
+C) Clearly document that audit metadata is write-only (request logs) 
+   not persisted (forecast snapshots)
+
+Impact: Without full audit trail, stakeholders can't understand 
+forecast change history.

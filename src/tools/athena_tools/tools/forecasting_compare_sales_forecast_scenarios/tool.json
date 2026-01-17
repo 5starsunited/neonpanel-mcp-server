@@ -179,7 +179,7 @@
 
       "rows": {
         "type": "array",
-        "description": "Time series rows aligned by period. Each row may contain actuals plus one or more forecast series columns (scenario/run).",
+        "description": "Time series rows aligned by period. Each row includes period, units_sold (int), sales_amount (2dp), unit_price (3dp), seasonality_index.",
         "items": { "type": "object", "additionalProperties": true }
       },
 

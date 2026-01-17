@@ -80,13 +80,13 @@ const sharedQuerySchema = z
 
 const toolSpecificSchema = z
   .object({
-    horizon_months: z.coerce.number().int().min(1).max(24).default(12).optional(),
-    include_plan_series: z.boolean().default(true).optional(),
-    include_sales_history_signals: z.boolean().default(true).optional(),
-    aggregate: z.boolean().default(false).optional(),
-    aggregate_by: z.enum(['parent_asin', 'product_family']).default('parent_asin').optional(),
-    include_item_sales_share: z.boolean().default(false).optional(),
-    sales_share_basis: z.enum(['sales_last_30_days', 'units_sold_last_30_days']).default('sales_last_30_days').optional(),
+    horizon_months: z.coerce.number().int().min(1).max(24).default(12),
+    include_plan_series: z.boolean().default(true),
+    include_sales_history_signals: z.boolean().default(true),
+    aggregate: z.boolean().default(false),
+    aggregate_by: z.enum(['parent_asin', 'product_family']).default('parent_asin'),
+    include_item_sales_share: z.boolean().default(false),
+    sales_share_basis: z.enum(['sales_last_30_days', 'units_sold_last_30_days']).default('sales_last_30_days'),
   })
   .strict();
 

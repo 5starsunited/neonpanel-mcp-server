@@ -108,14 +108,9 @@ const writeItemSchema = z
     sku: z.string().optional(),
     marketplace: z.string().optional(),
 
-    scenario: z
-      .object({
-        id: z.coerce.number().int().min(1).optional(),
-        uuid: z.string().optional(),
-        name: z.string().optional(),
-      })
-      .strict()
-      .optional(),
+    scenario_uuid: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
 
     forecast_period: z.string().min(1),
     units_sold: z.coerce.number().min(0),
@@ -178,9 +173,9 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
       const skuExpr = sqlNullableVarcharExpr(w.sku ?? null);
       const marketplaceExpr = sqlNullableVarcharExpr(w.marketplace ?? null);
 
-      const scenarioIdExpr = sqlNullableBigintExpr(w.scenario?.id ?? null);
-      const scenarioUuidExpr = sqlNullableVarcharExpr(w.scenario?.uuid ?? null);
-      const scenarioNameExpr = sqlNullableVarcharExpr(w.scenario?.name ?? null);
+      const scenarioIdExpr = sqlNullableBigintExpr(null);
+      const scenarioUuidExpr = sqlNullableVarcharExpr(w.scenario_uuid);
+      const scenarioNameExpr = sqlNullableVarcharExpr(null);
 
       const forecastPeriodExpr = sqlNullableVarcharExpr(w.forecast_period);
       const unitsSoldExpr = sqlNullableDoubleExpr(w.units_sold);
@@ -320,7 +315,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
       // The target schema (fc_sales_forecast_iceberg) does not have these fields.
       warnings.push(
-        'Note: reason/note/author_type/author_id/idempotency_key are not persisted in the target forecast table schema; only author_name and updated_at are written for audit.',
+        'Note: audit metadata (reason, note, author_type, author_id, idempotency_key) is write-only and not persisted in the forecast table. Only author_name and updated_at are stored there.',
       );
 
       // Resolve inventory_id-only writes to include sku + marketplace (required by the forecast table schema).

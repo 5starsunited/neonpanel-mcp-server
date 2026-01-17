@@ -61,7 +61,14 @@ item AS (
     pil.sales_forecast_scenario_id,
     pil.sales_forecast_scenario_name,
     pil.sales_forecast_scenario_uuid,
-    pil.ii_sku_key
+    pil.ii_sku_key,
+    concat(
+      CAST(s.year AS VARCHAR),
+      '-',
+      lpad(CAST(s.month AS VARCHAR), 2, '0'),
+      '-',
+      lpad(CAST(s.day AS VARCHAR), 2, '0')
+    ) AS snapshot_date
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
   CROSS JOIN params p
   CROSS JOIN latest_snapshot s
@@ -129,12 +136,17 @@ run_candidates AS (
 forecast_rows AS (
   SELECT
     'forecast' AS series_type,
-    f.dataset AS scenario,
+    COALESCE(f.dataset, 'unknown') AS scenario_name,
     f.updated_at AS run_updated_at,
     f.forecast_period AS period,
-    CAST(f.units_sold AS DOUBLE) AS units_sold,
-    CAST(f.sales_amount AS DOUBLE) AS sales_amount,
-    f.currency AS currency
+    CAST(ROUND(CAST(f.units_sold AS DOUBLE), 0) AS BIGINT) AS units_sold,
+    ROUND(CAST(f.sales_amount AS DOUBLE), 2) AS sales_amount,
+    ROUND(
+      CASE WHEN CAST(f.units_sold AS DOUBLE) > 0 THEN CAST(f.sales_amount AS DOUBLE) / CAST(f.units_sold AS DOUBLE) ELSE CAST(NULL AS DOUBLE) END,
+      3
+    ) AS unit_price,
+    f.currency AS currency,
+    CAST(1.0 AS DOUBLE) AS seasonality_index
   FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
   INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
     ON m.amazon_marketplace_id = f.amazon_marketplace_id
@@ -166,12 +178,17 @@ forecast_rows AS (
 actual_rows AS (
   SELECT
     'actual' AS series_type,
-    'sales_history' AS scenario,
+    'sales_history' AS scenario_name,
     CAST(NULL AS TIMESTAMP) AS run_updated_at,
     h.period AS period,
-    CAST(h.units_sold AS DOUBLE) AS units_sold,
-    CAST(h.sales_amount AS DOUBLE) AS sales_amount,
-    h.currency AS currency
+    CAST(ROUND(CAST(h.units_sold AS DOUBLE), 0) AS BIGINT) AS units_sold,
+    ROUND(CAST(h.sales_amount AS DOUBLE), 2) AS sales_amount,
+    ROUND(
+      CASE WHEN CAST(h.units_sold AS DOUBLE) > 0 THEN CAST(h.sales_amount AS DOUBLE) / CAST(h.units_sold AS DOUBLE) ELSE CAST(NULL AS DOUBLE) END,
+      3
+    ) AS unit_price,
+    h.currency AS currency,
+    CAST(1.0 AS DOUBLE) AS seasonality_index
   FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_history}}" h
   INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
     ON m.amazon_marketplace_id = h.amazon_marketplace_id
@@ -199,15 +216,14 @@ SELECT
   r.parent_asin,
   r.asin,
   r.product_name,
+  r.snapshot_date,
 
   -- series
-  x.series_type,
-  x.scenario,
-  x.run_updated_at,
   x.period,
   x.units_sold,
   x.sales_amount,
-  x.currency
+  x.unit_price,
+  x.seasonality_index
 
 FROM resolved r
 CROSS JOIN (
@@ -219,7 +235,7 @@ CROSS JOIN (
 ORDER BY
   x.period ASC,
   x.series_type ASC,
-  x.scenario ASC,
+  x.scenario_name ASC,
   x.run_updated_at DESC
 
 LIMIT {{limit_top_n}};

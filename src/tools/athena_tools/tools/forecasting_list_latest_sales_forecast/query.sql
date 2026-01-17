@@ -100,10 +100,25 @@ forecast_item_plan AS (
     MAX(fr.sku) AS sku,
 
     slice(
+      array_agg(CAST(fr.forecast_period AS VARCHAR) ORDER BY fr.forecast_period),
+      1,
+      MAX(p.horizon_months)
+    ) AS forecast_plan_periods_array,
+    slice(
       array_agg(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
       1,
       MAX(p.horizon_months)
-    ) AS forecast_plan_units_array
+    ) AS forecast_plan_units_array,
+    slice(
+      array_agg(COALESCE(CAST(fr.sales_amount AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
+      1,
+      MAX(p.horizon_months)
+    ) AS forecast_plan_sales_array,
+    slice(
+      array_agg(COALESCE(CAST(fr.currency AS VARCHAR), '') ORDER BY fr.forecast_period),
+      1,
+      MAX(p.horizon_months)
+    ) AS forecast_plan_currency_array
 
   FROM forecast_latest_rows fr
   CROSS JOIN params p
@@ -118,7 +133,7 @@ t_base AS (
     pil.company_uuid,
 
     pil.inventory_id,
-    COALESCE(pil.sku, fp.sku) AS sku,
+    COALESCE(pil.sku, pil.merchant_sku, fp.sku) AS sku,
     pil.country,
     pil.country_code,
 
@@ -157,7 +172,10 @@ t_base AS (
     pil.avg_units_3d,
 
     -- plan series for latest forecast run
+    fp.forecast_plan_periods_array,
     fp.forecast_plan_units_array,
+    fp.forecast_plan_sales_array,
+    fp.forecast_plan_currency_array,
 
     -- sales share basis (used for item_sales_share when aggregate=false)
     CASE
@@ -171,9 +189,13 @@ t_base AS (
       ELSE COALESCE(pil.parent_asin, 'UNKNOWN')
     END AS group_key,
 
-    pil.year AS snapshot_year,
-    pil.month AS snapshot_month,
-    pil.day AS snapshot_day,
+    concat(
+      CAST(pil.year AS VARCHAR),
+      '-',
+      lpad(CAST(pil.month AS VARCHAR), 2, '0'),
+      '-',
+      lpad(CAST(pil.day AS VARCHAR), 2, '0')
+    ) AS snapshot_date,
 
     CAST(fp.run_period AS VARCHAR) AS forecast_run_period,
     fp.run_updated_at AS forecast_run_updated_at
@@ -192,7 +214,7 @@ t_base AS (
     AND pil.month = s.month
     AND pil.day = s.day
 
-    AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
+    AND (cardinality(p.skus) = 0 OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku)))
     AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
     AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
     AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
@@ -209,10 +231,14 @@ t_plan_expanded AS (
     t.company_short_name,
     t.company_uuid,
     t.group_key,
+    t.sales_forecast_scenario_name AS known_scenario_name,
+    t.forecast_run_updated_at,
+    period AS forecast_period,
     idx AS month_index,
-    COALESCE(CAST(u AS DOUBLE), 0.0) AS units
+    COALESCE(CAST(element_at(t.forecast_plan_units_array, idx) AS DOUBLE), 0.0) AS units,
+    COALESCE(CAST(element_at(t.forecast_plan_sales_array, idx) AS DOUBLE), 0.0) AS sales_amount
   FROM t_base t
-  CROSS JOIN UNNEST(t.forecast_plan_units_array) WITH ORDINALITY AS e(u, idx)
+  CROSS JOIN UNNEST(t.forecast_plan_periods_array) WITH ORDINALITY AS e(period, idx)
 ),
 
 t_group_plan AS (
@@ -222,7 +248,26 @@ t_group_plan AS (
     company_short_name,
     company_uuid,
     group_key,
-    json_format(CAST(array_agg(sum_units ORDER BY month_index) AS JSON)) AS forecast_plan_months_json
+    json_format(
+      CAST(
+        transform(
+          sequence(1, cardinality(periods)),
+          i -> CAST(ROW(
+            element_at(periods, i),
+            CAST(ROUND(element_at(units, i), 0) AS BIGINT),
+            ROUND(element_at(sales, i), 2),
+            ROUND(IF(element_at(units, i) > 0, element_at(sales, i) / element_at(units, i), CAST(NULL AS DOUBLE)), 3),
+            CAST(1.0 AS DOUBLE)
+          ) AS ROW(
+            period VARCHAR,
+            units_sold BIGINT,
+            sales_amount DOUBLE,
+            unit_price DOUBLE,
+            seasonality_index DOUBLE
+          ))
+        )
+      AS JSON)
+    ) AS forecast_series_json
   FROM (
     SELECT
       company_id,
@@ -230,12 +275,27 @@ t_group_plan AS (
       company_short_name,
       company_uuid,
       group_key,
-      month_index,
-      SUM(units) AS sum_units
-    FROM t_plan_expanded
-    GROUP BY 1,2,3,4,5,6
-  ) x
-  GROUP BY 1,2,3,4,5
+      array_agg(forecast_period ORDER BY month_index) AS periods,
+      array_agg(sum_units ORDER BY month_index) AS units,
+      array_agg(sum_sales ORDER BY month_index) AS sales
+    FROM (
+      SELECT
+        company_id,
+        company_name,
+        company_short_name,
+        company_uuid,
+        group_key,
+        forecast_period,
+        month_index,
+        SUM(units) AS sum_units,
+        SUM(sales_amount) AS sum_sales,
+        MAX(known_scenario_name) AS known_scenario_name,
+        MAX(forecast_run_updated_at) AS forecast_run_updated_at
+      FROM t_plan_expanded
+      GROUP BY 1,2,3,4,5,6,7
+    ) x
+    GROUP BY 1,2,3,4,5
+  ) y
 ),
 
 t_grouped AS (
@@ -264,9 +324,7 @@ t_grouped AS (
     MIN(t.sales_forecast_scenario_name) known_scenario_name,
     MIN(t.sales_forecast_scenario_uuid) AS sales_forecast_scenario_uuid,
 
-    MIN(t.snapshot_year) AS snapshot_year,
-    MIN(t.snapshot_month) AS snapshot_month,
-    MIN(t.snapshot_day) AS snapshot_day
+    MIN(t.snapshot_date) AS snapshot_date
   FROM t_base t
   GROUP BY 1,2,3,4,5,6
 )
@@ -318,9 +376,7 @@ SELECT
   t.sales_share_basis_value,
   t.group_key,
 
-  t.snapshot_year,
-  t.snapshot_month,
-  t.snapshot_day,
+  t.snapshot_date,
 
   t.forecast_run_period,
   t.forecast_run_updated_at,
@@ -333,11 +389,33 @@ SELECT
 
   CASE
     WHEN p.include_plan_series THEN
-      json_format(CAST(t.forecast_plan_units_array AS JSON))
+      json_format(
+        CAST(
+          transform(
+            sequence(1, cardinality(t.forecast_plan_periods_array)),
+            i -> CAST(ROW(
+              element_at(t.forecast_plan_periods_array, i),
+              CAST(ROUND(element_at(t.forecast_plan_units_array, i), 0) AS BIGINT),
+              ROUND(element_at(t.forecast_plan_sales_array, i), 2),
+              ROUND(IF(element_at(t.forecast_plan_units_array, i) > 0,
+                element_at(t.forecast_plan_sales_array, i) / element_at(t.forecast_plan_units_array, i),
+                CAST(NULL AS DOUBLE)
+              ), 3),
+              CAST(1.0 AS DOUBLE)
+            ) AS ROW(
+              period VARCHAR,
+              units_sold BIGINT,
+              sales_amount DOUBLE,
+              unit_price DOUBLE,
+              seasonality_index DOUBLE
+            ))
+          )
+        AS JSON)
+      )
     ELSE CAST(NULL AS VARCHAR)
-  END AS forecast_plan_months_json,
+  END AS forecast_series_json,
 
-  p.horizon_months AS forecast_horizon_months
+  CAST(p.horizon_months AS INTEGER) AS forecast_horizon_months
 
 FROM t_base t
 CROSS JOIN params p
@@ -392,9 +470,7 @@ SELECT
   END AS sales_share_basis_value,
   g.group_key,
 
-  g.snapshot_year,
-  g.snapshot_month,
-  g.snapshot_day,
+  g.snapshot_date,
 
   CAST(NULL AS VARCHAR) AS forecast_run_period,
   CAST(NULL AS TIMESTAMP) AS forecast_run_updated_at,
@@ -402,11 +478,11 @@ SELECT
   CAST(NULL AS DOUBLE) AS item_sales_share,
 
   CASE
-    WHEN p.include_plan_series THEN gp.forecast_plan_months_json
+    WHEN p.include_plan_series THEN gp.forecast_series_json
     ELSE CAST(NULL AS VARCHAR)
-  END AS forecast_plan_months_json,
+  END AS forecast_series_json,
 
-  p.horizon_months AS forecast_horizon_months
+  CAST(p.horizon_months AS INTEGER) AS forecast_horizon_months
 
 FROM t_grouped g
 CROSS JOIN params p

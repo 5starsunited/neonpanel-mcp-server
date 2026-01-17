@@ -83,10 +83,25 @@ forecast_item_plan AS (
     MAX(fr.sku) AS sku,
 
     slice(
+      array_agg(CAST(fr.forecast_period AS VARCHAR) ORDER BY fr.forecast_period),
+      1,
+      MAX(p.horizon_months)
+    ) AS forecast_plan_periods_array,
+    slice(
       array_agg(COALESCE(try_cast(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
       1,
       MAX(p.horizon_months)
-    ) AS forecast_plan_units_array
+    ) AS forecast_plan_units_array,
+    slice(
+      array_agg(COALESCE(try_cast(fr.sales_amount AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
+      1,
+      MAX(p.horizon_months)
+    ) AS forecast_plan_sales_array,
+    slice(
+      array_agg(COALESCE(CAST(fr.currency AS VARCHAR), '') ORDER BY fr.forecast_period),
+      1,
+      MAX(p.horizon_months)
+    ) AS forecast_plan_currency_array
   FROM forecast_latest_rows fr
   CROSS JOIN params p
   GROUP BY 1, 2
@@ -101,7 +116,7 @@ snapshot_core AS (
     pil.company_uuid,
 
     pil.inventory_id,
-    pil.sku,
+    COALESCE(pil.sku, pil.merchant_sku) AS sku,
     pil.country,
     pil.country_code,
 
@@ -132,9 +147,13 @@ snapshot_core AS (
     pil.asin_img_path,
     pil.product_name,
 
-    pil.year AS snapshot_year,
-    pil.month AS snapshot_month,
-    pil.day AS snapshot_day
+    concat(
+      CAST(pil.year AS VARCHAR),
+      '-',
+      lpad(CAST(pil.month AS VARCHAR), 2, '0'),
+      '-',
+      lpad(CAST(pil.day AS VARCHAR), 2, '0')
+    ) AS snapshot_date
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
   CROSS JOIN params p
@@ -145,7 +164,7 @@ snapshot_core AS (
     AND pil.month = s.month
     AND pil.day = s.day
 
-    AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
+    AND (cardinality(p.skus) = 0 OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku)))
     AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
     AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
     AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
@@ -199,7 +218,10 @@ t_core AS (
     sc.asin_img_path,
     sc.product_name,
 
+    fp.forecast_plan_periods_array,
     fp.forecast_plan_units_array,
+    fp.forecast_plan_sales_array,
+    fp.forecast_plan_currency_array,
 
     CASE
       WHEN p.sales_share_basis = 'units_sold_last_30_days' THEN COALESCE(try_cast(sc.units_sold_last_30_days AS DOUBLE), 0.0)
@@ -211,9 +233,7 @@ t_core AS (
       ELSE COALESCE(sc.parent_asin, 'UNKNOWN')
     END AS group_key,
 
-    sc.snapshot_year,
-    sc.snapshot_month,
-    sc.snapshot_day,
+    sc.snapshot_date,
 
     CAST(fp.run_period AS VARCHAR) AS forecast_run_period,
     fp.run_updated_at AS forecast_run_updated_at
@@ -237,10 +257,32 @@ t_ranked AS (
     END AS item_sales_share,
     CASE
       WHEN p.include_plan_series THEN
-        json_format(CAST(t.forecast_plan_units_array AS JSON))
+        json_format(
+          CAST(
+            transform(
+              sequence(1, cardinality(t.forecast_plan_periods_array)),
+              i -> CAST(ROW(
+                element_at(t.forecast_plan_periods_array, i),
+                CAST(ROUND(element_at(t.forecast_plan_units_array, i), 0) AS BIGINT),
+                ROUND(element_at(t.forecast_plan_sales_array, i), 2),
+                ROUND(IF(element_at(t.forecast_plan_units_array, i) > 0,
+                  element_at(t.forecast_plan_sales_array, i) / element_at(t.forecast_plan_units_array, i),
+                  CAST(NULL AS DOUBLE)
+                ), 3),
+                CAST(1.0 AS DOUBLE)
+              ) AS ROW(
+                period VARCHAR,
+                units_sold BIGINT,
+                sales_amount DOUBLE,
+                unit_price DOUBLE,
+                seasonality_index DOUBLE
+              ))
+            )
+          AS JSON)
+        )
       ELSE CAST(NULL AS VARCHAR)
-    END AS forecast_plan_months_json,
-    p.horizon_months AS forecast_horizon_months,
+    END AS forecast_series_json,
+    CAST(p.horizon_months AS INTEGER) AS forecast_horizon_months,
     COALESCE(try_cast(t.sales_last_30_days AS DOUBLE), 0.0) AS sort_sales_last_30_days,
     COALESCE(try_cast(t.units_sold_last_30_days AS DOUBLE), 0.0) AS sort_units_sold_last_30_days
   FROM t_core t
@@ -295,15 +337,13 @@ t_limited AS (
     sales_share_basis_value,
     group_key,
 
-    snapshot_year,
-    snapshot_month,
-    snapshot_day,
+    snapshot_date,
 
     forecast_run_period,
     forecast_run_updated_at,
 
     item_sales_share,
-    forecast_plan_months_json,
+    forecast_series_json,
     forecast_horizon_months
   FROM t_ranked
   ORDER BY
@@ -358,14 +398,12 @@ SELECT
   t.sales_share_basis_value,
   t.group_key,
 
-  t.snapshot_year,
-  t.snapshot_month,
-  t.snapshot_day,
+  t.snapshot_date,
 
   t.forecast_run_period,
   t.forecast_run_updated_at,
   t.item_sales_share,
-  t.forecast_plan_months_json,
+  t.forecast_series_json,
   t.forecast_horizon_months
 
 FROM t_limited t
