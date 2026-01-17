@@ -1,6 +1,6 @@
 {
   "name": "forecasting_write_sales_forecast",
-  "description": "Write user/AI-adjusted sales forecast values into an Iceberg table for auditability and downstream planning. Consequential (writes data).\n\nUse cases:\n- Persist manual overrides to a forecast for specific item(s) and period(s)\n- Persist AI-recommended adjustments with an explainable reason\n\nSafety / audit:\n- Always include company_id and an explicit item selector (inventory_id or sku+marketplace)\n- Always include a reason and an author/source\n- Prefer dry_run=true for validation before writing\n\nAuthor (important):\n- If author.type=ai, author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nSales amount (required):\n- sales_amount is REQUIRED for each write. Derive it as: sales_amount = units_sold * unit_price.\n- If unit_price is unknown, either (a) compute it from the latest existing forecast (sales_amount / units_sold) for the same SKU+marketplace, or (b) ask the user to provide an assumed unit price.\n\nScenario handling:\n- All writes are tagged with scenario_uuid=\"manual\" automatically (no need to provide).\n\nImportant (company selection):\n- Use company_id (preferred) or query.filters.company (numeric string). Do NOT pass a freeform company name.\n\nMarketplace input note:\n- marketplace accepts a country code like US/UK (preferred) and will be mapped to the correct amazon_marketplace_id when writing.\n\nExample (dry run, inventory_id only):\n{\n  \"company_id\": 103,\n  \"reason\": \"Velocity adjustment based on recent sales\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    { \"inventory_id\": 29972, \"forecast_period\": \"2026-01\", \"units_sold\": 151, \"sales_amount\": 1234.56, \"currency\": \"USD\" }\n  ]\n}\n\nExample (dry run, sku + marketplace):\n{\n  \"company_id\": 103,\n  \"reason\": \"Promo uplift adjustment for Q1\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    {\n      \"sku\": \"KEM-ASC-LG-BL1520-XL\",\n      \"marketplace\": \"US\",\n      \"forecast_period\": \"2026-01\",\n      \"units_sold\": 151,\n      \"sales_amount\": 1234.56,\n      \"currency\": \"USD\"\n    }\n  ]\n}",
+  "description": "Write user/AI-adjusted sales forecast values into an Iceberg table for auditability and downstream planning. Consequential (writes data).\n\nUse cases:\n- Persist manual overrides to a forecast for specific item(s) and period(s)\n- Persist AI-recommended adjustments with an explainable reason\n\nSafety / audit:\n- Always include company_id and an explicit item selector (inventory_id or sku+marketplace)\n- Always include a reason and an author/source\n- Prefer dry_run=true for validation before writing\n\nAuthor (important):\n- If author.type=ai, author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nSales amount (required):\n- sales_amount is REQUIRED for each write. Derive it as: sales_amount = units_sold * unit_price.\n- If unit_price is unknown, either (a) compute it from the latest existing forecast (sales_amount / units_sold) for the same SKU+marketplace, or (b) ask the user to provide an assumed unit price.\n\nScenario handling:\n- dataset is always written as \"manual\".\n- scenario_uuid is populated from the user-provided scenario name.\n\nImportant (company selection):\n- Use company_id (preferred) or query.filters.company (numeric string). Do NOT pass a freeform company name.\n\nMarketplace input note:\n- marketplace accepts a country code like US/UK (preferred) and will be mapped to the correct amazon_marketplace_id when writing.\n\nExample (dry run, inventory_id only):\n{\n  \"company_id\": 103,\n  \"reason\": \"Velocity adjustment based on recent sales\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    { \"inventory_id\": 29972, \"forecast_period\": \"2026-01\", \"units_sold\": 151, \"sales_amount\": 1234.56, \"currency\": \"USD\" }\n  ]\n}\n\nExample (dry run, sku + marketplace):\n{\n  \"company_id\": 103,\n  \"reason\": \"Promo uplift adjustment for Q1\",\n  \"author\": { \"type\": \"ai\", \"name\": \"Kio\" },\n  \"dry_run\": true,\n  \"writes\": [\n    {\n      \"sku\": \"KEM-ASC-LG-BL1520-XL\",\n      \"marketplace\": \"US\",\n      \"forecast_period\": \"2026-01\",\n      \"units_sold\": 151,\n      \"sales_amount\": 1234.56,\n      \"currency\": \"USD\"\n    }\n  ]\n}",
   "isConsequential": true,
   "inputSchema": {
     "type": "object",
@@ -31,6 +31,12 @@
         "default": true,
         "description": "If true, validate and preview writes without persisting."
       },
+      "write_mode": {
+        "type": "string",
+        "enum": ["append", "replace"],
+        "default": "append",
+        "description": "append (default) inserts new rows; replace deletes existing rows for the same sku+marketplace+period+scenario before inserting."
+      },
       "idempotency_key": {
         "type": "string",
         "description": "Optional idempotency key to prevent duplicate writes on retries."
@@ -60,6 +66,15 @@
             "marketplace": {
               "type": "string",
               "description": "Marketplace for SKU-based writes (e.g., US/UK or amazon marketplace id)."
+            },
+
+            "scenario": {
+              "type": "object",
+              "description": "Optional scenario naming. scenario.name will be stored in scenario_uuid; dataset is fixed to manual.",
+              "properties": {
+                "name": { "type": "string" }
+              },
+              "additionalProperties": false
             },
 
             "forecast_period": {

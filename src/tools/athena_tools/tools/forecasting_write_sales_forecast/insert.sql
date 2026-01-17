@@ -74,9 +74,9 @@ normalized AS (
     w.units_sold,
     w.sales_amount,
 
-    -- In fc_sales_forecast_iceberg, this is the dataset/scenario label.
-    COALESCE(NULLIF(TRIM(w.scenario_name), ''), 'override') AS dataset,
-    'manual' AS scenario_uuid,
+    -- In fc_sales_forecast_iceberg, dataset is fixed to manual and scenario_uuid stores user scenario name.
+    'manual' AS dataset,
+    COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid,
 
     -- Partition key; use forecast_period by default.
     NULLIF(TRIM(w.forecast_period), '') AS period,

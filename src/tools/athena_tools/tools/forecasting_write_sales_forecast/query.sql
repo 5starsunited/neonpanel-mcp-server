@@ -72,7 +72,7 @@ normalized AS (
     NULLIF(TRIM(w.sku), '') AS sku,
 
     w.scenario_id,
-    'manual' AS scenario_uuid,
+    COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid,
     NULLIF(TRIM(w.scenario_name), '') AS scenario_name,
 
     NULLIF(TRIM(w.forecast_period), '') AS forecast_period,

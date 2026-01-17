@@ -136,6 +136,7 @@ const inputSchema = z
     author: authorSchema.optional(),
     reason: z.string().min(3),
     dry_run: z.boolean().default(true).optional(),
+    write_mode: z.enum(['append', 'replace']).default('append').optional(),
     idempotency_key: z.string().optional(),
     debug_sql: z.boolean().optional(),
     writes: z.array(writeItemSchema).min(1).max(500),
@@ -308,6 +309,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
       }
 
       const dryRun = parsed.dry_run ?? true;
+      const writeMode = parsed.write_mode ?? 'append';
 
       const author = parsed.author ?? { type: 'user' as const };
       const derived = deriveAuthorName(author.name, context);
@@ -472,6 +474,26 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           };
         }
 
+        if (writeMode === 'replace') {
+          const deleteTemplate = await loadTextFile(path.join(__dirname, 'delete.sql'));
+          const deleteRendered = renderSqlTemplate(deleteTemplate, {
+            forecast_catalog: config.athena.catalog,
+            forecast_database: config.athena.tables.forecastingDatabase,
+            forecast_table_sales_forecast_writes: config.athena.tables.salesForecastWrites,
+
+            company_id: companyId,
+            writes_values_sql: writesValuesSql,
+          });
+
+          await runAthenaQuery({
+            query: deleteRendered,
+            database: config.athena.tables.forecastingDatabase,
+            workGroup: config.athena.workgroup,
+            outputLocation: config.athena.outputLocation,
+            maxRows: 1,
+          });
+        }
+
         const insertTemplate = await loadTextFile(insertSqlPath);
         const insertRendered = renderSqlTemplate(insertTemplate, {
           forecast_catalog: config.athena.catalog,
@@ -528,7 +550,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           written: writableRows,
           items: items.map((it) => ({
             ...it,
-            message: it.status === 'ok' ? 'Written (append-only).' : it.message,
+            message: it.status === 'ok' ? `Written (${writeMode}).` : it.message,
           })),
           meta: {
             warnings,
