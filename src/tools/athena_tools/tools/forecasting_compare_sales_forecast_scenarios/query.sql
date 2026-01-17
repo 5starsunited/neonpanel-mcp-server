@@ -219,10 +219,14 @@ SELECT
   r.snapshot_date,
 
   -- series
+  x.series_type,
+  x.scenario_name,
+  x.run_updated_at,
   x.period,
   x.units_sold,
   x.sales_amount,
   x.unit_price,
+  x.currency,
   x.seasonality_index
 
 FROM resolved r
