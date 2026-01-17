@@ -298,7 +298,6 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         parent_asin: first.parent_asin,
         asin: first.asin,
         product_name: first.product_name,
-        unit_price: first.unit_price,
         series_type: first.series_type,
         scenario: first.scenario_name ?? first.scenario,
         run_updated_at: first.run_updated_at,
@@ -310,6 +309,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         units_sold: r.units_sold,
         sales_amount: r.sales_amount,
         currency: r.currency,
+        unit_price: r.unit_price,
         seasonality_index: r.seasonality_index,
       }));
 
