@@ -299,6 +299,10 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         asin: first.asin,
         product_name: first.product_name,
         unit_price: first.unit_price,
+        series_type: first.series_type,
+        scenario: first.scenario_name ?? first.scenario,
+        run_updated_at: first.run_updated_at,
+        currency: first.currency,
       };
 
       const rows = rowsRaw.map((r) => ({
