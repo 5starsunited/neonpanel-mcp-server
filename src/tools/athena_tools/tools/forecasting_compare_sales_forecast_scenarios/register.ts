@@ -299,18 +299,13 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         asin: first.asin,
         product_name: first.product_name,
         unit_price: first.unit_price,
-        seasonality_index: first.seasonality_index,
       };
 
       const rows = rowsRaw.map((r) => ({
-        series_type: r.series_type,
-        scenario: r.scenario_name ?? r.scenario,
-        run_updated_at: r.run_updated_at,
         period: r.period,
         units_sold: r.units_sold,
         sales_amount: r.sales_amount,
         currency: r.currency,
-        unit_price: r.unit_price,
         seasonality_index: r.seasonality_index,
       }));
 
