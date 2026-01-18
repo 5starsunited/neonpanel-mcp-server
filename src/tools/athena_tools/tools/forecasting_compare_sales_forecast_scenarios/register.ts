@@ -70,6 +70,8 @@ const querySchema = z
         asin: z.array(z.string()).max(5).optional(),
       })
       .catchall(z.unknown()),
+    country_code: z.array(z.string()).min(1).max(1).optional(),
+    marketplace: z.array(z.string()).min(1).max(1).optional(),
     limit: z.coerce.number().int().min(1).max(500).default(200).optional(),
   })
   .strict();
@@ -105,6 +107,8 @@ const toolSpecificSchema = z
             end: z.string().optional(),
           })
           .optional(),
+
+        debug_sql: z.boolean().optional(),
       })
       .default({ mode: 'scenarios', include_actuals: true, run_selector: { type: 'latest_n', n: 3 } })
       .optional(),
@@ -214,7 +218,11 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         ? String(filters.country_code[0] ?? '').trim()
         : Array.isArray(filters.marketplace)
           ? String(filters.marketplace[0] ?? '').trim()
-          : '';
+          : Array.isArray(parsed.query.country_code)
+            ? String(parsed.query.country_code[0] ?? '').trim()
+            : Array.isArray(parsed.query.marketplace)
+              ? String(parsed.query.marketplace[0] ?? '').trim()
+              : '';
 
       const parentAsins = Array.isArray(filters.parent_asin)
         ? filters.parent_asin
@@ -306,6 +314,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
       const rowsPerItemEstimate = aggregateNeeded && detailNeeded ? 400 : detailNeeded ? 250 : 150;
       const rowLimit = Math.min(5000, Math.max(limit, maxItems * rowsPerItemEstimate));
       const maxRows = aggregateNeeded && detailNeeded ? Math.min(6000, rowLimit * 2) : rowLimit;
+      const debugSqlEnabled = Boolean(compare.debug_sql);
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
@@ -380,6 +389,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
           meta: {
             warnings,
             applied_compare: compare,
+            debug_sql: debugSqlEnabled ? query : undefined,
           },
         };
       }
@@ -482,6 +492,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         meta: {
           warnings,
           applied_compare: compare,
+          debug_sql: debugSqlEnabled ? query : undefined,
         },
       };
     },

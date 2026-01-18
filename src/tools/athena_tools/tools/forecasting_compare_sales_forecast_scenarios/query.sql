@@ -193,7 +193,7 @@ forecast_rows AS (
     ON m.amazon_marketplace_id = f.amazon_marketplace_id
   INNER JOIN items i
     ON f.company_id = i.company_id
-    AND lower(f.sku) = i.normalized_sku
+    AND lower(trim(f.sku)) = i.normalized_sku
     AND lower(trim(m.code)) = i.normalized_marketplace_key
   CROSS JOIN params p
   WHERE
@@ -243,7 +243,7 @@ actual_rows AS (
     ON m.amazon_marketplace_id = h.amazon_marketplace_id
   INNER JOIN items i
     ON CAST(h.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-    AND lower(h.sku) = i.normalized_sku
+    AND lower(trim(h.sku)) = i.normalized_sku
     AND lower(trim(m.code)) = i.normalized_marketplace_key
   CROSS JOIN params p
   WHERE
