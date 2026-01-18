@@ -20,72 +20,80 @@ WITH params AS (
 
     -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
+    {{skus_lower_array}} AS skus_lower,
     {{asins_array}} AS asins,
     {{parent_asins_array}} AS parent_asins,
-    {{brands_array}} AS brands,
-    {{product_families_array}} AS product_families,
-    {{marketplaces_array}} AS marketplaces,
-    {{revenue_abcd_classes_array}} AS revenue_abcd_classes
-),
+    snapshot_core AS (
+      SELECT
+        pil.company_id,
+        pil.company_name,
+        pil.company_short_name,
+        pil.company_uuid,
 
--- STEP 1: Identify latest snapshot partition available for requested company_ids.
-latest_snapshot AS (
-  SELECT pil.year, pil.month, pil.day
-  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-  CROSS JOIN params p
-  WHERE contains(p.company_ids, pil.company_id)
-  GROUP BY 1, 2, 3
-  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
-  LIMIT 1
-),
+        pil.inventory_id,
+        COALESCE(pil.sku, pil.merchant_sku, fp.sku) AS sku,
+        pil.country,
+        pil.country_code,
 
--- STEP 2: Keep only rows from the latest forecast run per (company_id, inventory_id).
--- This avoids scanning the forecast table twice (key selection + join back).
-forecast_latest_rows AS (
-  SELECT
-    f.company_id,
-    f.inventory_id,
-    f.period,
-    f.updated_at,
-    f.forecast_period,
-    f.units_sold,
-    f.sales_amount,
-    f.dataset,
-    f.scenario_uuid,
-    f.currency,
-    f.amazon_marketplace_id,
-    f.sku
-  FROM (
-    SELECT
-      f.*,
-      dense_rank() OVER (
-        PARTITION BY f.company_id, f.inventory_id
-        ORDER BY f.period DESC, f.updated_at DESC
-      ) AS run_rank
-    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-    CROSS JOIN params p
-    WHERE contains(p.company_ids, f.company_id)
-  ) f
-  WHERE f.run_rank = 1
-),
+        pil.child_asin,
+        pil.parent_asin,
+        pil.asin,
+        pil.fnsku,
+        pil.merchant_sku,
 
--- STEP 3: Summarize the latest forecast run per item (plan series + metadata).
-forecast_item_plan AS (
-  SELECT
-    fr.company_id,
-    fr.inventory_id,
-    MAX(fr.period) AS run_period,
-    MAX(fr.updated_at) AS run_updated_at,
-    MAX(fr.dataset) AS dataset,
-    MAX(fr.scenario_uuid) AS scenario_uuid,
-    MAX(fr.currency) AS currency,
-    MAX(fr.amazon_marketplace_id) AS marketplace_id,
-    MAX(fr.sku) AS sku,
+        pil.brand,
+        pil.product_family,
 
-    slice(
-      array_agg(CAST(fr.forecast_period AS VARCHAR) ORDER BY fr.forecast_period),
-      1,
-      MAX(p.horizon_months)
+        pil.revenue_abcd_class,
+        pil.revenue_abcd_class_description,
+        pil.pareto_abc_class,
+        pil.revenue_share,
+        pil.cumulative_revenue_share,
+
+        pil.sales_last_30_days,
+        pil.units_sold_last_30_days,
+        pil.revenue_30d,
+        pil.units_30d,
+
+        pil.avg_units_30d,
+        pil.avg_units_7d,
+        pil.avg_units_3d,
+
+        pil.asin_img_path,
+        pil.product_name,
+
+        concat(
+          CAST(pil.year AS VARCHAR),
+          '-',
+          lpad(CAST(pil.month AS VARCHAR), 2, '0'),
+          '-',
+          lpad(CAST(pil.day AS VARCHAR), 2, '0')
+        ) AS snapshot_date
+
+      FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+      CROSS JOIN params p
+      CROSS JOIN latest_snapshot s
+      LEFT JOIN forecast_item_plan fp
+        ON fp.company_id = pil.company_id
+        AND fp.inventory_id = pil.inventory_id
+      WHERE
+        contains(p.company_ids, pil.company_id)
+        AND pil.year = s.year
+        AND pil.month = s.month
+        AND pil.day = s.day
+
+        AND (
+          cardinality(p.skus) = 0
+          OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku, fp.sku))
+          OR contains(p.skus_lower, lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)))
+        )
+        AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
+        AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
+        AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
+        AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
+        AND (cardinality(p.marketplaces) = 0 OR contains(p.marketplaces, pil.country_code))
+        AND (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, pil.revenue_abcd_class))
+    ),
     ) AS forecast_plan_periods_array,
     slice(
       array_agg(COALESCE(try_cast(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
@@ -164,7 +172,11 @@ snapshot_core AS (
     AND pil.month = s.month
     AND pil.day = s.day
 
-    AND (cardinality(p.skus) = 0 OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku)))
+    AND (
+      cardinality(p.skus) = 0
+      OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku))
+      OR contains(p.skus_lower, lower(COALESCE(pil.sku, pil.merchant_sku)))
+    )
     AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
     AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
     AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))

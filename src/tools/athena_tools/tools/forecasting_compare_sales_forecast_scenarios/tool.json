@@ -1,6 +1,6 @@
 {
   "name": "forecasting_compare_sales_forecast_scenarios",
-  "description": "Deep-dive forecasting comparison for a single item. Compares forecast outputs across scenarios and/or across forecast runs (history), and optionally overlays actual sales history (included by default). Read-only; no side effects.\n\nThis tool is for a SINGLE item (inventory_id or sku+country_code+company_id). For portfolio-level listing of current/latest forecast across many items, use forecasting_list_latest_sales_forecast.\n\nInput uses the shared query envelope:\n- query: filters + limit\n- tool_specific: comparison options (mode, scenario selection, run selection, include_actuals)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred, integer) or query.filters.company (numeric string only)\n- If both provided, company_id takes precedence\n\nItem selector (MUST provide exactly one path):\n- Path 1 (preferred): query.filters.inventory_id alone\n- Path 2: query.filters.sku + country_code + company_id\n- Optional constraints: add asin or parent_asin to validate/constrain the selected item\n\nMarketplace / country selection:\n- Prefer query.filters.country_code (single value array like [\"US\"], [\"UK\"], [\"AU\"])\n- query.filters.marketplace is deprecated alias; if both provided, country_code takes precedence\n\nScenario selection (all optional; if multiple provided, precedence: ids > uuids > names):\n- scenario_ids: list of numeric scenario IDs\n- scenario_uuids: list of scenario UUIDs (e.g., 'manual', 'baseline')\n- scenario_names: list of scenario names (exact match recommended)\n- If none provided, all available scenarios for the item are included\n\nComparison modes:\n- scenarios: compare multiple scenarios for the same run window (uses run_selector.latest_n most recent runs)\n- runs: compare multiple runs (different updated_at) for the same scenario (first scenario selected)\n- scenarios_and_runs: compare both axes (scenarios selected vs. runs selected)\n\nRun selector (controls updated_at window):\n- type=latest_n (default): includes n most recent forecast runs\n- type=date_range: includes runs with updated_at in [updated_at_from, updated_at_to)\n\nActuals:\n- include_actuals=true by default; tool overlays sales history from dataset when available\n\nOutput size:\n- limit controls max rows returned (default 200, max 500)\n- Actual rows = periods × scenarios × runs (limited by limit)\n- If limit exceeded, most recent periods are returned first",
+  "description": "Deep-dive forecasting comparison for multiple items with optional aggregation. Supports selectors by inventory_ids, sku+country_code, parent_asin, or product_family (pick one). Compares forecast outputs across scenarios and/or forecast runs, can overlay actuals, and can return aggregates plus per-item breakdown. Read-only; no side effects.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -10,7 +10,7 @@
         "properties": {
           "filters": {
             "type": "object",
-            "description": "Item selector and optional filters. This tool expects a single item selector. Provide either: (a) inventory_id OR (b) sku + marketplace + company_id.",
+            "description": "Item selector and optional filters. Provide exactly one selector path: inventory_ids OR sku + country_code OR parent_asin OR product_family.",
             "properties": {
               "company": {
                 "type": "string",
@@ -18,46 +18,55 @@
               },
               "company_id": { "type": "integer", "minimum": 1 },
 
-              "inventory_id": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Preferred item selector (single item). Mutually exclusive with sku+country_code path. If both inventory_id and sku are provided, inventory_id takes precedence."
+              "inventory_ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "maxItems": 10,
+                "description": "Selector path 1: inventory_ids (up to 10)."
               },
 
               "sku": {
                 "type": "array",
                 "items": { "type": "string" },
                 "minItems": 1,
-                "maxItems": 1,
-                "description": "Alternative item selector (single SKU). Use with marketplace + company_id."
+                "maxItems": 10,
+                "description": "Selector path 2: sku array (up to 10). Requires country_code."
               },
               "marketplace": {
                 "type": "array",
                 "items": { "type": "string" },
                 "minItems": 1,
                 "maxItems": 1,
-                "description": "Deprecated alias for country_code. If both provided, country_code takes precedence."
+                "description": "Deprecated alias for country_code."
               },
-
               "country_code": {
                 "type": "array",
                 "items": { "type": "string" },
                 "minItems": 1,
                 "maxItems": 1,
-                "description": "Country code selector for SKU-based lookups (single value). Examples: [\"US\"], [\"UK\"], [\"AU\"]."
+                "description": "Required when using sku selector."
               },
 
-              "asin": {
-                "type": "array",
-                "items": { "type": "string" },
-                "maxItems": 1,
-                "description": "Optional: constrain/validate the selected item by ASIN."
-              },
               "parent_asin": {
                 "type": "array",
                 "items": { "type": "string" },
-                "maxItems": 1,
-                "description": "Optional: constrain/validate the selected item by parent ASIN."
+                "minItems": 1,
+                "maxItems": 10,
+                "description": "Selector path 3: parent ASIN (up to 10)."
+              },
+              "product_family": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 5,
+                "description": "Selector path 4: product family (up to 5)."
+              },
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 5,
+                "description": "Optional constraint filter."
               }
             },
             "additionalProperties": true
@@ -67,7 +76,7 @@
             "minimum": 1,
             "maximum": 500,
             "default": 200,
-            "description": "Max rows returned (each row = one period + actuals + forecast series). Output rows = periods × scenarios × runs (limited by this). If limit exceeded, most recent periods are prioritized and returned first."
+            "description": "Max rows returned (each row = one period x scenario x run). If limit exceeded, most recent periods are prioritized."
           }
         },
         "required": ["filters"],
@@ -85,6 +94,18 @@
                 "enum": ["scenarios", "runs", "scenarios_and_runs"],
                 "default": "scenarios",
                 "description": "Comparison axis selection."
+              },
+
+              "aggregate": {
+                "type": "string",
+                "enum": ["none", "parent_asin", "product_family", "all"],
+                "default": "none",
+                "description": "Aggregation mode: group totals by parent_asin, product_family, or both."
+              },
+              "include_breakdown": {
+                "type": "boolean",
+                "default": false,
+                "description": "When aggregating, also return per-item detail rows."
               },
 
               "scenario_ids": {
@@ -136,7 +157,7 @@
               "include_actuals": {
                 "type": "boolean",
                 "default": true,
-                "description": "If true (default), include sales history actuals for the item and align by period."
+                "description": "If true (default), include sales history actuals and align by period."
               },
 
               "period": {
@@ -161,34 +182,30 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "item_ref": {
-        "type": "object",
-        "description": "Resolved identity for the item that was analyzed.",
-        "properties": {
-          "company_id": { "type": "integer" },
-          "inventory_id": { "type": "integer" },
-          "sku": { "type": "string" },
-          "asin": { "type": "string" },
-          "child_asin": { "type": "string" },
-          "parent_asin": { "type": "string" },
-          "marketplace": { "type": "string" },
-          "product_name": { "type": "string" }
-        },
-        "additionalProperties": true
-      },
-
-      "rows": {
+      "items": {
         "type": "array",
-        "description": "Time series rows aligned by period. Each row includes period, units_sold (int), sales_amount (2dp), unit_price (3dp), seasonality_index.",
-        "items": { "type": "object", "additionalProperties": true }
+        "description": "Per-item detail rows when detail is requested (aggregate=none or include_breakdown=true).",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": { "type": "object", "additionalProperties": true },
+            "rows": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          },
+          "additionalProperties": false
+        }
       },
-
-      "summary": {
-        "type": "object",
-        "description": "Optional summary metrics and comparisons derived from the rows (e.g., deltas, error metrics).",
-        "additionalProperties": true
+      "aggregates": {
+        "type": "array",
+        "description": "Aggregated rows when aggregate mode is enabled.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "group": { "type": "object", "additionalProperties": true },
+            "rows": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+          },
+          "additionalProperties": false
+        }
       },
-
       "meta": {
         "type": "object",
         "properties": {
@@ -198,7 +215,6 @@
         "additionalProperties": true
       }
     },
-    "required": ["rows"],
     "additionalProperties": true
   }
 }

@@ -313,7 +313,6 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
         warnings.push(`author.name not provided; using ${derived.source} for author_name.`);
       }
 
-      // The target schema (fc_sales_forecast_iceberg) does not have these fields.
       warnings.push(
         'Note: audit metadata (reason, note, author_type, author_id, idempotency_key) is write-only and not persisted in the forecast table. Only author_name, scenario name, and updated_at are stored there. Use a consistent scenario name across writes to track iterations.',
       );
@@ -349,18 +348,25 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
       const debugSql = parsed.debug_sql === true;
 
+      const reasonSql = sqlStringLiteral(parsed.reason);
+      const authorTypeSql = sqlStringLiteral(author.type);
+      const authorNameSql = sqlStringLiteral(resolvedAuthorName);
+      const authorIdSql = sqlNullableVarcharExpr(author.id ?? null);
+      const idempotencyKeySql = sqlNullableVarcharExpr(parsed.idempotency_key ?? null);
+      const dryRunSql = sqlBooleanLiteral(dryRun);
+
       const rendered = renderSqlTemplate(template, {
         forecast_catalog: config.athena.catalog,
         forecast_database: config.athena.tables.forecastingDatabase,
         company_id: companyId,
-        dry_run_sql: sqlBooleanLiteral(dryRun),
-        reason_sql: sqlStringLiteral(parsed.reason),
+        dry_run_sql: dryRunSql,
+        reason_sql: reasonSql,
 
-        author_type_sql: sqlStringLiteral(author.type),
-        author_name_sql: sqlStringLiteral(resolvedAuthorName),
-        author_id_sql: sqlNullableVarcharExpr(author.id ?? null),
+        author_type_sql: authorTypeSql,
+        author_name_sql: authorNameSql,
+        author_id_sql: authorIdSql,
 
-        idempotency_key_sql: sqlNullableVarcharExpr(parsed.idempotency_key ?? null),
+        idempotency_key_sql: idempotencyKeySql,
 
         writes_values_sql: writesValuesSql,
       });
@@ -496,7 +502,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           forecast_table_sales_forecast_writes: config.athena.tables.salesForecastWrites,
 
           company_id: companyId,
-          author_name_sql: sqlStringLiteral(resolvedAuthorName),
+          author_name_sql: authorNameSql,
 
           writes_values_sql: writesValuesSql,
         });
@@ -549,7 +555,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           })),
           meta: {
             warnings,
-            ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
+            ...(debugSql ? { debug: { rendered_sql: rendered, insert_rendered_sql: insertRendered } } : {}),
           },
         };
       }

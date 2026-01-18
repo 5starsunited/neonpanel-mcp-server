@@ -87,6 +87,7 @@ const toolSpecificSchema = z
     aggregate_by: z.enum(['parent_asin', 'product_family']).default('parent_asin'),
     include_item_sales_share: z.boolean().default(false),
     sales_share_basis: z.enum(['sales_last_30_days', 'units_sold_last_30_days']).default('sales_last_30_days'),
+    debug: z.boolean().default(false),
   })
   .strict();
 
@@ -219,10 +220,16 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
       const salesForecastTable = config.athena.tables.salesForecast;
 
       const limit = Math.min(2000, query.limit ?? 50);
+      const skuList = Array.isArray(filters.sku)
+        ? filters.sku.map((s: any) => String(s).trim()).filter((s: string) => s.length > 0)
+        : [];
+      const hasSkuFilter = skuList.length > 0;
+      const limitTopN = hasSkuFilter ? Math.max(limit, Math.max(10, skuList.length)) : limit;
+      const maxRows = hasSkuFilter ? Math.max(50, limit * 5) : limit;
 
       // Use optimised query for the dominant path (details).
       // Keep baseline query for aggregate output (optimised SQL is detail-only).
-      const sqlPath = path.join(__dirname, toolSpecific.aggregate ? 'query.sql' : 'query_optimised.sql');
+      const sqlPath = path.join(__dirname, 'query.sql');
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
@@ -232,7 +239,7 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         forecasting_database: forecastingDatabase,
         sales_forecast_table: salesForecastTable,
 
-        limit_top_n: Number(limit),
+        limit_top_n: Number(limitTopN),
         horizon_months: Number(toolSpecific.horizon_months ?? 12),
         include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
         include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
@@ -243,13 +250,16 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         sales_share_basis_sql: `'${toolSpecific.sales_share_basis}'`,
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-        skus_array: sqlVarcharArrayExpr((filters.sku ?? []).map(String)),
+        skus_array: sqlVarcharArrayExpr(skuList),
+        skus_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
         asins_array: sqlVarcharArrayExpr((filters.asin ?? []).map(String)),
         parent_asins_array: sqlVarcharArrayExpr((filters.parent_asin ?? []).map(String)),
         brands_array: sqlVarcharArrayExpr((filters.brand ?? []).map(String)),
         product_families_array: sqlVarcharArrayExpr((filters.product_family ?? []).map(String)),
         marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map(String)),
         revenue_abcd_classes_array: sqlVarcharArrayExpr((filters.revenue_abcd_class ?? []).map(String)),
+
+        debug_mode_sql: toolSpecific.debug ? 'TRUE' : 'FALSE',
       });
 
       const athenaResult = await runAthenaQuery({
@@ -257,10 +267,129 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         database,
         workGroup: config.athena.workgroup,
         outputLocation: config.athena.outputLocation,
-        maxRows: limit,
+        maxRows,
       });
 
       const items = (athenaResult.rows ?? []).map((row) => row as Record<string, unknown>);
+
+      // If no rows returned for a single-SKU request, run a lightweight debug probe to surface match context.
+      if (items.length === 0) {
+        if (skuList.length === 1) {
+          const requestedSku = skuList[0];
+          const debugSql = `
+WITH latest_snapshot AS (
+  SELECT pil.year, pil.month, pil.day
+  FROM "${catalog}"."${database}"."${table}" pil
+  WHERE pil.company_id = ${companyId}
+  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  LIMIT 1
+)
+SELECT
+  pil.company_id,
+  pil.inventory_id,
+  COALESCE(pil.sku, pil.merchant_sku, fp.sku) AS coalesced_sku,
+  lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)) AS coalesced_sku_lower,
+  ${sqlStringLiteral(requestedSku)} AS requested_sku,
+  lower(${sqlStringLiteral(requestedSku)}) AS requested_sku_lower,
+  contains(array[${sqlStringLiteral(requestedSku)}], COALESCE(pil.sku, pil.merchant_sku, fp.sku)) AS match_exact,
+  contains(array[lower(${sqlStringLiteral(requestedSku)})], lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku))) AS match_lower,
+  pil.sku AS raw_sku,
+  pil.merchant_sku AS raw_merchant_sku,
+  fp.sku AS fp_sku,
+  pil.child_asin,
+  pil.parent_asin,
+  pil.country_code,
+  pil.year,
+  pil.month,
+  pil.day
+FROM "${catalog}"."${database}"."${table}" pil
+LEFT JOIN "${catalog}"."${forecastingDatabase}"."${salesForecastTable}" fp
+  ON fp.company_id = pil.company_id
+  AND fp.inventory_id = pil.inventory_id
+CROSS JOIN latest_snapshot s
+WHERE pil.company_id = ${companyId}
+  AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
+  AND (
+    lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)) = lower(${sqlStringLiteral(requestedSku)})
+    OR COALESCE(pil.sku, pil.merchant_sku, fp.sku) = ${sqlStringLiteral(requestedSku)}
+  )
+LIMIT 25;`;
+
+          const debugResult = await runAthenaQuery({
+            query: debugSql,
+            database,
+            workGroup: config.athena.workgroup,
+            outputLocation: config.athena.outputLocation,
+            maxRows: 25,
+          });
+
+          // Retry main query with a slightly higher limit to avoid over-pruning in ORDER/LIMIT.
+          const retryRendered = renderSqlTemplate(template, {
+            catalog,
+            database,
+            table,
+            forecasting_database: forecastingDatabase,
+            sales_forecast_table: salesForecastTable,
+
+            limit_top_n: Math.min(10, Math.max(3, Number(limit))),
+            horizon_months: Number(toolSpecific.horizon_months ?? 12),
+            include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
+            include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
+
+            aggregate_sql: toolSpecific.aggregate ? 'TRUE' : 'FALSE',
+            aggregate_by_sql: `'${toolSpecific.aggregate_by}'`,
+            include_item_sales_share_sql: toolSpecific.include_item_sales_share ? 'TRUE' : 'FALSE',
+            sales_share_basis_sql: `'${toolSpecific.sales_share_basis}'`,
+
+            company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+            skus_array: sqlVarcharArrayExpr(skuList),
+            skus_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
+            asins_array: sqlVarcharArrayExpr((filters.asin ?? []).map(String)),
+            parent_asins_array: sqlVarcharArrayExpr((filters.parent_asin ?? []).map(String)),
+            brands_array: sqlVarcharArrayExpr((filters.brand ?? []).map(String)),
+            product_families_array: sqlVarcharArrayExpr((filters.product_family ?? []).map(String)),
+            marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map(String)),
+            revenue_abcd_classes_array: sqlVarcharArrayExpr((filters.revenue_abcd_class ?? []).map(String)),
+
+            debug_mode_sql: toolSpecific.debug ? 'TRUE' : 'FALSE',
+          });
+
+          const retryResult = await runAthenaQuery({
+            query: retryRendered,
+            database,
+            workGroup: config.athena.workgroup,
+            outputLocation: config.athena.outputLocation,
+            maxRows: Math.min(50, Math.max(10, limit * 5)),
+          });
+
+          const retryItems = (retryResult.rows ?? []).map((row) => row as Record<string, unknown>);
+
+          if (retryItems.length > 0) {
+            const filtered = companyId
+              ? retryItems.filter((it) => String((it as any).company_id) === String(companyId))
+              : retryItems;
+            return {
+              items: filtered,
+              meta: {
+                warnings: [...warnings, 'Returned via retry with higher limit_top_n. Debug probe attached.'],
+                applied_sort: query.sort ?? null,
+                selected_fields: query.select_fields ?? null,
+                debug_probe: debugResult.rows ?? [],
+              },
+            };
+          }
+
+          return {
+            items: [],
+            meta: {
+              warnings: [...warnings, 'No rows matched; debug probe attached.'],
+              applied_sort: query.sort ?? null,
+              selected_fields: query.select_fields ?? null,
+              debug_probe: debugResult.rows ?? [],
+            },
+          };
+        }
+      }
 
       // Defensive: if caller requests a specific company_id, enforce it client-side as well.
       if (companyId) {

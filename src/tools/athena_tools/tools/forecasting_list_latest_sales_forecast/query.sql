@@ -16,12 +16,14 @@ WITH params AS (
     {{aggregate_by_sql}} AS aggregate_by,
     {{include_item_sales_share_sql}} AS include_item_sales_share,
     {{sales_share_basis_sql}} AS sales_share_basis,
+    {{debug_mode_sql}} AS debug_mode,
 
     -- REQUIRED (authorization + partition pruning)
     {{company_ids_array}} AS company_ids,
 
     -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
+    {{skus_lower_array}} AS skus_lower,
     {{asins_array}} AS asins,
     {{parent_asins_array}} AS parent_asins,
     {{brands_array}} AS brands,
@@ -214,7 +216,11 @@ t_base AS (
     AND pil.month = s.month
     AND pil.day = s.day
 
-    AND (cardinality(p.skus) = 0 OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku)))
+      AND (
+        cardinality(p.skus) = 0
+        OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku, fp.sku))
+        OR contains(p.skus_lower, lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)))
+      )
     AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
     AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
     AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))

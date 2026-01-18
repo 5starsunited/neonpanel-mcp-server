@@ -60,13 +60,14 @@ const querySchema = z
         company: z.string().optional(),
         company_id: z.coerce.number().int().min(1).optional(),
 
-        inventory_id: z.coerce.number().int().min(1).optional(),
-        sku: z.array(z.string()).min(1).max(1).optional(),
+        inventory_ids: z.array(z.coerce.number().int().min(1)).min(1).max(10).optional(),
+        sku: z.array(z.string()).min(1).max(10).optional(),
         marketplace: z.array(z.string()).min(1).max(1).optional(),
         country_code: z.array(z.string()).min(1).max(1).optional(),
 
-        asin: z.array(z.string()).max(1).optional(),
-        parent_asin: z.array(z.string()).max(1).optional(),
+        parent_asin: z.array(z.string()).min(1).max(10).optional(),
+        product_family: z.array(z.string()).min(1).max(5).optional(),
+        asin: z.array(z.string()).max(5).optional(),
       })
       .catchall(z.unknown()),
     limit: z.coerce.number().int().min(1).max(500).default(200).optional(),
@@ -78,6 +79,9 @@ const toolSpecificSchema = z
     compare: z
       .object({
         mode: z.enum(['scenarios', 'runs', 'scenarios_and_runs']).default('scenarios').optional(),
+
+        aggregate: z.enum(['none', 'parent_asin', 'product_family', 'all']).default('none').optional(),
+        include_breakdown: z.boolean().default(false).optional(),
 
         scenario_ids: z.array(z.coerce.number().int().min(1)).optional(),
         scenario_uuids: z.array(z.string()).optional(),
@@ -192,23 +196,78 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         };
       }
 
-      const inventoryId = filters.inventory_id ? Number(filters.inventory_id) : undefined;
-      const sku = Array.isArray(filters.sku) ? String(filters.sku[0] ?? '').trim() : '';
+      const inventoryIds = Array.isArray(filters.inventory_ids)
+        ? filters.inventory_ids
+            .map((n: any) => Number(n))
+            .filter((n: number) => Number.isFinite(n) && n > 0)
+            .slice(0, 10)
+        : [];
+
+      const skuList = Array.isArray(filters.sku)
+        ? filters.sku
+            .map((s: any) => String(s).trim())
+            .filter((s: string) => s.length > 0)
+            .slice(0, 10)
+        : [];
+
       const countryCodeRaw = Array.isArray(filters.country_code)
         ? String(filters.country_code[0] ?? '').trim()
         : Array.isArray(filters.marketplace)
           ? String(filters.marketplace[0] ?? '').trim()
           : '';
 
-      const hasInventoryId = Boolean(inventoryId && Number.isFinite(inventoryId) && inventoryId > 0);
-      const hasSkuSelector = sku.length > 0 && countryCodeRaw.length > 0;
-      if (!hasInventoryId && !hasSkuSelector) {
+      const parentAsins = Array.isArray(filters.parent_asin)
+        ? filters.parent_asin
+            .map((s: any) => String(s).trim())
+            .filter((s: string) => s.length > 0)
+            .slice(0, 10)
+        : [];
+
+      const productFamilies = Array.isArray(filters.product_family)
+        ? filters.product_family
+            .map((s: any) => String(s).trim())
+            .filter((s: string) => s.length > 0)
+            .slice(0, 5)
+        : [];
+
+      const selectorFlags = {
+        inventory: inventoryIds.length > 0,
+        sku: skuList.length > 0,
+        parent_asin: parentAsins.length > 0,
+        product_family: productFamilies.length > 0,
+      };
+
+      const activeSelectors = Object.entries(selectorFlags)
+        .filter(([, active]) => active)
+        .map(([key]) => key);
+
+      if (activeSelectors.length === 0) {
         return {
           rows: [],
           meta: {
             warnings,
             error:
-              'Item selector required: provide query.filters.inventory_id OR (query.filters.sku[0] and query.filters.country_code[0]). (query.filters.marketplace is a deprecated alias for country_code.)',
+              'Item selector required: inventory_ids OR (sku + country_code) OR parent_asin OR product_family must be provided.',
+          },
+        };
+      }
+
+      if (activeSelectors.length > 1) {
+        return {
+          rows: [],
+          meta: {
+            warnings,
+            error: `Provide exactly one selector type. Found: ${activeSelectors.join(', ')}. Precedence is inventory_ids > sku > parent_asin > product_family.`,
+          },
+        };
+      }
+
+      if (selectorFlags.sku && countryCodeRaw.length === 0) {
+        return {
+          rows: [],
+          meta: {
+            warnings,
+            error: 'query.filters.country_code (or marketplace) is required when selecting by sku.',
           },
         };
       }
@@ -226,6 +285,11 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
       }
 
       const limit = Math.min(500, parsed.query.limit ?? 200);
+      const aggregateMode = String(compare.aggregate ?? 'none');
+      const includeBreakdown = Boolean(compare.include_breakdown ?? false);
+      const detailNeeded = aggregateMode === 'none' || includeBreakdown;
+      const aggregateNeeded = aggregateMode !== 'none';
+      const maxRows = aggregateNeeded && detailNeeded ? Math.min(1000, limit * 2) : limit;
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
@@ -240,13 +304,19 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
 
-        inventory_id_sql: hasInventoryId ? String(Math.trunc(inventoryId!)) : 'CAST(NULL AS BIGINT)',
-        sku_sql: hasSkuSelector ? sqlStringLiteral(sku) : 'CAST(NULL AS VARCHAR)',
-        marketplace_sql: hasSkuSelector ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS VARCHAR)',
+        inventory_ids_array: sqlCompanyIdArrayExpr(inventoryIds),
+        sku_array: sqlVarcharArrayExpr(skuList),
+  sku_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
+        marketplace_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS VARCHAR)',
+        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
+  parent_asins_lower_array: sqlVarcharArrayExpr(parentAsins.map((s: string) => s.toLowerCase())),
+        product_families_array: sqlVarcharArrayExpr(productFamilies),
+  product_families_lower_array: sqlVarcharArrayExpr(productFamilies.map((s: string) => s.toLowerCase())),
 
-        apply_inventory_id_filter_sql: sqlBooleanLiteral(hasInventoryId),
-        apply_sku_filter_sql: sqlBooleanLiteral(hasSkuSelector),
-        apply_marketplace_filter_sql: sqlBooleanLiteral(hasSkuSelector),
+        apply_inventory_id_filter_sql: sqlBooleanLiteral(selectorFlags.inventory),
+        apply_sku_filter_sql: sqlBooleanLiteral(selectorFlags.sku),
+        apply_parent_asin_filter_sql: sqlBooleanLiteral(selectorFlags.parent_asin),
+        apply_product_family_filter_sql: sqlBooleanLiteral(selectorFlags.product_family),
 
         scenario_names_array: sqlVarcharArrayExpr(
           (Array.isArray(compare.scenario_names) ? compare.scenario_names : [])
@@ -255,6 +325,13 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         ),
 
         compare_mode_sql: sqlStringLiteral(String(compare.mode ?? 'scenarios')),
+
+        aggregate_mode_sql: sqlStringLiteral(aggregateMode),
+        include_breakdown_sql: sqlBooleanLiteral(includeBreakdown),
+        detail_needed_sql: sqlBooleanLiteral(detailNeeded),
+        aggregate_needed_sql: sqlBooleanLiteral(aggregateNeeded),
+
+        limit_top_n: Number(limit),
 
         run_selector_type_sql: sqlStringLiteral(String(compare.run_selector?.type ?? 'latest_n')),
         run_latest_n: Number(compare.run_selector?.n ?? 3),
@@ -266,7 +343,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         period_start_sql: sqlNullableStringExpr(compare.period?.start ?? null),
         period_end_sql: sqlNullableStringExpr(compare.period?.end ?? null),
 
-        limit_top_n: Number(limit),
+        max_items: 10,
       });
 
       const athenaResult = await runAthenaQuery({
@@ -274,13 +351,14 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         database: config.athena.database,
         workGroup: config.athena.workgroup,
         outputLocation: config.athena.outputLocation,
-        maxRows: limit,
+        maxRows,
       });
 
-      const rowsRaw = (athenaResult.rows ?? []) as Array<Record<string, unknown>>;
+      const rowsRaw = (athenaResult.rows ?? []) as Array<Record<string, any>>;
       if (rowsRaw.length === 0) {
         return {
-          rows: [],
+          items: [],
+          aggregates: [],
           meta: {
             warnings,
             applied_compare: compare,
@@ -288,34 +366,101 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         };
       }
 
-      const first = rowsRaw[0] ?? {};
-      const item_ref = {
-        company_id: first.company_id,
-        inventory_id: first.inventory_id,
-        sku: first.sku,
-        marketplace: first.marketplace,
-        child_asin: first.child_asin,
-        parent_asin: first.parent_asin,
-        asin: first.asin,
-        product_name: first.product_name,
-        series_type: first.series_type,
-        scenario: first.scenario_name ?? first.scenario,
-        run_updated_at: first.run_updated_at,
-        currency: first.currency,
-      };
+      const detailRows = rowsRaw.filter((r) => r.row_type === 'detail');
+      const aggregateRows = rowsRaw.filter((r) => r.row_type === 'aggregate');
 
-      const rows = rowsRaw.map((r) => ({
-        period: r.period,
-        units_sold: r.units_sold,
-        sales_amount: r.sales_amount,
-        currency: r.currency,
-        unit_price: r.unit_price,
-        seasonality_index: r.seasonality_index,
-      }));
+      const itemsByKey = new Map<
+        string,
+        {
+          item_ref: Record<string, any>;
+          series: Map<
+            string,
+            {
+              series_type: any;
+              scenario_name: any;
+              run_updated_at: any;
+              currency: any;
+              rows: Record<string, any>[];
+            }
+          >;
+        }
+      >();
+
+      for (const r of detailRows) {
+        const itemKey = [r.company_id, r.inventory_id, r.sku, r.marketplace].join('|');
+        if (!itemsByKey.has(itemKey)) {
+          itemsByKey.set(itemKey, {
+            item_ref: {
+              company_id: r.company_id,
+              inventory_id: r.inventory_id,
+              sku: r.sku,
+              marketplace: r.marketplace,
+              child_asin: r.child_asin,
+              parent_asin: r.parent_asin,
+              asin: r.asin,
+              product_name: r.product_name,
+              product_family: r.product_family,
+              snapshot_date: r.snapshot_date,
+            },
+            series: new Map(),
+          });
+        }
+
+        const itemEntry = itemsByKey.get(itemKey)!;
+        const seriesKey = [r.series_type, r.scenario_name, r.run_updated_at, r.currency].join('|');
+        if (!itemEntry.series.has(seriesKey)) {
+          itemEntry.series.set(seriesKey, {
+            series_type: r.series_type,
+            scenario_name: r.scenario_name,
+            run_updated_at: r.run_updated_at,
+            currency: r.currency,
+            rows: [],
+          });
+        }
+
+        const seriesEntry = itemEntry.series.get(seriesKey)!;
+        seriesEntry.rows.push({
+          period: r.period,
+          units_sold: r.units_sold,
+          sales_amount: r.sales_amount,
+          unit_price: r.unit_price,
+          seasonality_index: r.seasonality_index,
+        });
+      }
+
+      const aggregatesByKey = new Map<string, { group: Record<string, any>; rows: Record<string, any>[] }>();
+      for (const r of aggregateRows) {
+        const key = [r.group_product_family ?? '', r.group_parent_asin ?? ''].join('|');
+        if (!aggregatesByKey.has(key)) {
+          aggregatesByKey.set(key, {
+            group: {
+              product_family: r.group_product_family,
+              parent_asin: r.group_parent_asin,
+            },
+            rows: [],
+          });
+        }
+
+        const entry = aggregatesByKey.get(key)!;
+        entry.rows.push({
+          series_type: r.series_type,
+          scenario_name: r.scenario_name,
+          run_updated_at: r.run_updated_at,
+          period: r.period,
+          units_sold: r.units_sold,
+          sales_amount: r.sales_amount,
+          unit_price: r.unit_price,
+          currency: r.currency,
+          seasonality_index: r.seasonality_index,
+        });
+      }
 
       return {
-        item_ref,
-        rows,
+        items: Array.from(itemsByKey.values()).map((entry) => ({
+          item_ref: entry.item_ref,
+          series: Array.from(entry.series.values()),
+        })),
+        aggregates: Array.from(aggregatesByKey.values()),
         meta: {
           warnings,
           applied_compare: compare,

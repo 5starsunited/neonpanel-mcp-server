@@ -1,28 +1,31 @@
 -- Tool: forecasting_compare_sales_forecast_scenarios
--- Purpose: deep-dive comparison for a single item.
--- Compares:
--- - scenarios (dataset) for the same run window
--- - runs (updated_at history) for the same scenario
--- - and optionally overlays actual sales history (enabled by default in tool.json)
--- Notes:
--- - company_id filtering is REQUIRED for authorization.
--- - This query expects the caller to provide either inventory_id OR (company_id + sku + marketplace).
+-- Purpose: multi-item comparison with optional aggregation.
 
 WITH params AS (
   SELECT
     {{company_ids_array}} AS company_ids,
 
-    {{inventory_id_sql}} AS inventory_id,
-    {{sku_sql}} AS sku,
+    {{inventory_ids_array}} AS inventory_ids,
+    {{sku_array}} AS skus,
+    {{sku_lower_array}} AS skus_lower,
     {{marketplace_sql}} AS marketplace,
+    {{parent_asins_array}} AS parent_asins,
+    {{parent_asins_lower_array}} AS parent_asins_lower,
+    {{product_families_array}} AS product_families,
+    {{product_families_lower_array}} AS product_families_lower,
 
     {{apply_inventory_id_filter_sql}} AS apply_inventory_id_filter,
     {{apply_sku_filter_sql}} AS apply_sku_filter,
-    {{apply_marketplace_filter_sql}} AS apply_marketplace_filter,
+    {{apply_parent_asin_filter_sql}} AS apply_parent_asin_filter,
+    {{apply_product_family_filter_sql}} AS apply_product_family_filter,
 
     {{scenario_names_array}} AS scenario_names,
 
     {{compare_mode_sql}} AS compare_mode,
+    {{aggregate_mode_sql}} AS aggregate_mode,
+    {{include_breakdown_sql}} AS include_breakdown,
+    {{detail_needed_sql}} AS detail_needed,
+    {{aggregate_needed_sql}} AS aggregate_needed,
 
     {{run_selector_type_sql}} AS run_selector_type,
     CAST({{run_latest_n}} AS INTEGER) AS run_latest_n,
@@ -34,7 +37,7 @@ WITH params AS (
     {{period_start_sql}} AS period_start,
     {{period_end_sql}} AS period_end,
 
-    {{limit_top_n}} AS top_results
+    CAST({{max_items}} AS INTEGER) AS max_items
 ),
 
 latest_snapshot AS (
@@ -47,57 +50,82 @@ latest_snapshot AS (
   LIMIT 1
 ),
 
-item AS (
-  -- Resolve the item identity from the latest snapshot partition.
-  SELECT
-    pil.company_id,
-    pil.inventory_id,
-    pil.sku,
-    pil.country_code,
-    pil.child_asin,
-    pil.parent_asin,
-    pil.asin,
-    pil.product_name,
-    pil.sales_forecast_scenario_id,
-    pil.sales_forecast_scenario_name,
-    pil.sales_forecast_scenario_uuid,
-    pil.ii_sku_key,
-    concat(
-      CAST(s.year AS VARCHAR),
-      '-',
-      lpad(CAST(s.month AS VARCHAR), 2, '0'),
-      '-',
-      lpad(CAST(s.day AS VARCHAR), 2, '0')
-    ) AS snapshot_date
-  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+items AS (
+  WITH filtered AS (
+    SELECT
+      pil.company_id,
+      TRY_CAST(pil.inventory_id AS BIGINT) AS inventory_id,
+      COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key) AS sku,
+      pil.country_code AS marketplace_key,
+      pil.child_asin,
+      pil.parent_asin,
+      pil.asin,
+      pil.product_name,
+      pil.product_family,
+      pil.sales_forecast_scenario_id,
+      pil.sales_forecast_scenario_name,
+      pil.sales_forecast_scenario_uuid,
+      pil.ii_sku_key,
+      concat(
+        CAST(s.year AS VARCHAR),
+        '-',
+        lpad(CAST(s.month AS VARCHAR), 2, '0'),
+        '-',
+        lpad(CAST(s.day AS VARCHAR), 2, '0')
+      ) AS snapshot_date,
+      row_number() OVER (
+        PARTITION BY COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key), pil.country_code
+        ORDER BY pil.inventory_id ASC NULLS LAST
+      ) AS dedup_rn
+    FROM "{{catalog}}"."{{database}}"."{{table}}" pil
+    CROSS JOIN params p
+    CROSS JOIN latest_snapshot s
+    WHERE
+      contains(p.company_ids, pil.company_id)
+      AND pil.year = s.year
+      AND pil.month = s.month
+      AND pil.day = s.day
+
+      AND (
+        (p.apply_inventory_id_filter AND contains(p.inventory_ids, TRY_CAST(pil.inventory_id AS BIGINT)))
+        OR (
+          p.apply_sku_filter
+          AND (
+            contains(p.skus, COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key))
+            OR contains(p.skus_lower, lower(COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key)))
+          )
+          AND (p.marketplace IS NULL OR pil.country_code = p.marketplace)
+        )
+        OR (
+          p.apply_parent_asin_filter
+          AND (
+            contains(p.parent_asins, pil.parent_asin)
+            OR contains(p.parent_asins_lower, lower(pil.parent_asin))
+          )
+        )
+        OR (
+          p.apply_product_family_filter
+          AND (
+            contains(p.product_families, pil.product_family)
+            OR contains(p.product_families_lower, lower(pil.product_family))
+          )
+        )
+      )
+  )
+  , deduped AS (
+    SELECT * FROM filtered WHERE dedup_rn = 1
+  )
+  SELECT * FROM (
+    SELECT
+      d.*,
+      row_number() OVER (ORDER BY d.inventory_id ASC NULLS LAST) AS rn
+    FROM deduped d
+  ) ranked_items
   CROSS JOIN params p
-  CROSS JOIN latest_snapshot s
-  WHERE
-    contains(p.company_ids, pil.company_id)
-    AND pil.year = s.year
-    AND pil.month = s.month
-    AND pil.day = s.day
-
-    AND (p.apply_inventory_id_filter = false OR TRY_CAST(pil.inventory_id AS BIGINT) = p.inventory_id)
-    AND (p.apply_sku_filter = false OR pil.sku = p.sku)
-    AND (p.apply_marketplace_filter = false OR pil.country_code = p.marketplace)
-
-  ORDER BY pil.inventory_id ASC
-  LIMIT 1
-),
-
-resolved AS (
-  SELECT
-    i.*,
-    -- Prefer explicit marketplace param if provided; else use snapshot country_code.
-    COALESCE(NULLIF(p.marketplace, ''), i.country_code) AS marketplace_key,
-    concat(i.sku, '-', CAST(i.company_id AS VARCHAR), '-', COALESCE(NULLIF(p.marketplace, ''), i.country_code)) AS sku_key
-  FROM item i
-  CROSS JOIN params p
+  WHERE ranked_items.rn <= p.max_items
 ),
 
 run_candidates AS (
-  -- Select which updated_at values (runs) to include.
   SELECT updated_at
   FROM (
     SELECT
@@ -108,15 +136,13 @@ run_candidates AS (
       FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
       INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
         ON m.amazon_marketplace_id = f.amazon_marketplace_id
+      INNER JOIN items i
+        ON f.company_id = i.company_id
+        AND f.sku = i.sku
+        AND m.code = i.marketplace_key
       CROSS JOIN params p
-      CROSS JOIN resolved r
       WHERE
-        f.company_id = r.company_id
-        AND f.sku = r.sku
-        AND m.code = r.marketplace_key
-
-        AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
-
+        (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
         AND (
           p.run_selector_type = 'latest_n'
           OR (
@@ -135,6 +161,16 @@ run_candidates AS (
 
 forecast_rows AS (
   SELECT
+    i.company_id,
+    i.inventory_id,
+    i.sku,
+    i.marketplace_key,
+    i.child_asin,
+    i.parent_asin,
+    i.asin,
+    i.product_name,
+    i.product_family,
+    i.snapshot_date,
     'forecast' AS series_type,
     COALESCE(f.dataset, 'unknown') AS scenario_name,
     f.updated_at AS run_updated_at,
@@ -150,15 +186,13 @@ forecast_rows AS (
   FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
   INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
     ON m.amazon_marketplace_id = f.amazon_marketplace_id
+  INNER JOIN items i
+    ON f.company_id = i.company_id
+    AND f.sku = i.sku
+    AND m.code = i.marketplace_key
   CROSS JOIN params p
-  CROSS JOIN resolved r
-
   WHERE
-    f.company_id = r.company_id
-    AND f.sku = r.sku
-    AND m.code = r.marketplace_key
-
-    AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
+    (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
     AND (p.compare_mode <> 'runs' OR cardinality(p.scenario_names) > 0)
 
     AND (
@@ -177,6 +211,16 @@ forecast_rows AS (
 
 actual_rows AS (
   SELECT
+    i.company_id,
+    i.inventory_id,
+    i.sku,
+    i.marketplace_key,
+    i.child_asin,
+    i.parent_asin,
+    i.asin,
+    i.product_name,
+    i.product_family,
+    i.snapshot_date,
     'actual' AS series_type,
     'sales_history' AS scenario_name,
     CAST(NULL AS TIMESTAMP) AS run_updated_at,
@@ -192,54 +236,103 @@ actual_rows AS (
   FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_history}}" h
   INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
     ON m.amazon_marketplace_id = h.amazon_marketplace_id
+  INNER JOIN items i
+    ON CAST(h.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
+    AND h.sku = i.sku
+    AND m.code = i.marketplace_key
   CROSS JOIN params p
-  CROSS JOIN resolved r
-
   WHERE
     p.include_actuals
-
-    AND CAST(h.company_id AS VARCHAR) = CAST(r.company_id AS VARCHAR)
-    AND h.sku = r.sku
-    AND m.code = r.marketplace_key
-
     AND (p.period_start IS NULL OR h.period >= p.period_start)
     AND (p.period_end IS NULL OR h.period <= p.period_end)
-)
+),
 
-SELECT
-  -- identity
-  r.company_id,
-  r.inventory_id,
-  r.sku,
-  r.marketplace_key AS marketplace,
-  r.child_asin,
-  r.parent_asin,
-  r.asin,
-  r.product_name,
-  r.snapshot_date,
-
-  -- series
-  x.series_type,
-  x.scenario_name,
-  x.run_updated_at,
-  x.period,
-  x.units_sold,
-  x.sales_amount,
-  x.unit_price,
-  x.currency,
-  x.seasonality_index
-
-FROM resolved r
-CROSS JOIN (
+base_rows AS (
   SELECT * FROM actual_rows
   UNION ALL
   SELECT * FROM forecast_rows
-) x
+),
+
+aggregate_rows AS (
+  SELECT
+    CASE WHEN p.aggregate_mode IN ('product_family', 'all') THEN b.product_family ELSE CAST(NULL AS VARCHAR) END AS group_product_family,
+    CASE WHEN p.aggregate_mode IN ('parent_asin', 'all') THEN b.parent_asin ELSE CAST(NULL AS VARCHAR) END AS group_parent_asin,
+    b.series_type,
+    b.scenario_name,
+    b.run_updated_at,
+    b.period,
+    CAST(SUM(CAST(b.units_sold AS DOUBLE)) AS BIGINT) AS units_sold,
+    ROUND(SUM(CAST(b.sales_amount AS DOUBLE)), 2) AS sales_amount,
+    ROUND(
+      CASE WHEN SUM(CAST(b.units_sold AS DOUBLE)) > 0 THEN SUM(CAST(b.sales_amount AS DOUBLE)) / SUM(CAST(b.units_sold AS DOUBLE)) ELSE CAST(NULL AS DOUBLE) END,
+      3
+    ) AS unit_price,
+    MIN(b.currency) AS currency,
+    CAST(1.0 AS DOUBLE) AS seasonality_index
+  FROM base_rows b
+  CROSS JOIN params p
+  WHERE p.aggregate_needed
+  GROUP BY 1, 2, 3, 4, 5, 6
+)
+
+SELECT
+  'detail' AS row_type,
+  CAST(NULL AS VARCHAR) AS group_product_family,
+  CAST(NULL AS VARCHAR) AS group_parent_asin,
+  b.company_id,
+  b.inventory_id,
+  b.sku,
+  b.marketplace_key AS marketplace,
+  b.child_asin,
+  b.parent_asin,
+  b.asin,
+  b.product_name,
+  b.product_family,
+  b.snapshot_date,
+  b.series_type,
+  b.scenario_name,
+  b.run_updated_at,
+  b.period,
+  b.units_sold,
+  b.sales_amount,
+  b.unit_price,
+  b.currency,
+  b.seasonality_index
+FROM base_rows b
+CROSS JOIN params p
+WHERE p.detail_needed
+
+UNION ALL
+
+SELECT
+  'aggregate' AS row_type,
+  a.group_product_family,
+  a.group_parent_asin,
+  CAST(NULL AS BIGINT) AS company_id,
+  CAST(NULL AS BIGINT) AS inventory_id,
+  CAST(NULL AS VARCHAR) AS sku,
+  CAST(NULL AS VARCHAR) AS marketplace,
+  CAST(NULL AS VARCHAR) AS child_asin,
+  CAST(NULL AS VARCHAR) AS parent_asin,
+  CAST(NULL AS VARCHAR) AS asin,
+  CAST(NULL AS VARCHAR) AS product_name,
+  CAST(NULL AS VARCHAR) AS product_family,
+  CAST(NULL AS VARCHAR) AS snapshot_date,
+  a.series_type,
+  a.scenario_name,
+  a.run_updated_at,
+  a.period,
+  a.units_sold,
+  a.sales_amount,
+  a.unit_price,
+  a.currency,
+  a.seasonality_index
+FROM aggregate_rows a
 
 ORDER BY
-  x.period ASC,
-  x.series_type ASC,
-  x.scenario_name ASC,
-  x.run_updated_at DESC
+  period ASC,
+  scenario_name ASC,
+  series_type ASC,
+  run_updated_at DESC
 
 LIMIT {{limit_top_n}};
