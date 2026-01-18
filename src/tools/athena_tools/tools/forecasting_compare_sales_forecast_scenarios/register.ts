@@ -289,7 +289,6 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
       const includeBreakdown = Boolean(compare.include_breakdown ?? false);
       const detailNeeded = aggregateMode === 'none' || includeBreakdown;
       const aggregateNeeded = aggregateMode !== 'none';
-      const maxRows = aggregateNeeded && detailNeeded ? Math.min(1000, limit * 2) : limit;
       const selectorCount = selectorFlags.inventory
         ? inventoryIds.length
         : selectorFlags.sku
@@ -304,6 +303,9 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         selectorFlags.inventory || selectorFlags.sku
           ? Math.max(1, Math.min(selectorCount, 20))
           : Math.max(1, fallbackMaxItems);
+      const rowsPerItemEstimate = aggregateNeeded && detailNeeded ? 400 : detailNeeded ? 250 : 150;
+      const rowLimit = Math.min(5000, Math.max(limit, maxItems * rowsPerItemEstimate));
+      const maxRows = aggregateNeeded && detailNeeded ? Math.min(6000, rowLimit * 2) : rowLimit;
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
@@ -321,7 +323,9 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         inventory_ids_array: sqlCompanyIdArrayExpr(inventoryIds),
         sku_array: sqlVarcharArrayExpr(skuList),
   sku_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
+  sku_normalized_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.trim().toLowerCase())),
         marketplace_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS VARCHAR)',
+  marketplace_lower_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw.trim().toLowerCase()) : 'CAST(NULL AS VARCHAR)',
         parent_asins_array: sqlVarcharArrayExpr(parentAsins),
   parent_asins_lower_array: sqlVarcharArrayExpr(parentAsins.map((s: string) => s.toLowerCase())),
         product_families_array: sqlVarcharArrayExpr(productFamilies),
@@ -345,7 +349,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         detail_needed_sql: sqlBooleanLiteral(detailNeeded),
         aggregate_needed_sql: sqlBooleanLiteral(aggregateNeeded),
 
-        limit_top_n: Number(limit),
+        limit_top_n: Number(rowLimit),
 
         run_selector_type_sql: sqlStringLiteral(String(compare.run_selector?.type ?? 'latest_n')),
         run_latest_n: Number(compare.run_selector?.n ?? 3),

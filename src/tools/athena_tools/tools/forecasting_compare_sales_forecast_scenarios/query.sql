@@ -8,7 +8,9 @@ WITH params AS (
     {{inventory_ids_array}} AS inventory_ids,
     {{sku_array}} AS skus,
     {{sku_lower_array}} AS skus_lower,
+    {{sku_normalized_array}} AS skus_normalized,
     {{marketplace_sql}} AS marketplace,
+    {{marketplace_lower_sql}} AS marketplace_lower,
     {{parent_asins_array}} AS parent_asins,
     {{parent_asins_lower_array}} AS parent_asins_lower,
     {{product_families_array}} AS product_families,
@@ -66,6 +68,8 @@ items AS (
       pil.sales_forecast_scenario_name,
       pil.sales_forecast_scenario_uuid,
       pil.ii_sku_key,
+      lower(trim(COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key))) AS normalized_sku,
+      lower(trim(pil.country_code)) AS normalized_marketplace_key,
       concat(
         CAST(s.year AS VARCHAR),
         '-',
@@ -93,8 +97,9 @@ items AS (
           AND (
             contains(p.skus, COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key))
             OR contains(p.skus_lower, lower(COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key)))
+            OR contains(p.skus_normalized, lower(trim(COALESCE(pil.sku, pil.merchant_sku, pil.ii_sku_key))))
           )
-          AND (p.marketplace IS NULL OR pil.country_code = p.marketplace)
+          AND (p.marketplace IS NULL OR p.marketplace_lower IS NULL OR lower(trim(pil.country_code)) = p.marketplace_lower)
         )
         OR (
           p.apply_parent_asin_filter
@@ -188,8 +193,8 @@ forecast_rows AS (
     ON m.amazon_marketplace_id = f.amazon_marketplace_id
   INNER JOIN items i
     ON f.company_id = i.company_id
-    AND f.sku = i.sku
-    AND m.code = i.marketplace_key
+    AND lower(f.sku) = i.normalized_sku
+    AND lower(trim(m.code)) = i.normalized_marketplace_key
   CROSS JOIN params p
   WHERE
     (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
@@ -238,8 +243,8 @@ actual_rows AS (
     ON m.amazon_marketplace_id = h.amazon_marketplace_id
   INNER JOIN items i
     ON CAST(h.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-    AND h.sku = i.sku
-    AND m.code = i.marketplace_key
+    AND lower(h.sku) = i.normalized_sku
+    AND lower(trim(m.code)) = i.normalized_marketplace_key
   CROSS JOIN params p
   WHERE
     p.include_actuals
