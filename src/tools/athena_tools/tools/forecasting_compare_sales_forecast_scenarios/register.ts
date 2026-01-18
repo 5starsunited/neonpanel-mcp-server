@@ -290,6 +290,20 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
       const detailNeeded = aggregateMode === 'none' || includeBreakdown;
       const aggregateNeeded = aggregateMode !== 'none';
       const maxRows = aggregateNeeded && detailNeeded ? Math.min(1000, limit * 2) : limit;
+      const selectorCount = selectorFlags.inventory
+        ? inventoryIds.length
+        : selectorFlags.sku
+          ? skuList.length
+          : selectorFlags.parent_asin
+            ? parentAsins.length
+            : selectorFlags.product_family
+              ? productFamilies.length
+              : 0;
+      const fallbackMaxItems = Math.min(limit, 20);
+      const maxItems =
+        selectorFlags.inventory || selectorFlags.sku
+          ? Math.max(1, Math.min(selectorCount, 20))
+          : Math.max(1, fallbackMaxItems);
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
@@ -343,7 +357,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         period_start_sql: sqlNullableStringExpr(compare.period?.start ?? null),
         period_end_sql: sqlNullableStringExpr(compare.period?.end ?? null),
 
-        max_items: 10,
+        max_items: maxItems,
       });
 
       const athenaResult = await runAthenaQuery({
