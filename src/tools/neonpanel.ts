@@ -223,6 +223,137 @@ const revenueAndCogsOutputSchema = {
   additionalProperties: true,
 };
 
+const companyForecastingSettingsSchema = z.object({
+  status: z.enum(['active', 'trial', 'inactive']).optional(),
+  default_seasonality: z.string().optional(),
+  default_scenario_id: z.number().int().nullable().optional(),
+  default_lead_time_days: z.number().int().nullable().optional(),
+  default_safety_stock_days: z.number().int().nullable().optional(),
+  default_fba_lead_time: z.number().int().nullable().optional(),
+  default_fba_safety_stock: z.number().int().nullable().optional(),
+  default_planned_po_frequency: z.number().int().optional(),
+  default_fba_replenishment_frequency: z.number().int().optional(),
+  default_safety_stock_multiplicator_class_a: z.number().optional(),
+  default_safety_stock_multiplicator_class_b: z.number().optional(),
+  default_safety_stock_multiplicator_class_c: z.number().optional(),
+  default_safety_stock_multiplicator_class_d: z.number().optional(),
+  default_revenue_class_a: z.number().optional(),
+  default_revenue_class_b: z.number().optional(),
+  default_revenue_class_c: z.number().optional(),
+  default_pareto_class_a: z.number().optional(),
+  default_pareto_class_b: z.number().optional(),
+  default_pareto_class_c: z.number().optional(),
+});
+
+const getCompanyForecastingSettingsInputSchema = z.object({
+  companyUuid: z.string().min(1, 'companyUuid is required'),
+});
+
+const updateCompanyForecastingSettingsInputSchema = companyForecastingSettingsSchema.extend({
+  companyUuid: z.string().min(1, 'companyUuid is required'),
+});
+
+const companyForecastingSettingsOutputSchema = {
+  type: 'object',
+  properties: {
+    status: {
+      type: 'string',
+      enum: ['active', 'trial', 'inactive'],
+      default: 'trial',
+    },
+    default_seasonality: {
+      type: 'string',
+      description: '12 multipliers for each month in a year separated by semicolon',
+      example: '1;1;1;1;1;1;1;1;1;0.8;1.5;2.5',
+      default: '1;1;1;1;1;1;1;1;1;1;1;1',
+    },
+    default_scenario_id: {
+      type: 'integer',
+      nullable: true,
+      description: 'Scenario ID',
+    },
+    default_lead_time_days: {
+      type: 'integer',
+      nullable: true,
+      description: 'Default supplier lead time in days',
+    },
+    default_safety_stock_days: {
+      type: 'integer',
+      nullable: true,
+      description: 'Default safety stock coverage in days',
+    },
+    default_fba_lead_time: {
+      type: 'integer',
+      nullable: true,
+      description: 'Default Amazon FBA lead time in days',
+    },
+    default_fba_safety_stock: {
+      type: 'integer',
+      nullable: true,
+      description: 'Default FBA safety stock coverage in days',
+    },
+    default_planned_po_frequency: {
+      type: 'integer',
+      default: 30,
+    },
+    default_fba_replenishment_frequency: {
+      type: 'integer',
+      default: 7,
+    },
+    default_safety_stock_multiplicator_class_a: {
+      type: 'number',
+      default: 1.2,
+    },
+    default_safety_stock_multiplicator_class_b: {
+      type: 'number',
+      default: 1,
+    },
+    default_safety_stock_multiplicator_class_c: {
+      type: 'number',
+      default: 0.6,
+    },
+    default_safety_stock_multiplicator_class_d: {
+      type: 'number',
+      default: 0.5,
+    },
+    default_revenue_class_a: {
+      type: 'number',
+      default: 10,
+    },
+    default_revenue_class_b: {
+      type: 'number',
+      default: 3,
+    },
+    default_revenue_class_c: {
+      type: 'number',
+      default: 0.5,
+    },
+    default_pareto_class_a: {
+      type: 'number',
+      default: 80,
+    },
+    default_pareto_class_b: {
+      type: 'number',
+      default: 15,
+    },
+    default_pareto_class_c: {
+      type: 'number',
+      default: 5,
+    },
+  },
+};
+
+const updateCompanyForecastingSettingsOutputSchema = {
+  type: 'object',
+  properties: {
+    success: {
+      type: 'boolean',
+      description: 'Indication that parameters have been saved successfully',
+    },
+  },
+  required: ['success'],
+};
+
 export function registerNeonPanelTools(registry: ToolRegistry) {
   registry
     .register({
@@ -332,6 +463,54 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
             asin: parsed.asin,
             sku: parsed.sku,
           },
+        });
+      },
+    })
+    .register({
+      name: 'neonpanel_getCompanyForecastingSettings',
+      description: 'Retrieve forecasting settings for a company.',
+      isConsequential: false,
+      inputSchema: getCompanyForecastingSettingsInputSchema,
+      outputSchema: companyForecastingSettingsOutputSchema,
+      examples: [
+        {
+          name: 'Get Forecasting Settings',
+          arguments: {
+            companyUuid: 'company-uuid',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = getCompanyForecastingSettingsInputSchema.parse(args);
+        return neonPanelRequest({
+          token: context.userToken,
+          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/settings/forecasts`,
+        });
+      },
+    })
+    .register({
+      name: 'neonpanel_updateCompanyForecastingSettings',
+      description: 'Update forecasting settings for a company.',
+      isConsequential: true,
+      inputSchema: updateCompanyForecastingSettingsInputSchema,
+      outputSchema: updateCompanyForecastingSettingsOutputSchema,
+      examples: [
+        {
+          name: 'Update Default Lead Time',
+          arguments: {
+            companyUuid: 'company-uuid',
+            default_lead_time_days: 14,
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = updateCompanyForecastingSettingsInputSchema.parse(args);
+        const { companyUuid, ...settings } = parsed;
+        return neonPanelRequest({
+          token: context.userToken,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/settings/forecasts`,
+          method: 'PUT',
+          body: settings,
         });
       },
     })
