@@ -1,0 +1,278 @@
+{
+  "name": "brand_analytics_get_competitive_landscape",
+  "description": "Identifies the Top 3 clicked products for search terms and their relative click/conversion shares from Amazon Brand Analytics Top Search Terms report.\n\nUse this tool to:\n- Find 'Weak Leader' keywords where top-ranking products have low conversion shares (opportunity to displace)\n- Identify keywords where competitors dominate (defensive priority)\n- Discover share-of-voice gaps between your products and competitors\n- Analyze competitive positioning trends over time\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand why competitors may be winning or losing.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Brand Analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for competitive analysis.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "search_terms": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 100,
+                "description": "Keywords to research for competitor performance."
+              },
+              "competitor_asins": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Focus on keywords where these competitor ASINs appear in top 3."
+              },
+              "my_asins": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Your ASINs to track competitive position against."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              },
+              "category": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Filter by browse node category."
+              }
+            },
+            "required": ["company_id", "marketplace"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["week", "month", "quarter"],
+                    "default": "week"
+                  },
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 26,
+                    "default": 4
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "search_frequency_rank",
+                  "weak_leader_score",
+                  "displacement_opportunity",
+                  "my_position",
+                  "click_share_gap",
+                  "conversion_share_gap"
+                ],
+                "default": "weak_leader_score"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Competitive landscape analysis specific parameters.",
+        "properties": {
+          "analysis_mode": {
+            "type": "string",
+            "enum": ["all_keywords", "my_keywords_only", "competitor_keywords_only", "head_to_head"],
+            "default": "all_keywords",
+            "description": "Focus the analysis: all matching keywords, only where I appear, only where competitors appear, or direct comparison."
+          },
+          "weak_leader_detection": {
+            "type": "object",
+            "description": "Configure what defines a 'Weak Leader' opportunity.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "max_leader_conversion_share": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.15,
+                "description": "Leader is 'weak' if conversion share below this threshold (default 15%)."
+              },
+              "min_search_volume_rank": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 50000,
+                "description": "Only flag weak leaders on keywords with SFR better than this."
+              },
+              "require_my_presence": {
+                "type": "boolean",
+                "default": false,
+                "description": "Only show weak leader opportunities where my ASIN already ranks."
+              }
+            },
+            "additionalProperties": false
+          },
+          "include_position_history": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include position change trends for top 3 products."
+          },
+          "share_calculation": {
+            "type": "string",
+            "enum": ["click_share", "conversion_share", "combined"],
+            "default": "combined",
+            "description": "Primary metric for competitive ranking."
+          },
+          "competitor_identification": {
+            "type": "object",
+            "description": "Configure automatic competitor detection.",
+            "properties": {
+              "auto_detect": {
+                "type": "boolean",
+                "default": true,
+                "description": "Automatically identify top competitors from data."
+              },
+              "max_competitors": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20,
+                "default": 10
+              },
+              "exclude_brands": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Brand names to exclude from competitor analysis."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "search_term": { "type": "string" },
+            "search_frequency_rank": { "type": "integer" },
+            "period_start": { "type": "string", "format": "date" },
+            "period_end": { "type": "string", "format": "date" },
+            "top_3_products": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "position": { "type": "integer" },
+                  "asin": { "type": "string" },
+                  "title": { "type": "string" },
+                  "brand": { "type": "string" },
+                  "is_mine": { "type": "boolean" },
+                  "click_share": { "type": "number" },
+                  "click_share_trend": { "type": "number" },
+                  "conversion_share": { "type": "number" },
+                  "conversion_share_trend": { "type": "number" },
+                  "position_change": { "type": "integer" }
+                }
+              }
+            },
+            "my_position": {
+              "type": ["integer", "null"],
+              "description": "My ASIN's position (1-3) or null if not in top 3."
+            },
+            "weak_leader_analysis": {
+              "type": "object",
+              "properties": {
+                "is_weak_leader": { "type": "boolean" },
+                "leader_conversion_share": { "type": "number" },
+                "displacement_opportunity_score": { "type": "number" },
+                "recommended_action": { "type": "string" }
+              }
+            },
+            "share_gaps": {
+              "type": "object",
+              "properties": {
+                "click_share_to_leader": { "type": "number" },
+                "conversion_share_to_leader": { "type": "number" },
+                "estimated_clicks_if_leader": { "type": "integer" }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total_keywords_analyzed": { "type": "integer" },
+          "keywords_where_i_rank": { "type": "integer" },
+          "weak_leader_opportunities": { "type": "integer" },
+          "top_competitors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": { "type": "string" },
+                "asin_count": { "type": "integer" },
+                "avg_position": { "type": "number" },
+                "total_click_share": { "type": "number" }
+              }
+            }
+          }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "data_freshness": { "type": "string", "format": "date" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}

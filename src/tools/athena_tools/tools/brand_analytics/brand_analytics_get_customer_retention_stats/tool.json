@@ -1,0 +1,314 @@
+{
+  "name": "brand_analytics_get_customer_retention_stats",
+  "description": "Returns repeat purchase rates, customer lifetime value metrics, and loyalty segmentation from Amazon Brand Analytics Repeat Purchase Behavior report.\n\nUse this tool to:\n- Identify ASINs with high repeat purchase potential for Subscribe & Save enrollment\n- Find 'At-Risk' products with declining repeat rates\n- Discover 'Top-Tier' products driving customer loyalty\n- Plan Brand Tailored Promotions for retention campaigns\n- Analyze new-to-brand vs returning customer mix\n\nIntegration note: Cross-reference with brand_analytics_get_cross_sell_opportunities to build retention through product bundling.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-retention",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Brand Analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for retention analysis.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 50,
+                "description": "ASINs to check for repeat buyer behavior."
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 20,
+                "description": "Alternative selector: analyze by parent ASIN."
+              },
+              "brand": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by brand name(s)."
+              },
+              "product_family": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product family."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              }
+            },
+            "required": ["company_id", "marketplace"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["asin", "parent_asin", "brand", "product_family", "category"]
+                },
+                "default": ["asin"],
+                "description": "Aggregation level for retention metrics."
+              },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["month", "quarter", "year"],
+                    "default": "quarter",
+                    "description": "Retention is typically analyzed quarterly or yearly."
+                  },
+                  "cohort_window": {
+                    "type": "string",
+                    "enum": ["30_days", "60_days", "90_days", "180_days", "365_days"],
+                    "default": "90_days",
+                    "description": "Time window to measure repeat purchases."
+                  },
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8,
+                    "default": 4
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "repeat_purchase_rate",
+                  "repeat_purchase_rate_trend",
+                  "total_repeat_customers",
+                  "customer_lifetime_value",
+                  "new_to_brand_rate",
+                  "retention_risk_score",
+                  "subscribe_save_potential"
+                ],
+                "default": "repeat_purchase_rate"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Customer retention analysis specific parameters.",
+        "properties": {
+          "segmentation": {
+            "type": "object",
+            "description": "Configure customer loyalty segmentation.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "segments": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["new_to_brand", "one_time", "occasional", "loyal", "champion"]
+                },
+                "default": ["new_to_brand", "one_time", "occasional", "loyal", "champion"],
+                "description": "Customer segments to include in analysis."
+              },
+              "segment_thresholds": {
+                "type": "object",
+                "description": "Custom thresholds for segment definitions.",
+                "properties": {
+                  "occasional_min_purchases": { "type": "integer", "default": 2 },
+                  "loyal_min_purchases": { "type": "integer", "default": 4 },
+                  "champion_min_purchases": { "type": "integer", "default": 8 }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "risk_detection": {
+            "type": "object",
+            "description": "Configure retention risk scoring.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "declining_threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.10,
+                "description": "Flag as at-risk if repeat rate dropped more than this vs prior period."
+              },
+              "low_retention_threshold": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.05,
+                "description": "Flag as at-risk if repeat rate below this value."
+              }
+            },
+            "additionalProperties": false
+          },
+          "subscribe_save_analysis": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include Subscribe & Save potential scoring based on repeat patterns."
+          },
+          "ltv_calculation": {
+            "type": "object",
+            "description": "Customer lifetime value estimation.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "projection_months": {
+                "type": "integer",
+                "minimum": 6,
+                "maximum": 36,
+                "default": 12,
+                "description": "Months to project for LTV calculation."
+              },
+              "include_cross_sell": {
+                "type": "boolean",
+                "default": false,
+                "description": "Factor in cross-sell purchases in LTV."
+              }
+            },
+            "additionalProperties": false
+          },
+          "cohort_analysis": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include cohort-based retention curves (acquisition month cohorts)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "asin": { "type": "string" },
+            "parent_asin": { "type": "string" },
+            "title": { "type": "string" },
+            "period_start": { "type": "string", "format": "date" },
+            "period_end": { "type": "string", "format": "date" },
+            "retention_metrics": {
+              "type": "object",
+              "properties": {
+                "total_customers": { "type": "integer" },
+                "repeat_customers": { "type": "integer" },
+                "repeat_purchase_rate": { "type": "number" },
+                "repeat_purchase_rate_trend": { "type": "number" },
+                "avg_purchases_per_customer": { "type": "number" },
+                "repeat_sales_revenue": { "type": "number" },
+                "repeat_revenue_share": { "type": "number" }
+              }
+            },
+            "customer_segments": {
+              "type": "object",
+              "properties": {
+                "new_to_brand_count": { "type": "integer" },
+                "new_to_brand_rate": { "type": "number" },
+                "one_time_count": { "type": "integer" },
+                "occasional_count": { "type": "integer" },
+                "loyal_count": { "type": "integer" },
+                "champion_count": { "type": "integer" }
+              }
+            },
+            "risk_assessment": {
+              "type": "object",
+              "properties": {
+                "retention_risk_score": { "type": "number" },
+                "risk_level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+                "risk_factors": { "type": "array", "items": { "type": "string" } },
+                "recommended_actions": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "subscribe_save_potential": {
+              "type": "object",
+              "properties": {
+                "score": { "type": "number" },
+                "estimated_subscribers": { "type": "integer" },
+                "recommended": { "type": "boolean" }
+              }
+            },
+            "customer_lifetime_value": {
+              "type": "object",
+              "properties": {
+                "avg_ltv": { "type": "number" },
+                "projected_revenue_12m": { "type": "number" }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total_asins_analyzed": { "type": "integer" },
+          "avg_repeat_rate": { "type": "number" },
+          "at_risk_asins": { "type": "integer" },
+          "subscribe_save_candidates": { "type": "integer" },
+          "total_customer_base": { "type": "integer" }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "cohort_window": { "type": "string" },
+          "data_freshness": { "type": "string", "format": "date" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}

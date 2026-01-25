@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../clients/athena';
-import { neonPanelRequest } from '../../../../clients/neonpanel-api';
-import { config } from '../../../../config';
-import type { ToolRegistry, ToolSpecJson } from '../../../types';
-import { loadTextFile } from '../../runtime/load-assets';
-import { renderSqlTemplate } from '../../runtime/render-sql';
-import { buildItemPresentation } from '../../runtime/presentation';
+import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
+import { config } from '../../../../../config';
+import type { ToolRegistry, ToolSpecJson } from '../../../../types';
+import { loadTextFile } from '../../../runtime/load-assets';
+import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { buildItemPresentation } from '../../../runtime/presentation';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{

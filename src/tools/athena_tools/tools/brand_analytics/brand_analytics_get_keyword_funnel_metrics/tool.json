@@ -1,0 +1,241 @@
+{
+  "name": "brand_analytics_get_keyword_funnel_metrics",
+  "description": "Returns search funnel data (Impressions, Clicks, Cart Adds, Purchases) for specific keywords from Amazon Brand Analytics Search Query Performance (SQP) report.\n\nCompares 'Brand Share' against 'Total Market' to determine if the product is a conversion leader or needs SEO/PPC adjustments.\n\nUse this tool to:\n- Identify organic growth potential vs. conversion efficiency\n- Find keywords where you have high impressions but low click share (visibility gap)\n- Discover keywords where you have high clicks but low cart-add share (content/pricing issue)\n- Analyze conversion funnel drop-off points at each stage\n\nIntegration note: Cross-reference results with brand_analytics_get_ad_efficiency to compare organic vs paid performance on the same keywords.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-sqp",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Brand Analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for data selection.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "keywords": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 50,
+                "description": "Search terms to analyze. Supports exact match and contains matching based on match_type."
+              },
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Filter to keywords where these ASINs appear in top 3 clicked products."
+              },
+              "brand": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Filter by brand name(s)."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Single marketplace per query."
+              }
+            },
+            "required": ["company_id", "keywords", "marketplace"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "Time-based aggregation for funnel metrics.",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["week", "month", "quarter"],
+                    "default": "week",
+                    "description": "Aggregation period. Brand Analytics data is typically weekly."
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Start date for analysis window (inclusive)."
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "End date for analysis window (inclusive). Defaults to most recent data."
+                  },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 52,
+                    "default": 4,
+                    "description": "Alternative to date range: number of periods to look back from most recent data."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Sort results by any output metric.",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "search_frequency_rank",
+                  "total_impressions",
+                  "brand_impression_share",
+                  "total_clicks",
+                  "brand_click_share",
+                  "total_cart_adds",
+                  "brand_cart_add_share",
+                  "total_purchases",
+                  "brand_purchase_share",
+                  "click_to_cart_rate",
+                  "cart_to_purchase_rate",
+                  "impression_to_purchase_rate"
+                ],
+                "default": "search_frequency_rank"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "asc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection. If omitted, returns all available metrics."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100,
+            "description": "Max number of keyword rows to return."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Brand Analytics keyword funnel specific parameters.",
+        "properties": {
+          "match_type": {
+            "type": "string",
+            "enum": ["exact", "contains", "starts_with"],
+            "default": "contains",
+            "description": "Keyword matching strategy for the keywords filter."
+          },
+          "include_trending": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include week-over-week trend calculations for each metric."
+          },
+          "min_search_frequency_rank": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Filter out keywords with SFR worse (higher) than this value."
+          },
+          "min_impressions": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Filter out keywords with fewer total impressions."
+          },
+          "funnel_analysis": {
+            "type": "object",
+            "description": "Configure funnel drop-off analysis thresholds.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Calculate funnel stage drop-off metrics."
+              },
+              "benchmark_against": {
+                "type": "string",
+                "enum": ["market_average", "top_competitor", "historical_self"],
+                "default": "market_average",
+                "description": "Baseline for funnel performance comparison."
+              }
+            },
+            "additionalProperties": false
+          },
+          "competitor_context": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include top 3 competitor ASINs and their shares for each keyword."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "keyword": { "type": "string" },
+            "period_start": { "type": "string", "format": "date" },
+            "period_end": { "type": "string", "format": "date" },
+            "search_frequency_rank": { "type": "integer" },
+            "total_impressions": { "type": "integer" },
+            "brand_impression_share": { "type": "number" },
+            "brand_impression_share_trend": { "type": "number" },
+            "total_clicks": { "type": "integer" },
+            "brand_click_share": { "type": "number" },
+            "brand_click_share_trend": { "type": "number" },
+            "total_cart_adds": { "type": "integer" },
+            "brand_cart_add_share": { "type": "number" },
+            "brand_cart_add_share_trend": { "type": "number" },
+            "total_purchases": { "type": "integer" },
+            "brand_purchase_share": { "type": "number" },
+            "brand_purchase_share_trend": { "type": "number" },
+            "funnel_analysis": {
+              "type": "object",
+              "properties": {
+                "impression_to_click_rate": { "type": "number" },
+                "click_to_cart_rate": { "type": "number" },
+                "cart_to_purchase_rate": { "type": "number" },
+                "impression_to_purchase_rate": { "type": "number" },
+                "biggest_drop_off_stage": { "type": "string" },
+                "vs_benchmark": { "type": "string" }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "total_keywords_analyzed": { "type": "integer" },
+          "data_freshness": { "type": "string", "format": "date" },
+          "applied_sort": { "type": "object" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}

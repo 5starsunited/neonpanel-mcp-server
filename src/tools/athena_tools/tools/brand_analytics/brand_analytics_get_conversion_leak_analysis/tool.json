@@ -1,0 +1,277 @@
+{
+  "name": "brand_analytics_get_conversion_leak_analysis",
+  "description": "Provides ASIN-level funnel metrics to identify where potential buyers drop off between discovery and purchase.\n\nUse this tool to diagnose:\n- High impressions but low clicks: Visibility problem (main image, title, price positioning)\n- High clicks but low cart-adds: Content friction (bullets, A+ content, reviews, pricing)\n- High cart-adds but low purchases: Checkout friction (shipping, coupons, Buy Box issues)\n\nIntegration note: Cross-reference with brand_analytics_get_ad_efficiency to see if paid traffic converts differently than organic.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-asin-funnel",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Brand Analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for ASIN selection.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 20,
+                "description": "Child ASINs to analyze for conversion leaks."
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 10,
+                "description": "Alternative selector: analyze all child ASINs under these parent ASINs."
+              },
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 20,
+                "description": "Alternative selector: SKUs to analyze."
+              },
+              "brand": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Filter by brand name(s)."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              }
+            },
+            "required": ["company_id", "marketplace"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "Time-based aggregation options.",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["asin", "parent_asin", "brand", "product_family"]
+                },
+                "default": ["asin"],
+                "description": "Aggregation level for funnel metrics."
+              },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["week", "month", "quarter"],
+                    "default": "month"
+                  },
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "default": 3,
+                    "description": "Number of periods to analyze."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "total_impressions",
+                  "impression_to_click_drop",
+                  "click_to_cart_drop",
+                  "cart_to_purchase_drop",
+                  "total_leak_score",
+                  "revenue_opportunity_lost"
+                ],
+                "default": "total_leak_score"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Conversion leak analysis specific parameters.",
+        "properties": {
+          "leak_thresholds": {
+            "type": "object",
+            "description": "Define what constitutes a 'leak' at each funnel stage.",
+            "properties": {
+              "impression_to_click_min": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.02,
+                "description": "Expected minimum click rate from impressions (default 2%)."
+              },
+              "click_to_cart_min": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.15,
+                "description": "Expected minimum cart-add rate from clicks (default 15%)."
+              },
+              "cart_to_purchase_min": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.40,
+                "description": "Expected minimum purchase rate from cart-adds (default 40%)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "compare_to_category": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include category benchmark comparison for leak diagnosis."
+          },
+          "include_diagnostic_hints": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include actionable diagnostic suggestions for each leak type."
+          },
+          "revenue_estimation": {
+            "type": "object",
+            "description": "Configure revenue opportunity calculation.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "target_conversion_rate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Target overall conversion rate for opportunity calculation. Defaults to category average."
+              },
+              "avg_order_value": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Average order value in local currency. Auto-detected if not provided."
+              }
+            },
+            "additionalProperties": false
+          },
+          "keyword_attribution": {
+            "type": "boolean",
+            "default": false,
+            "description": "Break down leaks by top contributing search terms (requires SQP data)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "asin": { "type": "string" },
+            "parent_asin": { "type": "string" },
+            "title": { "type": "string" },
+            "period_start": { "type": "string", "format": "date" },
+            "period_end": { "type": "string", "format": "date" },
+            "funnel_metrics": {
+              "type": "object",
+              "properties": {
+                "impressions": { "type": "integer" },
+                "clicks": { "type": "integer" },
+                "cart_adds": { "type": "integer" },
+                "purchases": { "type": "integer" }
+              }
+            },
+            "conversion_rates": {
+              "type": "object",
+              "properties": {
+                "impression_to_click": { "type": "number" },
+                "click_to_cart": { "type": "number" },
+                "cart_to_purchase": { "type": "number" },
+                "overall_conversion": { "type": "number" }
+              }
+            },
+            "leaks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "stage": { "type": "string" },
+                  "drop_rate": { "type": "number" },
+                  "vs_threshold": { "type": "number" },
+                  "vs_category": { "type": "number" },
+                  "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+                  "diagnostic_hint": { "type": "string" },
+                  "lost_volume": { "type": "integer" }
+                }
+              }
+            },
+            "total_leak_score": { "type": "number" },
+            "revenue_opportunity_lost": { "type": "number" },
+            "top_leaking_keywords": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "keyword": { "type": "string" },
+                  "leak_stage": { "type": "string" },
+                  "volume_lost": { "type": "integer" }
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "total_asins_analyzed": { "type": "integer" },
+          "category_benchmarks": { "type": "object" },
+          "data_freshness": { "type": "string", "format": "date" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}

@@ -1,0 +1,139 @@
+```markdown
+# MCP Server Tools: Amazon Brand Analytics & Ads Integration
+
+This set of tools allows an AI agent to query an Iceberg data lake containing Amazon Brand Registered data. The tools are designed to facilitate strategic decisions regarding organic growth, conversion optimization, and market expansion by providing the underlying data for the seller's core intentions.
+
+---
+
+## Tool Definitions (JSON Schema)
+
+### 1. Brand Analytics: Keyword Funnel Metrics
+**Intent:** Analyze the search-to-purchase funnel to identify organic growth potential vs. conversion efficiency.
+
+```json
+{
+  "name": "brand_analytics_get_keyword_funnel_metrics",
+  "description": "Returns search funnel data (Impressions, Clicks, Cart Adds, Purchases) for specific keywords. Compares 'Brand Share' against 'Total Market' to determine if the product is a conversion leader or needs SEO/PPC adjustments.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "keywords": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "The specific search terms to analyze."
+      },
+      "period": {
+        "type": "string",
+        "enum": ["weekly", "monthly", "quarterly"],
+        "description": "The aggregation timeframe."
+      }
+    },
+    "required": ["keywords", "period"]
+  }
+}
+
+```
+
+### 2. Brand Analytics: Conversion Leak Analysis
+
+**Intent:** Pinpoint where an ASIN is losing potential buyers between the click and the final sale.
+
+```json
+{
+  "name": "brand_analytics_get_conversion_leak_analysis",
+  "description": "Provides ASIN-level funnel metrics. Use this to identify 'Drop-off Points' (e.g., high Cart-Adds with low Purchases) to diagnose pricing, shipping, or coupon-related friction.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "asin": { "type": "string", "description": "The product ASIN to audit." },
+      "time_frame": { "type": "string", "description": "The historical period for analysis." }
+    },
+    "required": ["asin"]
+  }
+}
+
+```
+
+### 3. Brand Analytics: Competitive Landscape
+
+**Intent:** Identify keywords where the top competitors are weak or under-converting.
+
+```json
+{
+  "name": "brand_analytics_get_competitive_landscape",
+  "description": "Identifies the Top 3 clicked products for a search term and their relative click/conversion shares. Use this to find 'Weak Leader' keywords where the current top-ranking products have low conversion shares.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "search_term": { "type": "string", "description": "The keyword to research for competitor performance." }
+    },
+    "required": ["search_term"]
+  }
+}
+
+```
+
+### 4. Brand Analytics: Customer Retention Stats
+
+**Intent:** Evaluate loyalty to trigger retention-based marketing (Subscribe & Save, Brand Tailored Promotions).
+
+```json
+{
+  "name": "brand_analytics_get_customer_retention_stats",
+  "description": "Returns repeat purchase rates and repeat sales volume for ASINs. Use this to recommend loyalty-building strategies for 'At-Risk' or 'Top-Tier' customers.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "asin_list": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of ASINs to check for repeat buyer behavior."
+      }
+    },
+    "required": ["asin_list"]
+  }
+}
+
+```
+
+### 5. Brand Analytics: Cross-Sell & Bundling
+
+**Intent:** Discover products frequently purchased together to guide portfolio expansion or ad targeting.
+
+```json
+{
+  "name": "brand_analytics_get_cross_sell_opportunities",
+  "description": "Retrieves the top ASINs purchased simultaneously with the target product. Use this to suggest Virtual Bundles, A+ Content cross-sell tables, or 'Product Targeting' ad campaigns.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "asin": { "type": "string", "description": "The primary ASIN to find complementary products for." }
+    },
+    "required": ["asin"]
+  }
+}
+
+```
+
+### 6. Ads: Search Term Efficiency
+
+**Intent:** Bridge the gap between paid search efficiency and organic potential.
+
+```json
+{
+  "name": "brand_analytics_get_ad_efficiency",
+  "description": "Fetches Advertising Search Term Report data (Spend, Clicks, Sales, ROAS). Use this to identify high-performing paid terms that should be harvested for Organic SEO optimization.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "min_roas": { "type": "number", "description": "Filter for keywords exceeding this Return on Ad Spend." },
+      "min_sales_units": { "type": "integer", "description": "Minimum units sold via Ads to be considered a 'proven' term." }
+    }
+  }
+}
+
+```
+
+```
+
+```

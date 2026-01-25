@@ -1,0 +1,394 @@
+{
+  "name": "brand_analytics_get_ad_efficiency",
+  "description": "Fetches Amazon Advertising Search Term Report data (Spend, Clicks, Sales, ROAS, ACoS) to analyze paid search efficiency.\n\nUse this tool to:\n- Harvest 'Proven Winners': High-converting ad terms to inject into organic SEO (Title/Bullets)\n- Identify 'Bleeders': Terms with clicks but no sales for Negative Exact keywords\n- Find ASIN targets from Product Targeting campaigns that convert well\n- Validate long-tail profitability vs broad terms\n- Bridge paid and organic strategy by cross-referencing with Brand Analytics data\n\nIntegration note: Cross-reference results with brand_analytics_get_keyword_funnel_metrics to compare paid efficiency vs organic share.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-search-term-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Advertising analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for ad performance analysis.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "campaign_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Filter to specific campaign IDs."
+              },
+              "campaign_types": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["sponsored_products", "sponsored_brands", "sponsored_display"]
+                },
+                "description": "Filter by campaign type."
+              },
+              "ad_group_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: Filter to specific ad group IDs."
+              },
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter to search terms for specific advertised ASINs."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              }
+            },
+            "required": ["company_id", "marketplace"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["search_term", "campaign", "ad_group", "asin", "match_type"]
+                },
+                "default": ["search_term"],
+                "description": "Aggregation level for ad metrics."
+              },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["day", "week", "month"],
+                    "default": "week"
+                  },
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 52,
+                    "default": 4
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "spend",
+                  "clicks",
+                  "sales",
+                  "orders",
+                  "units",
+                  "roas",
+                  "acos",
+                  "cpc",
+                  "conversion_rate",
+                  "organic_harvest_score",
+                  "negative_candidate_score"
+                ],
+                "default": "sales"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 200
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Ad efficiency analysis specific parameters.",
+        "properties": {
+          "performance_thresholds": {
+            "type": "object",
+            "description": "Define what constitutes 'good' vs 'bad' performance.",
+            "properties": {
+              "min_roas": {
+                "type": "number",
+                "minimum": 0,
+                "default": 2.0,
+                "description": "Minimum ROAS to consider a term 'profitable'."
+              },
+              "max_acos": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.30,
+                "description": "Maximum ACoS to consider a term 'efficient' (30% = 0.30)."
+              },
+              "min_sales_units": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 3,
+                "description": "Minimum units sold to consider a term 'proven'."
+              },
+              "min_clicks_for_negative": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 10,
+                "description": "Minimum clicks with 0 sales to flag as negative candidate."
+              }
+            },
+            "additionalProperties": false
+          },
+          "analysis_modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "proven_winners",
+                "negative_candidates",
+                "asin_targets",
+                "long_tail_efficiency",
+                "match_type_comparison"
+              ]
+            },
+            "default": ["proven_winners", "negative_candidates"],
+            "description": "Types of analysis to perform."
+          },
+          "organic_harvest": {
+            "type": "object",
+            "description": "Configure organic SEO harvest recommendations.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "check_current_indexing": {
+                "type": "boolean",
+                "default": true,
+                "description": "Check if term is already in listing (requires listing data)."
+              },
+              "placement_suggestions": {
+                "type": "boolean",
+                "default": true,
+                "description": "Suggest where to place term (title, bullets, backend)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "negative_mining": {
+            "type": "object",
+            "description": "Configure negative keyword identification.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "cross_check_sqp": {
+                "type": "boolean",
+                "default": true,
+                "description": "Cross-reference with Brand Analytics to check market conversion rate."
+              },
+              "auto_generate_list": {
+                "type": "boolean",
+                "default": true,
+                "description": "Generate ready-to-upload negative keyword list."
+              }
+            },
+            "additionalProperties": false
+          },
+          "asin_target_analysis": {
+            "type": "object",
+            "description": "Analyze ASIN-based targeting from auto/product targeting campaigns.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "include_competitor_asins": {
+                "type": "boolean",
+                "default": true
+              },
+              "min_conversions": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 2,
+                "description": "Minimum conversions to consider ASIN target valuable."
+              }
+            },
+            "additionalProperties": false
+          },
+          "long_tail_analysis": {
+            "type": "object",
+            "description": "Analyze efficiency of long-tail vs head terms.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": false
+              },
+              "min_word_count": {
+                "type": "integer",
+                "minimum": 2,
+                "default": 3,
+                "description": "Minimum words to classify as long-tail."
+              },
+              "compare_to_broad": {
+                "type": "boolean",
+                "default": true,
+                "description": "Compare long-tail efficiency to broad/head terms."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "search_term": { "type": "string" },
+            "is_asin_target": { "type": "boolean" },
+            "match_type": { "type": "string" },
+            "campaign_name": { "type": "string" },
+            "ad_group_name": { "type": "string" },
+            "period_start": { "type": "string", "format": "date" },
+            "period_end": { "type": "string", "format": "date" },
+            "metrics": {
+              "type": "object",
+              "properties": {
+                "impressions": { "type": "integer" },
+                "clicks": { "type": "integer" },
+                "ctr": { "type": "number" },
+                "spend": { "type": "number" },
+                "cpc": { "type": "number" },
+                "sales": { "type": "number" },
+                "orders": { "type": "integer" },
+                "units": { "type": "integer" },
+                "roas": { "type": "number" },
+                "acos": { "type": "number" },
+                "conversion_rate": { "type": "number" }
+              }
+            },
+            "classification": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": ["proven_winner", "high_potential", "under_performing", "bleeder", "insufficient_data"]
+                },
+                "is_long_tail": { "type": "boolean" },
+                "word_count": { "type": "integer" }
+              }
+            },
+            "recommendations": {
+              "type": "object",
+              "properties": {
+                "organic_harvest": {
+                  "type": "object",
+                  "properties": {
+                    "recommended": { "type": "boolean" },
+                    "score": { "type": "number" },
+                    "current_in_listing": { "type": "boolean" },
+                    "suggested_placement": { "type": "string" }
+                  }
+                },
+                "negative_keyword": {
+                  "type": "object",
+                  "properties": {
+                    "recommended": { "type": "boolean" },
+                    "score": { "type": "number" },
+                    "market_cvr": { "type": "number" },
+                    "diagnosis": { "type": "string" }
+                  }
+                },
+                "bid_adjustment": {
+                  "type": "object",
+                  "properties": {
+                    "direction": { "type": "string", "enum": ["increase", "decrease", "maintain"] },
+                    "suggested_change_pct": { "type": "number" }
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total_search_terms": { "type": "integer" },
+          "total_spend": { "type": "number" },
+          "total_sales": { "type": "number" },
+          "overall_roas": { "type": "number" },
+          "overall_acos": { "type": "number" },
+          "proven_winners_count": { "type": "integer" },
+          "negative_candidates_count": { "type": "integer" },
+          "organic_harvest_candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "search_term": { "type": "string" },
+                "score": { "type": "number" },
+                "suggested_placement": { "type": "string" }
+              }
+            }
+          },
+          "negative_keyword_list": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "long_tail_vs_broad": {
+            "type": "object",
+            "properties": {
+              "long_tail_roas": { "type": "number" },
+              "broad_roas": { "type": "number" },
+              "efficiency_ratio": { "type": "number" },
+              "recommendation": { "type": "string" }
+            }
+          }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "data_freshness": { "type": "string", "format": "date" },
+          "campaigns_analyzed": { "type": "integer" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}

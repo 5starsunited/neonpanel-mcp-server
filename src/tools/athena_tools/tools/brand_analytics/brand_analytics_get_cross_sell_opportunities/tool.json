@@ -1,0 +1,300 @@
+{
+  "name": "brand_analytics_get_cross_sell_opportunities",
+  "description": "Retrieves products frequently purchased together from Amazon Brand Analytics Market Basket Analysis report.\n\nUse this tool to:\n- Discover complementary products for Virtual Bundles\n- Identify A+ Content cross-sell table candidates\n- Find 'Product Targeting' ad campaign opportunities\n- Detect competitor products commonly bought with yours (defensive/offensive targeting)\n- Plan portfolio expansion based on customer purchase patterns\n\nIntegration note: Cross-reference with Ads Search Term report (ASINs in search terms) to validate co-purchase patterns with paid traffic behavior.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-market-basket",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Brand Analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for cross-sell analysis.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 20,
+                "description": "Primary ASINs to find complementary products for."
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "maxItems": 10,
+                "description": "Alternative selector: analyze all child ASINs under these parents."
+              },
+              "brand": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by brand name(s)."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              }
+            },
+            "required": ["company_id", "marketplace"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["week", "month", "quarter"],
+                    "default": "month"
+                  },
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "default": 3
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "co_purchase_frequency",
+                  "co_purchase_rate",
+                  "bundle_potential_score",
+                  "ad_targeting_score",
+                  "portfolio_gap_score"
+                ],
+                "default": "co_purchase_frequency"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max complementary products per primary ASIN."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Cross-sell analysis specific parameters.",
+        "properties": {
+          "relationship_types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["complementary", "substitute", "accessory", "consumable", "upgrade"]
+            },
+            "default": ["complementary", "accessory", "consumable"],
+            "description": "Types of product relationships to identify."
+          },
+          "ownership_filter": {
+            "type": "string",
+            "enum": ["all", "my_products_only", "competitor_products_only", "mixed"],
+            "default": "all",
+            "description": "Filter co-purchased products by ownership."
+          },
+          "bundle_analysis": {
+            "type": "object",
+            "description": "Virtual Bundle opportunity scoring.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "min_co_purchase_rate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 0.05,
+                "description": "Minimum co-purchase rate to consider for bundling."
+              },
+              "price_compatibility": {
+                "type": "boolean",
+                "default": true,
+                "description": "Check if combined price makes sense for bundling."
+              },
+              "max_bundle_price": {
+                "type": "number",
+                "description": "Optional max combined price for bundle recommendations."
+              }
+            },
+            "additionalProperties": false
+          },
+          "ad_targeting_analysis": {
+            "type": "object",
+            "description": "Product Targeting ad opportunity scoring.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "include_competitor_asins": {
+                "type": "boolean",
+                "default": true,
+                "description": "Include competitor ASINs as targeting opportunities."
+              },
+              "min_volume": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 10,
+                "description": "Minimum co-purchases to consider for ad targeting."
+              }
+            },
+            "additionalProperties": false
+          },
+          "portfolio_gap_detection": {
+            "type": "object",
+            "description": "Identify products you should consider adding to your catalog.",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "min_frequency_for_gap": {
+                "type": "integer",
+                "default": 50,
+                "description": "Minimum co-purchases with competitor product to flag as gap."
+              }
+            },
+            "additionalProperties": false
+          },
+          "category_expansion": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include cross-category co-purchase patterns for expansion opportunities."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "primary_asin": { "type": "string" },
+            "primary_title": { "type": "string" },
+            "period_start": { "type": "string", "format": "date" },
+            "period_end": { "type": "string", "format": "date" },
+            "co_purchased_products": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "asin": { "type": "string" },
+                  "title": { "type": "string" },
+                  "brand": { "type": "string" },
+                  "is_mine": { "type": "boolean" },
+                  "category": { "type": "string" },
+                  "co_purchase_count": { "type": "integer" },
+                  "co_purchase_rate": { "type": "number" },
+                  "relationship_type": { "type": "string" },
+                  "price": { "type": "number" },
+                  "opportunities": {
+                    "type": "object",
+                    "properties": {
+                      "bundle_potential_score": { "type": "number" },
+                      "bundle_recommendation": { "type": "string" },
+                      "ad_targeting_score": { "type": "number" },
+                      "ad_targeting_recommendation": { "type": "string" },
+                      "is_portfolio_gap": { "type": "boolean" },
+                      "portfolio_gap_reason": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total_primary_asins": { "type": "integer" },
+          "total_co_purchase_pairs": { "type": "integer" },
+          "bundle_opportunities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "primary_asin": { "type": "string" },
+                "bundle_with_asin": { "type": "string" },
+                "combined_price": { "type": "number" },
+                "score": { "type": "number" }
+              }
+            }
+          },
+          "top_ad_targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "target_asin": { "type": "string" },
+                "target_brand": { "type": "string" },
+                "relevance_score": { "type": "number" }
+              }
+            }
+          },
+          "portfolio_gaps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": { "type": "string" },
+                "top_competitor_asin": { "type": "string" },
+                "demand_signal": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "data_freshness": { "type": "string", "format": "date" },
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}
