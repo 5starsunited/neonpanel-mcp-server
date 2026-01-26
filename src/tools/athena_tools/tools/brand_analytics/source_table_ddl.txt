@@ -1,0 +1,19 @@
+CREATE TABLE sp_api_iceberg.brand_analytics_search_terms_report (
+  date timestamp,
+  rspec_marketplaceids string,
+  departmentname string,
+  searchterm string,
+  searchfrequencyrank bigint,
+  clickedasin string,
+  clickeditemname string,
+  clicksharerank bigint,
+  clickshare double,
+  conversionshare double,
+  ingest_source_s3_uri string,
+  ingest_ts_utc timestamp,
+  ingest_company_id string,
+  ingest_seller_id string)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/warehouse/sp_api_iceberg.db/brand_analytics_search_terms_report'
+TBLPROPERTIES (
+  'table_type'='iceberg'
+);

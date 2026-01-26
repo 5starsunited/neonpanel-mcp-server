@@ -8,6 +8,7 @@ import { registerSupplyChainListStockReplenishmentRiskItemsTool } from './tools/
 import { registerForecastingListLatestSalesForecastTool } from './tools/forecasting/list_latest_sales_forecast/register';
 import { registerForecastingCompareSalesForecastScenariosTool } from './tools/forecasting/compare_sales_forecast_scenarios/register';
 import { registerForecastingWriteSalesForecastTool } from './tools/forecasting/write_sales_forecast/register';
+import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/brand_analytics_get_competitive_landscape/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -20,4 +21,5 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerSupplyChainAnalyzeSalesVelocityTool(registry);
   registerSupplyChainInspectInventorySkuSnapshotTool(registry);
   registerSupplyChainListProductLogisticsParametersTool(registry);
+  registerBrandAnalyticsGetCompetitiveLandscapeTool(registry);
 }

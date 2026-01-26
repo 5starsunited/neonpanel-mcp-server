@@ -17,6 +17,22 @@ This set of tools enables AI agents to query Amazon Brand Analytics and Advertis
 
 ---
 
+## Advanced Description: brand_analytics_get_competitive_landscape
+
+Use this tool to surface the Top 3 clicked products per search term and identify “weak leader” opportunities where the market leader has low conversion share. It runs against the Brand Analytics Search Terms report and aggregates by week, month, or quarter.
+
+**How to use it (test flow):**
+- **Required:** Provide `company_id` and one `marketplace` (e.g., `US`).
+- **Optional targeting:** Add `search_terms` for specific keywords, `competitor_asins` to focus on rivals, and `my_asins` to compute your position and share gaps.
+- **Time window:** Use `start_date`/`end_date`, or omit them and set `periods_back` + `periodicity` to pull the latest periods automatically.
+- **Interpretation:**
+	- `top_3_products` lists positions with click and conversion share plus trends.
+	- `my_position` shows if your ASIN ranks in the Top 3.
+	- `weak_leader_analysis` flags low leader conversion share and provides a displacement opportunity score.
+	- `share_gaps` shows how far you are from the leader’s share.
+
+**Success criteria:** A keyword is a strong displacement candidate when `weak_leader_analysis.is_weak_leader=true` and `search_frequency_rank` is high (low numeric rank). Prioritize terms where `share_gaps` is small and your ASIN is already in the Top 3.
+
 ## Data Sources
 
 - **Brand Analytics (Market Truth):** Organic + Ads combined performance from Amazon's Search Query Performance, Top Search Terms, Market Basket, and Repeat Purchase reports
