@@ -48,7 +48,7 @@
                 "description": "Optional: Filter by browse node category."
               }
             },
-            "required": ["company_id", "marketplace"],
+            "required": ["company_id"],
             "additionalProperties": false
           },
           "aggregation": {

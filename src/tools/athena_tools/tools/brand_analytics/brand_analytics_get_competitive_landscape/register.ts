@@ -51,7 +51,7 @@ const querySchema = z
         search_terms: z.array(z.string()).min(1).max(100).optional(),
         competitor_asins: z.array(z.string()).optional(),
         my_asins: z.array(z.string()).optional(),
-        marketplace: z.array(z.string()).min(1).max(1),
+        marketplace: z.array(z.string()).min(1).max(1).optional(),
         category: z.array(z.string()).optional(),
       })
       .strict(),

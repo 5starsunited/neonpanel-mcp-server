@@ -40,18 +40,42 @@ raw AS (
     clickshare,
     conversionshare,
     departmentname,
-    lower(rspec_marketplaceids) AS marketplace,
+    CAST(rspec_marketplaceids AS VARCHAR) AS amazon_marketplace_id,
     CAST(ingest_company_id AS BIGINT) AS company_id
   FROM "{{catalog}}"."sp_api_iceberg"."brand_analytics_search_terms_report"
+),
+
+marketplaces_dim AS (
+  SELECT
+    CAST(amazon_marketplace_id AS VARCHAR) AS amazon_marketplace_id,
+    lower(country) AS country,
+    lower(code) AS country_code,
+    lower(name) AS marketplace,
+    lower(domain) AS domain
+  FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
 ),
 
 filtered AS (
   SELECT r.*
   FROM raw r
   CROSS JOIN params p
+  LEFT JOIN marketplaces_dim m
+    ON lower(m.amazon_marketplace_id) = lower(r.amazon_marketplace_id)
   WHERE
     contains(p.company_ids, r.company_id)
-    AND (cardinality(p.marketplaces) = 0 OR any_match(p.marketplaces, m -> lower(m) = r.marketplace))
+    AND (
+      cardinality(p.marketplaces) = 0
+      OR any_match(
+        p.marketplaces,
+        input -> lower(input) IN (
+          m.country,
+          m.country_code,
+          m.marketplace,
+          m.domain,
+          lower(m.amazon_marketplace_id)
+        )
+      )
+    )
     AND (cardinality(p.categories) = 0 OR any_match(p.categories, c -> lower(c) = lower(r.departmentname)))
     AND (cardinality(p.search_terms) = 0 OR any_match(p.search_terms, t -> lower(t) = lower(r.searchterm)))
 ),
@@ -93,11 +117,24 @@ windowed AS (
   WHERE f.report_date BETWEEN d.start_date AND d.end_date
 ),
 
-aggregated AS (
+aggregated_base AS (
   SELECT
     searchterm AS search_term,
     MIN(searchfrequencyrank) AS search_frequency_rank,
     period_start,
+    clickedasin AS asin,
+    MAX(clickeditemname) AS title,
+    CAST(NULL AS VARCHAR) AS brand,
+    MIN(clicksharerank) AS click_share_rank,
+    AVG(COALESCE(clickshare, 0.0)) AS click_share,
+    AVG(COALESCE(conversionshare, 0.0)) AS conversion_share
+  FROM windowed w
+  GROUP BY 1, 3, 4, 6
+),
+
+aggregated AS (
+  SELECT
+    a.*,
     date_add(
       'day',
       -1,
@@ -108,18 +145,11 @@ aggregated AS (
           ELSE 'quarter'
         END,
         1,
-        period_start
+        a.period_start
       )
-    ) AS period_end,
-    clickedasin AS asin,
-    MAX(clickeditemname) AS title,
-    CAST(NULL AS VARCHAR) AS brand,
-    MIN(clicksharerank) AS click_share_rank,
-    AVG(COALESCE(clickshare, 0.0)) AS click_share,
-    AVG(COALESCE(conversionshare, 0.0)) AS conversion_share
-  FROM windowed w
+    ) AS period_end
+  FROM aggregated_base a
   CROSS JOIN params p
-  GROUP BY 1, 3, 5, 7
 ),
 
 ranked_base AS (
@@ -128,7 +158,7 @@ ranked_base AS (
     row_number() OVER (
       PARTITION BY search_term, period_start
       ORDER BY click_share_rank ASC NULLS LAST, click_share DESC
-    ) AS position
+    ) AS rank_position
   FROM aggregated a
 ),
 
@@ -137,7 +167,7 @@ ranked AS (
     rb.*,
     lag(rb.click_share) OVER (PARTITION BY rb.search_term, rb.asin ORDER BY rb.period_start) AS click_share_prev,
     lag(rb.conversion_share) OVER (PARTITION BY rb.search_term, rb.asin ORDER BY rb.period_start) AS conversion_share_prev,
-    lag(rb.position) OVER (PARTITION BY rb.search_term, rb.asin ORDER BY rb.period_start) AS prev_position
+    lag(rb.rank_position) OVER (PARTITION BY rb.search_term, rb.asin ORDER BY rb.period_start) AS prev_position
   FROM ranked_base rb
 ),
 
@@ -145,7 +175,7 @@ top3 AS (
   SELECT
     r.*
   FROM ranked r
-  WHERE r.position <= 3
+  WHERE r.rank_position <= 3
 ),
 
 per_term AS (
@@ -157,37 +187,37 @@ per_term AS (
     array_agg(
       CAST(
         ROW(
-          t.position,
+          t.rank_position,
           t.asin,
           t.title,
           t.brand,
-          contains(p.my_asins, t.asin) AS is_mine,
+          contains(p.my_asins, t.asin),
           t.click_share,
-          (t.click_share - COALESCE(t.click_share_prev, t.click_share)) AS click_share_trend,
+          (t.click_share - COALESCE(t.click_share_prev, t.click_share)),
           t.conversion_share,
-          (t.conversion_share - COALESCE(t.conversion_share_prev, t.conversion_share)) AS conversion_share_trend,
+          (t.conversion_share - COALESCE(t.conversion_share_prev, t.conversion_share)),
           CASE
             WHEN t.prev_position IS NULL THEN 0
-            ELSE t.prev_position - t.position
+            ELSE t.prev_position - t.rank_position
           END
         ) AS ROW(
-          position INTEGER,
-          asin VARCHAR,
-          title VARCHAR,
-          brand VARCHAR,
-          is_mine BOOLEAN,
-          click_share DOUBLE,
-          click_share_trend DOUBLE,
-          conversion_share DOUBLE,
-          conversion_share_trend DOUBLE,
-          position_change INTEGER
+          "position" INTEGER,
+          "asin" VARCHAR,
+          "title" VARCHAR,
+          "brand" VARCHAR,
+          "is_mine" BOOLEAN,
+          "click_share" DOUBLE,
+          "click_share_trend" DOUBLE,
+          "conversion_share" DOUBLE,
+          "conversion_share_trend" DOUBLE,
+          "position_change" INTEGER
         )
       )
-      ORDER BY t.position
+      ORDER BY t.rank_position
     ) AS top_3_products,
-    MIN(CASE WHEN contains(p.my_asins, t.asin) THEN t.position END) AS my_position,
-    MAX(CASE WHEN t.position = 1 THEN t.conversion_share END) AS leader_conversion_share,
-    MAX(CASE WHEN t.position = 1 THEN t.click_share END) AS leader_click_share,
+    MIN(CASE WHEN contains(p.my_asins, t.asin) THEN t.rank_position END) AS my_position,
+    MAX(CASE WHEN t.rank_position = 1 THEN t.conversion_share END) AS leader_conversion_share,
+    MAX(CASE WHEN t.rank_position = 1 THEN t.click_share END) AS leader_click_share,
     MAX(CASE WHEN contains(p.my_asins, t.asin) THEN t.click_share END) AS my_click_share,
     MAX(CASE WHEN contains(p.my_asins, t.asin) THEN t.conversion_share END) AS my_conversion_share,
     MAX(CASE WHEN contains(p.competitor_asins, t.asin) THEN 1 ELSE 0 END) AS has_competitor
@@ -255,4 +285,4 @@ CROSS JOIN params
 WHERE
   (cardinality(params.competitor_asins) = 0 OR p.has_competitor = 1)
 ORDER BY p.search_frequency_rank ASC
-LIMIT params.top_results;
+LIMIT {{limit_top_n}};
