@@ -515,6 +515,12 @@ async function executeSupplyChainListPoPlacementCandidates(
 
       sales_velocity: toNumber(getRowValue(record, 'sales_velocity')) ?? undefined,
 
+      // Velocity calculation transparency fields
+      velocity_calculation_method: (getRowValue(record, 'velocity_calculation_method') ?? undefined) as string | undefined,
+      velocity_units_per_day: toNumber(getRowValue(record, 'velocity_units_per_day')) ?? undefined,
+      forecast_month_index: toInt(getRowValue(record, 'forecast_month_index')) ?? undefined,
+      forecast_units_extracted: toNumber(getRowValue(record, 'forecast_units_extracted')) ?? undefined,
+
       po_days_of_supply: toInt(getRowValue(record, 'po_days_of_supply')) ?? undefined,
       available_inventory_units: toInt(getRowValue(record, 'available_inventory_units')) ?? undefined,
 
