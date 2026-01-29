@@ -216,7 +216,33 @@ t AS (
         WHEN 'planned' THEN (COALESCE(element_at(b.plan_monthly_units, LEAST(GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)), GREATEST(1, cardinality(b.plan_monthly_units)))), 0.0) / 30.0)
         ELSE b.current_units_per_day
       END
-    AS DOUBLE) AS sales_velocity
+    AS DOUBLE) AS sales_velocity,
+
+    -- Diagnostic fields for velocity calculation transparency
+    b.selected_sales_velocity AS velocity_calculation_method,
+    
+    -- For 'planned' mode: show which forecast month was used
+    CASE 
+      WHEN b.selected_sales_velocity = 'planned' THEN 
+        1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)
+      ELSE NULL
+    END AS forecast_month_index,
+    
+    -- For 'planned' mode: show raw forecast units extracted before dividing by 30
+    CASE 
+      WHEN b.selected_sales_velocity = 'planned' THEN 
+        COALESCE(
+          element_at(
+            b.plan_monthly_units, 
+            LEAST(
+              GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)), 
+              GREATEST(1, cardinality(b.plan_monthly_units))
+            )
+          ), 
+          0.0
+        )
+      ELSE NULL
+    END AS forecast_units_extracted
 
   FROM t_base b
 ),
@@ -312,6 +338,12 @@ SELECT
   CAST(t.lead_time_days AS BIGINT) AS lead_time_days,
   CAST(t.safety_stock_days AS BIGINT) AS safety_stock_days,
   CAST(t.target_coverage_days AS BIGINT) AS target_coverage_days,
+
+  -- Velocity calculation transparency fields
+  CAST(t.velocity_calculation_method AS VARCHAR) AS velocity_calculation_method,
+  CAST(t.sales_velocity AS DOUBLE) AS velocity_units_per_day,
+  CAST(t.forecast_month_index AS BIGINT) AS forecast_month_index,
+  CAST(t.forecast_units_extracted AS DOUBLE) AS forecast_units_extracted,
 
   -- po_due_in_days: when you should place a PO next to maintain lead_time+safety_stock buffer + PO cadence.
   -- negative => overdue, positive => due in future.
