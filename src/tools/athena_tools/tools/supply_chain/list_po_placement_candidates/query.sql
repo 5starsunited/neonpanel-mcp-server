@@ -17,6 +17,7 @@ WITH params AS (
     {{days_between_pos}} AS days_between_pos,
     CAST({{active_sold_min_units_per_day}} AS DOUBLE) AS active_sold_min_units_per_day,
     {{limit_top_n}} AS top_results,
+    {{include_work_in_progress}} AS include_work_in_progress,
 
     -- REQUIRED (authorization + partition pruning)
     {{company_ids_array}} AS company_ids,
@@ -85,6 +86,7 @@ t_base AS (
       COALESCE(CAST(pil.total_balance_quantity AS DOUBLE), 0.0)
       + COALESCE(CAST(pil.total_ordered_quantity AS DOUBLE), 0.0)
       + COALESCE(CAST(pil.available AS DOUBLE), 0.0)
+      + CASE WHEN p.include_work_in_progress THEN COALESCE(CAST(pil.wip_total_ordered_quantity AS DOUBLE), 0.0) ELSE 0.0 END
     ) AS total_available_inventory_units,
 
     IF(p.override_default, p.lead_time_days_override, pil.lead_time_days) AS lead_time_days,
@@ -387,7 +389,7 @@ SELECT
     ELSE 'high'
   END AS priority,
   CAST(
-    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + total_ordered_quantity + available (excludes inbound). planned sales_velocity uses the arrival-month rate (month index=floor(lead_time_days/30)); planned recommended_order_units sums the sales plan across the full coverage window starting now.'
+    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + total_ordered_quantity + available + (conditionally) wip_total_ordered_quantity. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity uses the arrival-month rate (month index=floor(lead_time_days/30)); planned recommended_order_units sums the sales plan across the full coverage window starting now.'
   AS VARCHAR) AS reason
 
 FROM t_classed t
