@@ -581,7 +581,19 @@ export function registerSupplyChainListPoPlacementCandidatesTool(registry: ToolR
         };
       }
 
-      if (merged.planning_base === undefined) merged.planning_base = 'actively_sold_only';
+      // Set planning_base default based on sales_velocity mode to prevent filtering out items
+      // when user explicitly chooses an alternative velocity calculation mode
+      if (merged.planning_base === undefined) {
+        const velocityMode = merged.sales_velocity ?? 'planned';
+        if (velocityMode === 'target') {
+          merged.planning_base = 'targeted_only';
+        } else if (velocityMode === 'planned') {
+          merged.planning_base = 'planned_only';
+        } else {
+          // 'current' mode uses 'actively_sold_only' (historical behavior)
+          merged.planning_base = 'actively_sold_only';
+        }
+      }
 
       // Convert merged args to the legacy tool's strict schema (to guarantee runtime safety).
       const legacyParsed = inventoryPoScheduleInputSchema.parse(merged);
