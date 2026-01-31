@@ -80,6 +80,16 @@
                 "type": "array",
                 "items": { "type": "string" },
                 "description": "Filter by supplier/vendor name(s)"
+              },
+              "document_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by invoice document ID(s) - numeric IDs"
+              },
+              "document_ref_number": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by invoice reference number(s) - e.g., ['22431653901-12-AUS']"
               }
             },
             "additionalProperties": false
@@ -105,7 +115,9 @@
                     "pareto_abc_class",
                     "inventory_id",
                     "io_batch_id",
-                    "vendor"
+                    "vendor",
+                    "document_id",
+                    "document_ref_number"
                   ]
                 },
                 "description": "Dimensions to group by. Order matters for hierarchical grouping. Empty array = aggregate all matching records.",

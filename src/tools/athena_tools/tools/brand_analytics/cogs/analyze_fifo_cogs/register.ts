@@ -24,6 +24,8 @@ const inputSchema = z.object({
       pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
       inventory_id: z.array(z.number().int()).optional(),
       vendor: z.array(z.string()).optional(),
+      document_id: z.array(z.number().int()).optional(),
+      document_ref_number: z.array(z.string()).optional(),
     }).required({ company_id: true }),
     aggregation: z.object({
       group_by: z.array(z.enum([
@@ -40,6 +42,8 @@ const inputSchema = z.object({
         'inventory_id',
         'io_batch_id',
         'vendor',
+        'document_id',
+        'document_ref_number',
       ])).optional().default([]),
       time: z.object({
         periodicity: z.enum(['month', 'year', 'total']).optional().default('total'),
@@ -152,6 +156,8 @@ async function executeCogsAnalyzeFifoCogs(
     inventory_id: 'bt.inventory_id',
     io_batch_id: 'bt.io_batch_id',
     vendor: 'bt.vendor',
+    document_id: 'bt.document_id',
+    document_ref_number: 'bt.document_ref_number',
   };
   
   for (const dim of groupBy) {
@@ -201,6 +207,8 @@ async function executeCogsAnalyzeFifoCogs(
     pareto_abc_classes_array: sqlVarcharArrayExpr(filters.pareto_abc_class ?? []),
     inventory_ids_array: sqlBigintArrayExpr(filters.inventory_id ?? []),
     vendors_array: sqlVarcharArrayExpr(filters.vendor ?? []),
+    document_ids_array: sqlBigintArrayExpr(filters.document_id ?? []),
+    document_ref_numbers_array: sqlVarcharArrayExpr(filters.document_ref_number ?? []),
     start_date: time.start_date ? sqlStringLiteral(time.start_date) : 'NULL',
     end_date: time.end_date ? sqlStringLiteral(time.end_date) : 'NULL',
     periodicity_sql: sqlStringLiteral(periodicity),

@@ -22,6 +22,8 @@ WITH params AS (
     {{pareto_abc_classes_array}} AS pareto_abc_classes,
     {{inventory_ids_array}} AS inventory_ids,
     {{vendors_array}} AS vendors,
+    {{document_ids_array}} AS document_ids,
+    {{document_ref_numbers_array}} AS document_ref_numbers,
     
     -- Date range filters (nullable)
     {{start_date}} AS start_date,
@@ -54,6 +56,8 @@ base_transactions AS (
     ft.io_batch_id,
     ft.vendor,
     ft.document_date,
+    ft.document_id,
+    ft.document_ref_number,
     
     -- COGS calculations: convert negative quantities/amounts to positive
     ABS(ft.quantity) AS units_sold,
@@ -94,6 +98,8 @@ base_transactions AS (
     AND (cardinality(p.pareto_abc_classes) = 0 OR contains(p.pareto_abc_classes, ft.pareto_abc_class))
     AND (cardinality(p.inventory_ids) = 0 OR contains(p.inventory_ids, ft.inventory_id))
     AND (cardinality(p.vendors) = 0 OR contains(p.vendors, ft.vendor))
+    AND (cardinality(p.document_ids) = 0 OR contains(p.document_ids, ft.document_id))
+    AND (cardinality(p.document_ref_numbers) = 0 OR contains(p.document_ref_numbers, ft.document_ref_number))
 ),
 
 aggregated_cogs AS (
