@@ -1,0 +1,180 @@
+{
+  "name": "cogs_analyze_fifo_cogs",
+  "description": "Analyze FIFO (First-In-First-Out) Cost of Goods Sold from invoice transactions.\n\nThis tool provides flexible COGS analysis with:\n- Time aggregation: monthly, annual, or total period\n- Multiple grouping dimensions: SKU, brand, product family, ASIN, marketplace, etc.\n- Comprehensive filtering by product attributes, geography, and classifications\n- Sign-corrected amounts (invoice quantities are negative, amounts are reversed for proper COGS calculation)\n\nDATA SOURCE:\n- Table: neonpanel_iceberg.fifo_transactions_snapshot\n- Filter: document_type = 'Invoice' (sales transactions only)\n- COGS Calculation: ABS(transaction_amount) - absolute value to convert negative invoice amounts to positive COGS\n- Transactions: Each row represents a unit sold from a specific inventory batch (FIFO cost assignment)\n\nTIME AGGREGATION:\n- 'monthly': Group by YEAR-MONTH (e.g., 2024-01, 2024-02)\n- 'annual': Group by YEAR (e.g., 2024, 2025)\n- 'total': No time grouping, aggregate entire period\n\nGROUPING DIMENSIONS (query.aggregation.group_by):\nSupported dimensions (order matters for hierarchical grouping):\n- 'sku': SKU identifier\n- 'brand': Brand name\n- 'product_family': Product family/category\n- 'child_asin': Child ASIN (variation)\n- 'parent_asin': Parent ASIN (product group)\n- 'marketplace': Marketplace name (e.g., Amazon.com, Amazon.ca)\n- 'country': Country name (e.g., United States, Canada)\n- 'marketplace_currency': Currency code (e.g., USD, CAD)\n- 'revenue_abcd_class': Revenue classification (A=top 70%, B=next 20%, C=next 8%, D=bottom 2%)\n- 'pareto_abc_class': Pareto classification (A=top 80%, B=next 15%, C=bottom 5%)\n- 'inventory_id': Specific inventory item ID\n- 'io_batch_id': Inventory Order batch ID\n- 'vendor': Supplier/vendor name\n\nExample group_by usage:\n- [\"brand\"] - COGS by brand\n- [\"brand\", \"product_family\"] - Hierarchical: brand → product family\n- [\"marketplace\", \"brand\", \"sku\"] - Multi-level analysis\n- [] or omit - No grouping, aggregate all matching records\n\nOUTPUT METRICS:\n- cogs_amount: Total cost of goods sold (sum of item_landed_cost × quantity, sign-corrected)\n- units_sold: Total units sold (absolute value of quantity)\n- transactions_count: Number of invoice transactions\n- avg_unit_cogs: Average COGS per unit (cogs_amount ÷ units_sold)\n- purchase_price_amount: Total purchase price component (sum of item_purchase_price × quantity)\n\nFILTERING:\nAll dimensions available in group_by can also be used as filters (query.filters):\n- Single value: {\"brand\": \"KEMFORD\"}\n- Multiple values: {\"brand\": [\"KEMFORD\", \"ACME\"]}\n- Date range: Use query.aggregation.time.start_date and end_date\n\nEXAMPLE USE CASES:\n1. Monthly COGS by brand for 2024:\n   - filters: {company_id: 103}\n   - aggregation: {group_by: [\"brand\"], time: {periodicity: \"month\", start_date: \"2024-01-01\", end_date: \"2024-12-31\"}}\n\n2. Total COGS by SKU for specific marketplace:\n   - filters: {company_id: 103, marketplace: [\"Amazon.com\"]}\n   - aggregation: {group_by: [\"sku\"]}\n   - time: {periodicity: \"total\"}\n\n3. Annual COGS by revenue class:\n   - filters: {company_id: 103}\n   - aggregation: {group_by: [\"revenue_abcd_class\"], time: {periodicity: \"year\"}}\n\nIMPORTANT NOTES:\n- company_id filter is REQUIRED (multi-tenant data)\n- Invoice transactions have negative quantities (items leaving inventory)\n- Amounts are automatically sign-corrected in calculations\n- Results sorted by cogs_amount DESC by default\n- Time periods use document_date (invoice date)\n\nInput uses the standard query envelope:\n- query.filters: WHERE clause conditions\n- query.aggregation: GROUP BY dimensions and time bucketing\n- query.sort: ORDER BY field and direction\n- query.limit: Maximum rows to return",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Standard query envelope for COGS analysis",
+        "required": ["filters"],
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "WHERE clause filters. company_id is required.",
+            "required": ["company_id"],
+            "properties": {
+              "company_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Company identifier(s) - required for multi-tenant isolation. Single company: [103], Portfolio analysis: [103, 104, 105]. Note: Multiple companies = larger data scans."
+              },
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by SKU(s)"
+              },
+              "brand": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by brand(s)"
+              },
+              "product_family": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product family/category"
+              },
+              "child_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by child ASIN(s)"
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by parent ASIN(s)"
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by marketplace(s) - e.g., ['Amazon.com', 'Amazon.ca']"
+              },
+              "country": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by country name(s) - e.g., ['United States', 'Canada']"
+              },
+              "marketplace_currency": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by currency code(s) - e.g., ['USD', 'CAD']"
+              },
+              "revenue_abcd_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "description": "Filter by revenue classification (A=top 70%, B=next 20%, C=next 8%, D=bottom 2%)"
+              },
+              "pareto_abc_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "description": "Filter by Pareto classification (A=top 80%, B=next 15%, C=bottom 5%)"
+              },
+              "inventory_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by specific inventory item ID(s)"
+              },
+              "vendor": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by supplier/vendor name(s)"
+              }
+            },
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "GROUP BY dimensions and time bucketing",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "sku",
+                    "brand",
+                    "product_family",
+                    "child_asin",
+                    "parent_asin",
+                    "marketplace",
+                    "country",
+                    "marketplace_currency",
+                    "revenue_abcd_class",
+                    "pareto_abc_class",
+                    "inventory_id",
+                    "io_batch_id",
+                    "vendor"
+                  ]
+                },
+                "description": "Dimensions to group by. Order matters for hierarchical grouping. Empty array = aggregate all matching records.",
+                "default": []
+              },
+              "time": {
+                "type": "object",
+                "description": "Time bucketing and date range filtering",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["month", "year", "total"],
+                    "default": "total",
+                    "description": "'month' = YYYY-MM grouping, 'year' = YYYY grouping, 'total' = no time grouping"
+                  },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Start date filter (inclusive) - format: YYYY-MM-DD"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "End date filter (inclusive) - format: YYYY-MM-DD"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Sort order for results",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "cogs_amount",
+                  "units_sold",
+                  "transactions_count",
+                  "avg_unit_cogs",
+                  "purchase_price_amount",
+                  "time_period"
+                ],
+                "default": "cogs_amount",
+                "description": "Field to sort by"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 100,
+            "description": "Maximum number of rows to return"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  }
+}

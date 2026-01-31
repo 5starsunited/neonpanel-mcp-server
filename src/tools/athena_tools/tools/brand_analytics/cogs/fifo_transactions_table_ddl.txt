@@ -1,0 +1,1 @@
+SELECT * FROM "neonpanel_iceberg"."fifo_transactions_snapshot"
