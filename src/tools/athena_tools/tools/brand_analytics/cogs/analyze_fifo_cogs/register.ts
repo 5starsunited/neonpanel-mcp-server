@@ -136,10 +136,14 @@ async function executeCogsAnalyzeFifoCogs(
   const selectDimensions: string[] = [];
   const groupBySelectFields: string[] = [];
   
-  // Add time period to group by if not 'total'
+  // Add time period to GROUP BY (must use full CASE expression, not alias)
   if (periodicity !== 'total') {
     groupByFields.push('p.periodicity');
-    groupByFields.push('time_period');
+    groupByFields.push(`CASE 
+      WHEN p.periodicity = 'month' THEN FORMAT('%d-%02d', YEAR(bt.document_date), MONTH(bt.document_date))
+      WHEN p.periodicity = 'year' THEN CAST(YEAR(bt.document_date) AS VARCHAR)
+      ELSE NULL
+    END`);
   }
   
   // Add dimension fields
