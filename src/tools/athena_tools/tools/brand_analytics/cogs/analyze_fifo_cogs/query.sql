@@ -60,6 +60,12 @@ base_transactions AS (
     ABS(ft.transaction_amount) AS cogs_amount,
     ABS(ft.item_purchase_price * ft.quantity) AS purchase_price_amount,
     ABS(ft.item_landed_cost * ft.quantity) AS landed_cost_amount,
+    
+    -- Quality tracking: separate units with/without cost data
+    CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN ABS(ft.quantity) ELSE 0 END AS units_with_cost,
+    CASE WHEN COALESCE(ft.item_landed_cost, 0) = 0 THEN ABS(ft.quantity) ELSE 0 END AS units_missing_cost,
+    CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN ABS(ft.transaction_amount) ELSE 0 END AS cogs_with_cost,
+    
     1 AS transaction_count
     
   FROM awsdatacatalog.neonpanel_iceberg.fifo_transactions_snapshot ft
@@ -107,6 +113,9 @@ aggregated_cogs AS (
     -- Aggregated metrics
     SUM(bt.cogs_amount) AS cogs_amount,
     SUM(bt.units_sold) AS units_sold,
+    SUM(bt.units_with_cost) AS units_with_cost,
+    SUM(bt.units_missing_cost) AS units_missing_cost,
+    SUM(bt.cogs_with_cost) AS cogs_with_cost,
     SUM(bt.transaction_count) AS transactions_count,
     SUM(bt.purchase_price_amount) AS purchase_price_amount,
     SUM(bt.landed_cost_amount) AS landed_cost_amount
@@ -122,10 +131,34 @@ SELECT
   {{select_dimensions}}
   ac.cogs_amount,
   ac.units_sold,
+  ac.units_with_cost,
+  ac.units_missing_cost,
+  
+  -- Quality percentage
+  CASE 
+    WHEN ac.units_sold > 0 THEN ROUND(100.0 * ac.units_with_cost / ac.units_sold, 2)
+    ELSE 100.0 
+  END AS cogs_quality_pct,
+  
+  -- Quality status indicator
+  CASE 
+    WHEN ac.units_sold = 0 THEN '🟢'
+    WHEN 100.0 * ac.units_with_cost / ac.units_sold < 90.0 THEN '🔴'
+    WHEN 100.0 * ac.units_with_cost / ac.units_sold < 99.0 THEN '🟡'
+    ELSE '🟢'
+  END AS cogs_quality_status,
+  
+  -- Estimated lost COGS = avg_cost × missing_units
+  CASE 
+    WHEN ac.units_with_cost > 0 AND ac.units_missing_cost > 0
+    THEN ROUND((ac.cogs_with_cost / ac.units_with_cost) * ac.units_missing_cost, 2)
+    ELSE 0.0
+  END AS estimated_lost_cogs,
+  
   ac.transactions_count,
   ac.purchase_price_amount,
   CASE 
-    WHEN ac.units_sold > 0 THEN ac.cogs_amount / ac.units_sold 
+    WHEN ac.units_sold > 0 THEN ROUND(ac.cogs_amount / ac.units_sold, 2)
     ELSE 0.0 
   END AS avg_unit_cogs
 FROM aggregated_cogs ac

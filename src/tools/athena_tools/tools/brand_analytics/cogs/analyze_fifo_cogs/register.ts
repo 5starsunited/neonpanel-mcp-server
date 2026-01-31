@@ -51,6 +51,10 @@ const inputSchema = z.object({
       field: z.enum([
         'cogs_amount',
         'units_sold',
+        'units_with_cost',
+        'units_missing_cost',
+        'cogs_quality_pct',
+        'estimated_lost_cogs',
         'transactions_count',
         'avg_unit_cogs',
         'purchase_price_amount',
