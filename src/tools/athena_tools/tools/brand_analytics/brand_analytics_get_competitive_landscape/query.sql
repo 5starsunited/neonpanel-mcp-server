@@ -78,6 +78,11 @@ filtered AS (
     )
     AND (cardinality(p.categories) = 0 OR any_match(p.categories, c -> lower(c) = lower(r.departmentname)))
     AND (cardinality(p.search_terms) = 0 OR any_match(p.search_terms, t -> lower(t) = lower(r.searchterm)))
+    AND (
+      (cardinality(p.my_asins) = 0 AND cardinality(p.competitor_asins) = 0)
+      OR any_match(p.my_asins, a -> lower(a) = lower(r.clickedasin))
+      OR any_match(p.competitor_asins, a -> lower(a) = lower(r.clickedasin))
+    )
 ),
 
 latest AS (
