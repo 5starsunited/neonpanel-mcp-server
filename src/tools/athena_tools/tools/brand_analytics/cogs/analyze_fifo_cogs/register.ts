@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../../clients/athena';
@@ -257,13 +258,21 @@ async function executeCogsAnalyzeFifoCogs(
 
 export function registerCogsAnalyzeFifoCogsTool(registry: ToolRegistry): void {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const toolSpec: ToolSpecJson = JSON.parse(require('fs').readFileSync(toolJsonPath, 'utf-8'));
+  
+  let specJson: ToolSpecJson | undefined;
+  try {
+    if (fs.existsSync(toolJsonPath)) {
+      specJson = JSON.parse(fs.readFileSync(toolJsonPath, 'utf-8')) as ToolSpecJson;
+    }
+  } catch {
+    specJson = undefined;
+  }
 
   registry.register({
-    name: toolSpec.name,
-    description: toolSpec.description,
-    inputSchema: toolSpec.inputSchema as any,
-    outputSchema: {
+    name: specJson?.name ?? 'brand_analytics_analyze_fifo_cogs',
+    description: specJson?.description ?? 'Analyze FIFO COGS with flexible grouping and quality metrics.',
+    inputSchema,
+    outputSchema: specJson?.outputSchema ?? {
       type: 'object',
       properties: {
         items: { type: 'array', items: { type: 'object', additionalProperties: true } },
@@ -271,7 +280,8 @@ export function registerCogsAnalyzeFifoCogsTool(registry: ToolRegistry): void {
       },
       required: ['items'],
     },
-    isConsequential: toolSpec.isConsequential ?? false,
+    isConsequential: specJson?.isConsequential ?? false,
+    specJson,
     execute: async (rawInput: unknown, context: ToolExecutionContext) => {
       const parsed = inputSchema.parse(rawInput);
       return executeCogsAnalyzeFifoCogs(parsed, context);
