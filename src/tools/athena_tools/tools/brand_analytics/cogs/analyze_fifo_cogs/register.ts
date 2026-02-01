@@ -136,15 +136,15 @@ async function executeCogsAnalyzeFifoCogs(
   const selectDimensions: string[] = [];
   const groupBySelectFields: string[] = [];
   
-  // Add time period to GROUP BY (must use full CASE expression, not alias)
-  if (periodicity !== 'total') {
-    groupByFields.push('p.periodicity');
-    groupByFields.push(`CASE 
-      WHEN p.periodicity = 'month' THEN FORMAT('%d-%02d', YEAR(bt.document_date), MONTH(bt.document_date))
-      WHEN p.periodicity = 'year' THEN CAST(YEAR(bt.document_date) AS VARCHAR)
-      ELSE NULL
-    END`);
-  }
+  // ALWAYS add p.periodicity to GROUP BY (it's always selected in SQL)
+  groupByFields.push('p.periodicity');
+  
+  // ALWAYS add time period CASE expression to GROUP BY (it's always selected as time_period)
+  groupByFields.push(`CASE 
+    WHEN p.periodicity = 'month' THEN FORMAT('%d-%02d', YEAR(bt.document_date), MONTH(bt.document_date))
+    WHEN p.periodicity = 'year' THEN CAST(YEAR(bt.document_date) AS VARCHAR)
+    ELSE NULL
+  END`);
   
   // Add dimension fields
   const dimensionMap: Record<string, string> = {
@@ -179,9 +179,8 @@ async function executeCogsAnalyzeFifoCogs(
     : '';
 
   // Build GROUP BY clause (list all grouped fields)
-  const groupByClause = groupByFields.length > 0
-    ? groupByFields.join(', ')
-    : 'p.periodicity'; // Always group by something to make aggregation work
+  // p.periodicity and time CASE expression are always first, followed by dimensions
+  const groupByClause = groupByFields.join(', ');
 
   // Build ORDER BY clause
   const sortField = sort.field ?? 'cogs_amount';
