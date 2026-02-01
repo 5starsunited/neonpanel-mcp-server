@@ -62,33 +62,39 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
     execute: async (input: Input) => {
       const { filters, sort, limit } = input.query;
 
-      // Build template data
+      // Build template data with complete SQL expressions
       const templateData: any = {
         company_id_list: filters.company_id.join(', '),
-        has_sku: !!filters.sku && filters.sku.length > 0,
-        has_marketplace: !!filters.marketplace && filters.marketplace.length > 0,
-        has_country: !!filters.country && filters.country.length > 0,
-        sku_list: '',
-        marketplace_list: '',
-        country_list: '',
         start_date: '',
         end_date: '',
         sort_field: '',
         sort_direction: '',
         limit: 0,
+        sku_filter: '',
+        marketplace_filter: '',
+        country_filter: '',
       };
 
-      // Add filter values with SQL quoting
+      // Build filter expressions (1=1 when no filter, IN clause when filter provided)
       if (filters.sku && filters.sku.length > 0) {
-        templateData.sku_list = filters.sku.map(s => `'${s.replace(/'/g, "''")}'`).join(', ');
+        const skuList = filters.sku.map(s => `'${s.replace(/'/g, "''")}'`).join(', ');
+        templateData.sku_filter = `ft.sku IN (${skuList})`;
+      } else {
+        templateData.sku_filter = '1=1';
       }
 
       if (filters.marketplace && filters.marketplace.length > 0) {
-        templateData.marketplace_list = filters.marketplace.map(m => `'${m.replace(/'/g, "''")}'`).join(', ');
+        const marketplaceList = filters.marketplace.map(m => `'${m.replace(/'/g, "''")}'`).join(', ');
+        templateData.marketplace_filter = `ft.marketplace IN (${marketplaceList})`;
+      } else {
+        templateData.marketplace_filter = '1=1';
       }
 
       if (filters.country && filters.country.length > 0) {
-        templateData.country_list = filters.country.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+        const countryList = filters.country.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+        templateData.country_filter = `ft.marketplace_country IN (${countryList})`;
+      } else {
+        templateData.country_filter = '1=1';
       }
 
       if (filters.start_date) {

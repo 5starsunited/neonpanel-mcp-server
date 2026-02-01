@@ -33,16 +33,10 @@ filtered_transactions AS (
     AND ft.document_date >= dr.start_date
     AND ft.document_date <= dr.end_date
     
-    -- Optional filters
-    {{#if has_sku}}
-    AND ft.sku IN ({{sku_list}})
-    {{/if}}
-    {{#if has_marketplace}}
-    AND ft.marketplace IN ({{marketplace_list}})
-    {{/if}}
-    {{#if has_country}}
-    AND ft.marketplace_country IN ({{country_list}})
-    {{/if}}
+    -- Optional filters (1=1 when empty array)
+    AND ({{sku_filter}})
+    AND ({{marketplace_filter}})
+    AND ({{country_filter}})
     
     -- Only outbound transactions (sales) have relevant cost data
     AND ft.transaction_direction = 'outbound'
