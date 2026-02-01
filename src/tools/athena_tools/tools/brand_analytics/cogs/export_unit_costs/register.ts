@@ -70,6 +70,8 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
         has_country: !!filters.country && filters.country.length > 0,
         has_sort: !!sort?.field,
         has_limit: !!limit,
+        has_start_date: !!filters.start_date,
+        has_end_date: !!filters.end_date,
         sku_list: '',
         marketplace_list: '',
         country_list: '',

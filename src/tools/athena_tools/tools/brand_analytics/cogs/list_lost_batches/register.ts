@@ -69,6 +69,8 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
         has_marketplace: !!filters.marketplace && filters.marketplace.length > 0,
         has_country: !!filters.country && filters.country.length > 0,
         has_transaction_direction: !!filters.transaction_direction,
+        has_start_date: !!filters.start_date,
+        has_end_date: !!filters.end_date,
         limit: limit || 5,
         sku_list: '',
         marketplace_list: '',

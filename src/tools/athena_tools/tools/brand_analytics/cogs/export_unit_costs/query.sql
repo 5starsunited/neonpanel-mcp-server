@@ -4,8 +4,8 @@
 
 WITH date_range AS (
   SELECT 
-    COALESCE(DATE '{{start_date}}', CURRENT_DATE - INTERVAL '12' MONTH) AS start_date,
-    COALESCE(DATE '{{end_date}}', CURRENT_DATE) AS end_date
+    {{#if start_date}}DATE '{{start_date}}'{{else}}CURRENT_DATE - INTERVAL '12' MONTH{{/if}} AS start_date,
+    {{#if end_date}}DATE '{{end_date}}'{{else}}CURRENT_DATE{{/if}} AS end_date
 ),
 
 filtered_transactions AS (
