@@ -128,9 +128,11 @@ async function executeInventoryValuationAnalyzeInventoryValue(params: InputType,
   const selectDimensions: string[] = [];
   const groupBySelectFields: string[] = [];
   
-  // Add time period to GROUP BY (must use full CASE expression, not alias)
+  // ALWAYS add p.periodicity to GROUP BY (it's always selected in SQL)
+  groupByFields.push('p.periodicity');
+  
+  // Add time period CASE expression to GROUP BY only when not 'total'
   if (periodicity !== 'total') {
-    groupByFields.push('p.periodicity');
     groupByFields.push(`CASE 
       WHEN p.periodicity = 'month' THEN FORMAT('%d-%02d', YEAR(lb.document_date), MONTH(lb.document_date))
       WHEN p.periodicity = 'year' THEN CAST(YEAR(lb.document_date) AS VARCHAR)
@@ -171,9 +173,8 @@ async function executeInventoryValuationAnalyzeInventoryValue(params: InputType,
     : '';
 
   // Build GROUP BY clause (list all grouped fields)
-  const groupByClause = groupByFields.length > 0
-    ? groupByFields.join(', ')
-    : 'p.periodicity'; // Always group by something to make aggregation work
+  // p.periodicity is always first, followed by time expression (if not total), then dimensions
+  const groupByClause = groupByFields.join(', ');
 
   // Build SELECT dimensions clause (for final SELECT)
   const selectDimensionsClause = selectDimensions.length > 0
