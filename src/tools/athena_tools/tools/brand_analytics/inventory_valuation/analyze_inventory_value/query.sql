@@ -145,7 +145,7 @@ aggregated_inventory AS (
     -- Aggregated metrics
     SUM(lb.balance_quantity) AS balance_quantity,
     SUM(lb.balance_amount) AS balance_amount,
-    COUNT(DISTINCT CONCAT(CAST(lb.inventory_id AS VARCHAR), '-', CAST(lb.io_batch_id AS VARCHAR))) AS batches_count
+    COUNT(DISTINCT CONCAT(CAST(lb.inventory_id AS VARCHAR), '-', CAST(lb.batch_id AS VARCHAR))) AS batches_count
     
   FROM latest_balances lb
   CROSS JOIN params p
