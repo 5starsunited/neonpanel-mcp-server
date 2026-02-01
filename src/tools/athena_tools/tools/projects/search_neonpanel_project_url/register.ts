@@ -9,13 +9,14 @@ import { config } from '../../../../../config';
 
 const inputSchema = z.object({
   company_id: z.array(z.number().int()).min(1),
+  search: z.string().optional(),
   project_name: z.string().optional(),
-  ref_number: z.string().optional(),
+  project_ref_number: z.string().optional(),
   project_key: z.string().optional(),
 }).refine(
-  (data) => data.project_name || data.ref_number || data.project_key,
+  (data) => data.search || data.project_name || data.project_ref_number || data.project_key,
   {
-    message: 'At least one search parameter (project_name, ref_number, or project_key) must be provided',
+    message: 'At least one search parameter (search, project_name, project_ref_number, or project_key) must be provided',
   }
 );
 
@@ -45,28 +46,40 @@ export function registerSearchNeonpanelProjectUrl(registry: ToolRegistry) {
       const companyList = input.company_id.join(', ');
       const companyFilter = `company_id IN (${companyList})`;
 
-      // Project name filter (case-insensitive partial match)
+      // General search across all fields (if provided, this takes precedence)
       let projectNameFilter = '1=1';
-      if (input.project_name) {
-        const nameLower = input.project_name.toLowerCase();
-        projectNameFilter = `LOWER(project_name) LIKE '%${nameLower}%'`;
-      }
-
-      // Reference number filter (exact match)
       let refNumberFilter = '1=1';
-      if (input.ref_number) {
-        refNumberFilter = `ref_number = '${input.ref_number}'`;
-      }
-
-      // Project key filter (exact match on project_key column)
       let projectKeyFilter = '1=1';
-      if (input.project_key) {
-        projectKeyFilter = `project_key = '${input.project_key}'`;
+
+      if (input.search) {
+        // Search term appears in any of the three fields
+        const searchLower = input.search.toLowerCase();
+        projectNameFilter = `LOWER(project_name) LIKE '%${searchLower}%'`;
+        refNumberFilter = `LOWER(project_ref_number) LIKE '%${searchLower}%'`;
+        projectKeyFilter = `LOWER(project_key) LIKE '%${searchLower}%'`;
+      } else {
+        // Specific field searches
+        // Project name filter (case-insensitive partial match)
+        if (input.project_name) {
+          const nameLower = input.project_name.toLowerCase();
+          projectNameFilter = `LOWER(project_name) LIKE '%${nameLower}%'`;
+        }
+
+        // Reference number filter (exact match)
+        if (input.project_ref_number) {
+          refNumberFilter = `project_ref_number = '${input.project_ref_number}'`;
+        }
+
+        // Project key filter (exact match on project_key column)
+        if (input.project_key) {
+          projectKeyFilter = `project_key = '${input.project_key}'`;
+        }
       }
 
       // Render SQL template
       const templateData = {
         company_filter: companyFilter,
+        search_mode: input.search ? 'OR' : 'AND',
         project_name_filter: projectNameFilter,
         ref_number_filter: refNumberFilter,
         project_key_filter: projectKeyFilter,

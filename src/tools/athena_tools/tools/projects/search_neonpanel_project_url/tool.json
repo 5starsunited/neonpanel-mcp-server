@@ -1,20 +1,24 @@
 {
   "name": "search_neonpanel_project_url",
-  "description": "Search for NeonPanel projects by name, reference number, or project key. Returns project details including the project URL. Project key format: {project_type}-{project_id} (e.g., 'PO-12345', 'FBA-67890').",
+  "description": "Search for NeonPanel projects (Purchase Orders, FBA Shipments, Assembly Orders, etc.) and get their URLs.\n\nSEARCH OPTIONS:\n1. GENERAL SEARCH (search): Searches across project name, reference number, AND project key - USE THIS FOR EASIEST SEARCH\n   - Example: \"12345\" will find any project with \"12345\" in name, ref, or key\n   - Example: \"FBA\" will find all FBA shipments\n   - Searches are case-insensitive partial matches\n\n2. SPECIFIC FIELD SEARCH (project_name/project_ref_number/project_key): Search only one specific field\n   - project_name: Batch/project name (e.g., \"12/11/2025 DP_KP_HmP_SC KAI Sea-GYR3\")\n   - project_ref_number: Reference/order number (e.g., \"4024523804758\")\n   - project_key: System key format ProjectType-ID (e.g., \"FbaInboundShipment-40358\")\n\nRECOMMENDATION: Use 'search' parameter for flexibility unless you need exact field matching.",
   "inputSchema": {
     "type": "object",
     "properties": {
+      "search": {
+        "type": "string",
+        "description": "RECOMMENDED: Search across all fields (project name, reference number, project key). Partial match, case-insensitive. Example: '12345' finds projects with '12345' anywhere."
+      },
       "project_name": {
         "type": "string",
-        "description": "Project name to search for (partial match supported)"
+        "description": "Search ONLY project name field. Partial match. Example: 'DP_KP' finds batches with that in the name."
       },
-      "ref_number": {
+      "project_ref_number": {
         "type": "string",
-        "description": "Project reference number to search for (exact match)"
+        "description": "Search ONLY reference number field. Exact match. Example: '4024523804758' finds that specific order."
       },
       "project_key": {
         "type": "string",
-        "description": "Project key in format: {project_type}-{project_id} (e.g., 'PO-12345', 'FBA-67890')"
+        "description": "Search ONLY project key field. Exact match. Format: ProjectType-ID. Example: 'FbaInboundShipment-40358'."
       },
       "company_id": {
         "type": "array",
@@ -26,8 +30,9 @@
     },
     "required": ["company_id"],
     "anyOf": [
+      {"required": ["search"]},
       {"required": ["project_name"]},
-      {"required": ["ref_number"]},
+      {"required": ["project_ref_number"]},
       {"required": ["project_key"]}
     ]
   }
