@@ -70,6 +70,12 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
         has_country: !!filters.country && filters.country.length > 0,
         has_transaction_direction: !!filters.transaction_direction,
         limit: limit || 5,
+        sku_list: '',
+        marketplace_list: '',
+        country_list: '',
+        transaction_direction: '',
+        start_date: '',
+        end_date: '',
       };
 
       // Add filter values with SQL quoting

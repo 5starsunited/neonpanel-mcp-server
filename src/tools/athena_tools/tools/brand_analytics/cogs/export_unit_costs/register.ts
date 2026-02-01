@@ -70,6 +70,13 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
         has_country: !!filters.country && filters.country.length > 0,
         has_sort: !!sort?.field,
         has_limit: !!limit,
+        sku_list: '',
+        marketplace_list: '',
+        country_list: '',
+        start_date: '',
+        end_date: '',
+        sort_field: 'year_month',
+        sort_direction: 'DESC',
       };
 
       // Add filter values with SQL quoting
