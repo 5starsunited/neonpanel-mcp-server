@@ -12,6 +12,7 @@ import { registerForecastingGenerateSalesForecastTool } from './tools/forecastin
 import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/brand_analytics_get_competitive_landscape/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/brand_analytics/cogs/analyze_fifo_cogs/register';
 import { registerCogsExportUnitCostsTool } from './tools/brand_analytics/cogs/export_unit_costs/register';
+import { registerCogsListLostBatchesTool } from './tools/brand_analytics/cogs/list_lost_batches/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/brand_analytics/inventory_valuation/analyze_inventory_value/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
@@ -29,5 +30,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsGetCompetitiveLandscapeTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsExportUnitCostsTool(registry);
+  registerCogsListLostBatchesTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
 }

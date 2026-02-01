@@ -1,0 +1,165 @@
+{
+  "name": "cogs_list_lost_batches",
+  "description": "List transactions where batch tracking failed (batch is NULL). Shows transactions with lost cost tracking, sorted by amount. Useful for identifying data quality issues.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1,
+                "description": "REQUIRED: Company IDs to filter by (at least one required for partition pruning)"
+              },
+              "sku": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: Filter by specific SKUs"
+              },
+              "marketplace": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: Filter by marketplace (e.g., 'amazon.com', 'amazon.de')"
+              },
+              "country": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: Filter by country code (e.g., 'US', 'DE', 'UK')"
+              },
+              "transaction_direction": {
+                "type": "string",
+                "enum": ["inbound", "outbound"],
+                "description": "Optional: Filter by transaction direction (inbound = purchases, outbound = sales)"
+              },
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Optional: Start date (YYYY-MM-DD) - defaults to 30 days ago"
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Optional: End date (YYYY-MM-DD) - defaults to today"
+              }
+            },
+            "required": ["company_id"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Maximum number of transactions to return (default: 5)"
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "transaction_id": {
+              "type": "integer",
+              "description": "Transaction ID"
+            },
+            "company_id": {
+              "type": "integer",
+              "description": "Company ID"
+            },
+            "sku": {
+              "type": "string",
+              "description": "Product SKU"
+            },
+            "marketplace": {
+              "type": "string",
+              "description": "Marketplace (e.g., amazon.com)"
+            },
+            "country": {
+              "type": "string",
+              "description": "Country code"
+            },
+            "marketplace_currency": {
+              "type": "string",
+              "description": "Currency code"
+            },
+            "document_date": {
+              "type": "string",
+              "description": "Transaction date"
+            },
+            "transaction_direction": {
+              "type": "string",
+              "description": "inbound or outbound"
+            },
+            "quantity": {
+              "type": "number",
+              "description": "Transaction quantity"
+            },
+            "item_purchase_price": {
+              "type": "number",
+              "description": "Item purchase price"
+            },
+            "item_logistics_cost": {
+              "type": "number",
+              "description": "Item logistics cost"
+            },
+            "item_landed_cost": {
+              "type": "number",
+              "description": "Total item cost (lost amount)"
+            },
+            "lost_amount_total": {
+              "type": "number",
+              "description": "Total lost amount (quantity * item_landed_cost)"
+            },
+            "destination_warehouse": {
+              "type": "string",
+              "description": "Destination warehouse"
+            },
+            "origin_warehouse": {
+              "type": "string",
+              "description": "Origin warehouse"
+            }
+          }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "description": "Query parameters used"
+          },
+          "row_count": {
+            "type": "integer",
+            "description": "Number of transactions returned"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit applied"
+          }
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "isConsequential": false
+}
