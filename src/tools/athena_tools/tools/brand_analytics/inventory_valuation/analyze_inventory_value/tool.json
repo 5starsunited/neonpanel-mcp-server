@@ -1,0 +1,209 @@
+{
+  "name": "inventory_valuation_analyze_inventory_value",
+  "description": "Analyze current inventory value using FIFO batch balances. Calculates inventory quantity and value by ranking transactions to find the latest balance for each warehouse/batch. Supports flexible grouping by product, location, and time dimensions with date-based snapshots.\n\nDATA SOURCE:\n- Table: neonpanel_iceberg.fifo_transactions_snapshot\n- Method: Window function (PARTITION BY inventory_id, warehouse, batch ORDER BY transaction_id DESC) to get last balance\n- Metrics: batch_balance (quantity), item_landed_cost (unit cost), calculated balance_amount\n\nGROUPING DIMENSIONS (group_by):\n- 'sku': Stock Keeping Unit\n- 'brand': Brand name\n- 'product_family': Product family/category\n- 'child_asin': Child ASIN (specific variant)\n- 'parent_asin': Parent ASIN (product family)\n- 'marketplace': Amazon marketplace (e.g., Amazon.com)\n- 'country': Country name\n- 'marketplace_currency': Currency code (USD, EUR, etc.)\n- 'revenue_abcd_class': Revenue classification\n- 'pareto_abc_class': Pareto classification (A=top 80%, B=next 15%, C=bottom 5%)\n- 'inventory_id': Specific inventory item ID\n- 'io_batch_id': Inventory Order batch ID\n- 'vendor': Supplier/vendor name\n- 'origin_warehouse': Source warehouse\n- 'destination_warehouse': Destination warehouse (current location)\n\nFILTERS (filters object):\n- company_id (required): Array of company IDs for multi-company analysis\n- sku: Filter by specific SKUs\n- brand: Filter by brand names\n- product_family: Filter by product families\n- child_asin: Filter by child ASINs\n- parent_asin: Filter by parent ASINs\n- marketplace: Filter by marketplaces\n- country: Filter by countries\n- marketplace_currency: Filter by currencies\n- revenue_abcd_class: Filter by revenue classes ['A', 'B', 'C', 'D']\n- pareto_abc_class: Filter by Pareto classes ['A', 'B', 'C']\n- inventory_id: Filter by inventory IDs\n- vendor: Filter by vendors\n- origin_warehouse: Filter by source warehouses\n- destination_warehouse: Filter by destination warehouses\n\nTIME AGGREGATION:\n- periodicity: 'total' (default) = single snapshot, 'month' = monthly snapshots, 'year' = yearly snapshots\n- snapshot_date: Specific date for valuation (YYYY-MM-DD). If not provided, uses latest available data.\n- When periodicity is 'month' or 'year' with snapshot_date, creates historical time series up to that date\n\nOUTPUT METRICS:\n- balance_quantity: Total inventory units at snapshot date\n- balance_amount: Total inventory value (quantity × item_landed_cost)\n- batches_count: Number of distinct inventory batches\n- avg_unit_cost: Average cost per unit (balance_amount ÷ balance_quantity)\n- time_period: Time period label (if periodicity != 'total')\n\nSORT OPTIONS:\n- balance_amount (default)\n- balance_quantity\n- batches_count\n- avg_unit_cost\n- time_period\n\nUSE CASES:\n1. Current inventory value by warehouse: group_by=['destination_warehouse'], no snapshot_date\n2. Inventory value by brand at year-end: group_by=['brand'], snapshot_date='2024-12-31'\n3. Monthly inventory trends: group_by=['brand'], periodicity='month', snapshot_date='2024-12-31'\n4. SKU-level valuation: group_by=['sku'], sort by balance_amount DESC\n\nCOMPANY ACCESS:\n- Requires permission: view:quicksight_group.business_planning_new\n- Returns only data for companies user has access to",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "minItems": 1,
+                "description": "REQUIRED: Company IDs for portfolio analysis"
+              },
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by SKU(s)"
+              },
+              "brand": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by brand name(s)"
+              },
+              "product_family": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product family/families"
+              },
+              "child_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by child ASIN(s)"
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by parent ASIN(s)"
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by marketplace(s)"
+              },
+              "country": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by country/countries"
+              },
+              "marketplace_currency": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by currency/currencies"
+              },
+              "revenue_abcd_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "description": "Filter by revenue classification"
+              },
+              "pareto_abc_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "description": "Filter by Pareto classification"
+              },
+              "inventory_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by inventory item ID(s)"
+              },
+              "vendor": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by supplier/vendor name(s)"
+              },
+              "origin_warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by source warehouse(s)"
+              },
+              "destination_warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by destination/current warehouse(s)"
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "sku",
+                    "brand",
+                    "product_family",
+                    "child_asin",
+                    "parent_asin",
+                    "marketplace",
+                    "country",
+                    "marketplace_currency",
+                    "revenue_abcd_class",
+                    "pareto_abc_class",
+                    "inventory_id",
+                    "io_batch_id",
+                    "vendor",
+                    "origin_warehouse",
+                    "destination_warehouse"
+                  ]
+                },
+                "description": "Dimensions to group by. Order matters for hierarchical grouping. Empty array = aggregate all matching records."
+              },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": {
+                    "type": "string",
+                    "enum": ["total", "month", "year"],
+                    "default": "total",
+                    "description": "Time aggregation: 'total' = single snapshot, 'month'/'year' = time series"
+                  },
+                  "snapshot_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Snapshot date (YYYY-MM-DD). If not provided, uses latest data. With periodicity, creates historical series up to this date."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "balance_amount",
+                  "balance_quantity",
+                  "batches_count",
+                  "avg_unit_cost",
+                  "time_period"
+                ],
+                "default": "balance_amount",
+                "description": "Field to sort by"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 100,
+            "description": "Maximum number of rows to return"
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "time_period": { "type": "string" },
+            "balance_quantity": { "type": "number" },
+            "balance_amount": { "type": "number" },
+            "batches_count": { "type": "integer" },
+            "avg_unit_cost": { "type": "number" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "object" },
+          "aggregation": { "type": "object" },
+          "row_count": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "isConsequential": false
+}

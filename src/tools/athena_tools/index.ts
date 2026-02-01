@@ -11,6 +11,7 @@ import { registerForecastingWriteSalesForecastTool } from './tools/forecasting/w
 import { registerForecastingGenerateSalesForecastTool } from './tools/forecasting/generate_sales_forecast/register';
 import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/brand_analytics_get_competitive_landscape/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/brand_analytics/cogs/analyze_fifo_cogs/register';
+import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/brand_analytics/inventory_valuation/analyze_inventory_value/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -26,4 +27,5 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerSupplyChainListProductLogisticsParametersTool(registry);
   registerBrandAnalyticsGetCompetitiveLandscapeTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
+  registerInventoryValuationAnalyzeInventoryValueTool(registry);
 }
