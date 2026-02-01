@@ -70,8 +70,6 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
         has_country: !!filters.country && filters.country.length > 0,
         has_sort: !!sort?.field,
         has_limit: !!limit,
-        has_start_date: !!filters.start_date,
-        has_end_date: !!filters.end_date,
         sku_list: '',
         marketplace_list: '',
         country_list: '',
@@ -95,19 +93,15 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
       }
 
       if (filters.start_date) {
-        templateData.start_date = filters.start_date;
-        templateData.has_start_date = true;
+        templateData.start_date = `DATE '${filters.start_date}'`;
       } else {
         templateData.start_date = "CURRENT_DATE - INTERVAL '12' MONTH";
-        templateData.has_start_date = false;
       }
 
       if (filters.end_date) {
-        templateData.end_date = filters.end_date;
-        templateData.has_end_date = true;
+        templateData.end_date = `DATE '${filters.end_date}'`;
       } else {
         templateData.end_date = 'CURRENT_DATE';
-        templateData.has_end_date = false;
       }
 
       if (sort?.field) {

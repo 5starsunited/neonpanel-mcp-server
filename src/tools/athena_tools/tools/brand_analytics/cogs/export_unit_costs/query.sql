@@ -4,8 +4,8 @@
 
 WITH date_range AS (
   SELECT 
-    {{#if has_start_date}}DATE '{{start_date}}'{{/if}}{{^has_start_date}}{{start_date}}{{/has_start_date}} AS start_date,
-    {{#if has_end_date}}DATE '{{end_date}}'{{/if}}{{^has_end_date}}{{end_date}}{{/has_end_date}} AS end_date
+    {{start_date}} AS start_date,
+    {{end_date}} AS end_date
 ),
 
 filtered_transactions AS (

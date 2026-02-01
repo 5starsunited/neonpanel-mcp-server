@@ -69,8 +69,6 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
         has_marketplace: !!filters.marketplace && filters.marketplace.length > 0,
         has_country: !!filters.country && filters.country.length > 0,
         has_transaction_direction: !!filters.transaction_direction,
-        has_start_date: false,
-        has_end_date: false,
         limit: limit || 5,
         sku_list: '',
         marketplace_list: '',
@@ -99,19 +97,15 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
 
       // Set date range defaults: last 30 days if not provided
       if (filters.start_date) {
-        templateData.start_date = filters.start_date;
-        templateData.has_start_date = true;
+        templateData.start_date = `DATE '${filters.start_date}'`;
       } else {
         templateData.start_date = "CURRENT_DATE - INTERVAL '30' DAY";
-        templateData.has_start_date = false;
       }
 
       if (filters.end_date) {
-        templateData.end_date = filters.end_date;
-        templateData.has_end_date = true;
+        templateData.end_date = `DATE '${filters.end_date}'`;
       } else {
         templateData.end_date = 'CURRENT_DATE';
-        templateData.has_end_date = false;
       }
 
       // Load and render SQL template
