@@ -96,10 +96,18 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
 
       if (filters.start_date) {
         templateData.start_date = filters.start_date;
+        templateData.has_start_date = true;
+      } else {
+        templateData.start_date = "CURRENT_DATE - INTERVAL '12' MONTH";
+        templateData.has_start_date = false;
       }
 
       if (filters.end_date) {
         templateData.end_date = filters.end_date;
+        templateData.has_end_date = true;
+      } else {
+        templateData.end_date = 'CURRENT_DATE';
+        templateData.has_end_date = false;
       }
 
       if (sort?.field) {

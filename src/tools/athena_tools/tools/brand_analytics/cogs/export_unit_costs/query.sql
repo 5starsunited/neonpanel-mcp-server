@@ -4,8 +4,8 @@
 
 WITH date_range AS (
   SELECT 
-    {{#if start_date}}DATE '{{start_date}}'{{else}}CURRENT_DATE - INTERVAL '12' MONTH{{/if}} AS start_date,
-    {{#if end_date}}DATE '{{end_date}}'{{else}}CURRENT_DATE{{/if}} AS end_date
+    {{#if has_start_date}}DATE '{{start_date}}'{{/if}}{{^has_start_date}}{{start_date}}{{/has_start_date}} AS start_date,
+    {{#if has_end_date}}DATE '{{end_date}}'{{/if}}{{^has_end_date}}{{end_date}}{{/has_end_date}} AS end_date
 ),
 
 filtered_transactions AS (
