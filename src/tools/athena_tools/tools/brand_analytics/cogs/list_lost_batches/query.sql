@@ -14,7 +14,7 @@ lost_transactions AS (
     ft.company_id,
     ft.sku,
     ft.marketplace,
-    ft.marketplace_country AS country,
+    ft.market_country_code AS country,
     ft.marketplace_currency,
     ft.document_date,
     ft.transaction_direction,

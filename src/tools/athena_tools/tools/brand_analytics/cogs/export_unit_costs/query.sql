@@ -12,7 +12,7 @@ filtered_transactions AS (
   SELECT 
     ft.company_id,
     ft.marketplace,
-    ft.marketplace_country AS country,
+    ft.market_country_code AS country,
     ft.marketplace_currency,
     ft.sku,
     ft.document_date,

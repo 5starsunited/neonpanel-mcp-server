@@ -92,7 +92,7 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
 
       if (filters.country && filters.country.length > 0) {
         const countryList = filters.country.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
-        templateData.country_filter = `ft.marketplace_country IN (${countryList})`;
+        templateData.country_filter = `ft.market_country_code IN (${countryList})`;
       } else {
         templateData.country_filter = '1=1';
       }
