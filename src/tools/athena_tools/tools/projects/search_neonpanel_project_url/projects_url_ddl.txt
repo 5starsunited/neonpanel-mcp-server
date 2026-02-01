@@ -1,0 +1,18 @@
+CREATE TABLE neonpanel_iceberg.project_list (
+  company_id bigint,
+  project_type string,
+  stage string,
+  project_date date,
+  project_amount decimal(30, 6),
+  project_key string,
+  project_name string,
+  project_ref_number string,
+  project_url_path string
+PARTITIONED BY (`year`, `month`, `day`)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/project_list'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);

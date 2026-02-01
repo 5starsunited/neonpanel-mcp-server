@@ -14,6 +14,7 @@ import { registerCogsAnalyzeFifoCogsTool } from './tools/brand_analytics/cogs/an
 import { registerCogsExportUnitCostsTool } from './tools/brand_analytics/cogs/export_unit_costs/register';
 import { registerCogsListLostBatchesTool } from './tools/brand_analytics/cogs/list_lost_batches/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/brand_analytics/inventory_valuation/analyze_inventory_value/register';
+import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -32,4 +33,5 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerCogsExportUnitCostsTool(registry);
   registerCogsListLostBatchesTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
+  registerSearchNeonpanelProjectUrl(registry);
 }

@@ -41,7 +41,10 @@ const inputSchema = z.object({
         'revenue_abcd_class',
         'pareto_abc_class',
         'inventory_id',
-        'io_batch_id',
+        'source_batch_id',
+        'batch_id',
+        'batch',
+        'batch_ref_number',
         'vendor',
         'origin_warehouse',
         'destination_warehouse',
@@ -151,11 +154,27 @@ async function executeInventoryValuationAnalyzeInventoryValue(params: InputType,
     revenue_abcd_class: 'lb.revenue_abcd_class',
     pareto_abc_class: 'lb.pareto_abc_class',
     inventory_id: 'lb.inventory_id',
-    io_batch_id: 'lb.io_batch_id',
+    source_batch_id: 'lb.source_batch_id',
+    batch_id: 'lb.batch_id',
+    batch: 'lb.batch',
+    batch_ref_number: 'lb.batch_ref_number',
     vendor: 'lb.vendor',
     origin_warehouse: 'lb.origin_warehouse',
     destination_warehouse: 'lb.destination_warehouse',
   };
+  
+  // Smart auto-inclusion: add batch detail fields when grouping by batch_id
+  const groupBySet = new Set(groupBy);
+  
+// Auto-include batch details if grouping by batch_id
+  if (groupBySet.has('batch_id') && !groupBySet.has('batch')) {
+    groupBy.push('batch');
+    groupBySet.add('batch');
+  }
+  if (groupBySet.has('batch_id') && !groupBySet.has('batch_ref_number')) {
+    groupBy.push('batch_ref_number');
+    groupBySet.add('batch_ref_number');
+  }
   
   for (const dim of groupBy) {
     if (dimensionMap[dim]) {

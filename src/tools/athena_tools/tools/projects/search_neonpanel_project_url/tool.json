@@ -1,0 +1,34 @@
+{
+  "name": "search_neonpanel_project_url",
+  "description": "Search for NeonPanel projects by name, reference number, or project key. Returns project details including the project URL. Project key format: {project_type}-{project_id} (e.g., 'PO-12345', 'FBA-67890').",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_name": {
+        "type": "string",
+        "description": "Project name to search for (partial match supported)"
+      },
+      "ref_number": {
+        "type": "string",
+        "description": "Project reference number to search for (exact match)"
+      },
+      "project_key": {
+        "type": "string",
+        "description": "Project key in format: {project_type}-{project_id} (e.g., 'PO-12345', 'FBA-67890')"
+      },
+      "company_id": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "description": "Filter by company ID(s). Required."
+      }
+    },
+    "required": ["company_id"],
+    "anyOf": [
+      {"required": ["project_name"]},
+      {"required": ["ref_number"]},
+      {"required": ["project_key"]}
+    ]
+  }
+}

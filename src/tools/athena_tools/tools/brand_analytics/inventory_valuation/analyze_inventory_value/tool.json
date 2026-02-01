@@ -109,7 +109,10 @@
                     "revenue_abcd_class",
                     "pareto_abc_class",
                     "inventory_id",
-                    "io_batch_id",
+                    "source_batch_id",
+                    "batch_id",
+                    "batch",
+                    "batch_ref_number",
                     "vendor",
                     "origin_warehouse",
                     "destination_warehouse"
