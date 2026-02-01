@@ -62,7 +62,7 @@ ranked_transactions AS (
     
     -- Rank transactions within each warehouse/batch, latest first
     ROW_NUMBER() OVER (
-      PARTITION BY ft.inventory_id, ft.destination_warehouse, ft.io_batch_id 
+      PARTITION BY ft.inventory_id, ft.destination_warehouse, ft.batch_id 
       ORDER BY ft.transaction_id DESC
     ) AS rn
     
