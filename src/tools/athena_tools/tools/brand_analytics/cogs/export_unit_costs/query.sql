@@ -38,8 +38,8 @@ filtered_transactions AS (
     AND ({{marketplace_filter}})
     AND ({{country_filter}})
     
-    -- Only outbound transactions (sales) have relevant cost data
-    AND ft.transaction_direction = 'outbound'
+    -- Only sales invoices have relevant cost data
+    AND ft.document_type = 'Invoice'
     
     -- Exclude transactions with missing cost data
     AND ft.item_landed_cost IS NOT NULL
