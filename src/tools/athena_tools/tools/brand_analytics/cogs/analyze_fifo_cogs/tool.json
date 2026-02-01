@@ -115,6 +115,11 @@
                     "pareto_abc_class",
                     "inventory_id",
                     "io_batch_id",
+                    "io_batch_name",
+                    "io_batch_ref_number",
+                    "ao_batch_id",
+                    "ao_batch_name",
+                    "ao_batch_ref_number",
                     "vendor",
                     "document_id",
                     "document_ref_number"

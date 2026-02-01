@@ -42,6 +42,11 @@ const inputSchema = z.object({
         'pareto_abc_class',
         'inventory_id',
         'io_batch_id',
+        'io_batch_name',
+        'io_batch_ref_number',
+        'ao_batch_id',
+        'ao_batch_name',
+        'ao_batch_ref_number',
         'vendor',
         'document_id',
         'document_ref_number',
@@ -160,6 +165,11 @@ async function executeCogsAnalyzeFifoCogs(
     pareto_abc_class: 'bt.pareto_abc_class',
     inventory_id: 'bt.inventory_id',
     io_batch_id: 'bt.io_batch_id',
+    io_batch_name: 'bt.io_batch_name',
+    io_batch_ref_number: 'bt.io_batch_ref_number',
+    ao_batch_id: 'bt.ao_batch_id',
+    ao_batch_name: 'bt.ao_batch_name',
+    ao_batch_ref_number: 'bt.ao_batch_ref_number',
     vendor: 'bt.vendor',
     document_id: 'bt.document_id',
     document_ref_number: 'bt.document_ref_number',
@@ -171,6 +181,34 @@ async function executeCogsAnalyzeFifoCogs(
       groupBySelectFields.push(`${dimensionMap[dim]} AS ${dim}`);
       selectDimensions.push(`ac.${dim}`);
     }
+  }
+
+  // SMART BATCH DETAIL AUTO-INCLUSION
+  // If user groups by batch ID, automatically include batch name/ref for context
+  const groupBySet = new Set(groupBy);
+
+  // Auto-include IO batch details if grouping by io_batch_id
+  if (groupBySet.has('io_batch_id') && !groupBySet.has('io_batch_name')) {
+    groupByFields.push('bt.io_batch_name');
+    groupBySelectFields.push('bt.io_batch_name AS io_batch_name');
+    selectDimensions.push('ac.io_batch_name');
+  }
+  if (groupBySet.has('io_batch_id') && !groupBySet.has('io_batch_ref_number')) {
+    groupByFields.push('bt.io_batch_ref_number');
+    groupBySelectFields.push('bt.io_batch_ref_number AS io_batch_ref_number');
+    selectDimensions.push('ac.io_batch_ref_number');
+  }
+
+  // Auto-include AO batch details if grouping by ao_batch_id
+  if (groupBySet.has('ao_batch_id') && !groupBySet.has('ao_batch_name')) {
+    groupByFields.push('bt.ao_batch_name');
+    groupBySelectFields.push('bt.ao_batch_name AS ao_batch_name');
+    selectDimensions.push('ac.ao_batch_name');
+  }
+  if (groupBySet.has('ao_batch_id') && !groupBySet.has('ao_batch_ref_number')) {
+    groupByFields.push('bt.ao_batch_ref_number');
+    groupBySelectFields.push('bt.ao_batch_ref_number AS ao_batch_ref_number');
+    selectDimensions.push('ac.ao_batch_ref_number');
   }
 
   // Build GROUP BY SELECT clause (for aggregated_cogs CTE)
