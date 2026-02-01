@@ -62,37 +62,44 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
     execute: async (input: Input) => {
       const { filters, limit } = input.query;
 
-      // Build template data
+      // Build template data with complete SQL expressions
       const templateData: any = {
         company_id_list: filters.company_id.join(', '),
-        has_sku: !!filters.sku && filters.sku.length > 0,
-        has_marketplace: !!filters.marketplace && filters.marketplace.length > 0,
-        has_country: !!filters.country && filters.country.length > 0,
-        has_transaction_direction: !!filters.transaction_direction,
         limit: limit || 5,
-        sku_list: '',
-        marketplace_list: '',
-        country_list: '',
-        transaction_direction: '',
         start_date: '',
         end_date: '',
+        sku_filter: '',
+        marketplace_filter: '',
+        country_filter: '',
+        transaction_direction_filter: '',
       };
 
-      // Add filter values with SQL quoting
+      // Build filter expressions (1=1 when no filter, condition when filter provided)
       if (filters.sku && filters.sku.length > 0) {
-        templateData.sku_list = filters.sku.map(s => `'${s.replace(/'/g, "''")}'`).join(', ');
+        const skuList = filters.sku.map(s => `'${s.replace(/'/g, "''")}'`).join(', ');
+        templateData.sku_filter = `ft.sku IN (${skuList})`;
+      } else {
+        templateData.sku_filter = '1=1';
       }
 
       if (filters.marketplace && filters.marketplace.length > 0) {
-        templateData.marketplace_list = filters.marketplace.map(m => `'${m.replace(/'/g, "''")}'`).join(', ');
+        const marketplaceList = filters.marketplace.map(m => `'${m.replace(/'/g, "''")}'`).join(', ');
+        templateData.marketplace_filter = `ft.marketplace IN (${marketplaceList})`;
+      } else {
+        templateData.marketplace_filter = '1=1';
       }
 
       if (filters.country && filters.country.length > 0) {
-        templateData.country_list = filters.country.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+        const countryList = filters.country.map(c => `'${c.replace(/'/g, "''")}'`).join(', ');
+        templateData.country_filter = `ft.marketplace_country IN (${countryList})`;
+      } else {
+        templateData.country_filter = '1=1';
       }
 
       if (filters.transaction_direction) {
-        templateData.transaction_direction = filters.transaction_direction;
+        templateData.transaction_direction_filter = `ft.transaction_direction = '${filters.transaction_direction}'`;
+      } else {
+        templateData.transaction_direction_filter = '1=1';
       }
 
       // Set date range defaults: last 30 days if not provided

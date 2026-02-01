@@ -38,19 +38,11 @@ lost_transactions AS (
     AND ft.document_date >= dr.start_date
     AND ft.document_date <= dr.end_date
     
-    -- Optional filters
-    {{#if has_sku}}
-    AND ft.sku IN ({{sku_list}})
-    {{/if}}
-    {{#if has_marketplace}}
-    AND ft.marketplace IN ({{marketplace_list}})
-    {{/if}}
-    {{#if has_country}}
-    AND ft.marketplace_country IN ({{country_list}})
-    {{/if}}
-    {{#if has_transaction_direction}}
-    AND ft.transaction_direction = '{{transaction_direction}}'
-    {{/if}}
+    -- Optional filters (1=1 when empty)
+    AND ({{sku_filter}})
+    AND ({{marketplace_filter}})
+    AND ({{country_filter}})
+    AND ({{transaction_direction_filter}})
     
     -- Only include transactions with cost data
     AND ft.item_landed_cost IS NOT NULL
