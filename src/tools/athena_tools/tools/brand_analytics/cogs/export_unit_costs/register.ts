@@ -68,15 +68,14 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
         has_sku: !!filters.sku && filters.sku.length > 0,
         has_marketplace: !!filters.marketplace && filters.marketplace.length > 0,
         has_country: !!filters.country && filters.country.length > 0,
-        has_sort: !!sort?.field,
-        has_limit: !!limit,
         sku_list: '',
         marketplace_list: '',
         country_list: '',
         start_date: '',
         end_date: '',
-        sort_field: 'year_month',
-        sort_direction: 'DESC',
+        sort_field: '',
+        sort_direction: '',
+        limit: 0,
       };
 
       // Add filter values with SQL quoting
@@ -104,21 +103,16 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
         templateData.end_date = 'CURRENT_DATE';
       }
 
-      if (sort?.field) {
-        // Map field names to SQL column names
-        const fieldMap: Record<string, string> = {
-          year_month: 'year_month',
-          sku: 'sku',
-          marketplace: 'marketplace',
-          landed_cost: 'landed_cost',
-        };
-        templateData.sort_field = fieldMap[sort.field] || 'year_month';
-        templateData.sort_direction = sort.direction?.toUpperCase() || 'DESC';
-      }
-
-      if (limit) {
-        templateData.limit = limit;
-      }
+      // Map field names to SQL column names with defaults
+      const fieldMap: Record<string, string> = {
+        year_month: 'year_month',
+        sku: 'sku',
+        marketplace: 'marketplace',
+        landed_cost: 'landed_cost',
+      };
+      templateData.sort_field = sort?.field ? fieldMap[sort.field] || 'year_month' : 'year_month';
+      templateData.sort_direction = sort?.direction?.toUpperCase() || 'DESC';
+      templateData.limit = limit || 10000;
 
       // Load and render SQL template
       const sqlTemplatePath = path.join(__dirname, 'query.sql');

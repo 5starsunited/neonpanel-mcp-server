@@ -94,13 +94,5 @@ SELECT
   ROUND(landed_cost, 2) AS landed_cost,
   CAST(last_updated AS VARCHAR) AS last_updated
 FROM latest_monthly_costs
-{{#if has_sort}}
 ORDER BY {{sort_field}} {{sort_direction}}
-{{else}}
-ORDER BY year_month DESC, sku ASC
-{{/if}}
-{{#if has_limit}}
 LIMIT {{limit}}
-{{else}}
-LIMIT 10000
-{{/if}}
