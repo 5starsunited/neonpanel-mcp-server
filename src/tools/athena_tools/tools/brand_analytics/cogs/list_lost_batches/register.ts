@@ -14,7 +14,6 @@ const inputSchema = z.object({
       sku: z.array(z.string()).optional().describe('Filter by specific SKUs'),
       marketplace: z.array(z.string()).optional().describe('Filter by marketplace'),
       country: z.array(z.string()).optional().describe('Filter by country code'),
-      transaction_direction: z.enum(['inbound', 'outbound']).optional().describe('Filter by transaction direction'),
       start_date: z.string().optional().describe('Start date (YYYY-MM-DD)'),
       end_date: z.string().optional().describe('End date (YYYY-MM-DD)'),
     }).required({ company_id: true }),
@@ -32,7 +31,6 @@ interface LostBatchTransaction {
   country: string;
   marketplace_currency: string;
   document_date: string;
-  transaction_direction: string;
   quantity: number;
   item_purchase_price: number;
   item_logistics_cost: number;
@@ -71,7 +69,6 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
         sku_filter: '',
         marketplace_filter: '',
         country_filter: '',
-        transaction_direction_filter: '',
       };
 
       // Build filter expressions (1=1 when no filter, condition when filter provided)
@@ -94,12 +91,6 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
         templateData.country_filter = `ft.market_country_code IN (${countryList})`;
       } else {
         templateData.country_filter = '1=1';
-      }
-
-      if (filters.transaction_direction) {
-        templateData.transaction_direction_filter = `ft.transaction_direction = '${filters.transaction_direction}'`;
-      } else {
-        templateData.transaction_direction_filter = '1=1';
       }
 
       // Set date range defaults: last 30 days if not provided

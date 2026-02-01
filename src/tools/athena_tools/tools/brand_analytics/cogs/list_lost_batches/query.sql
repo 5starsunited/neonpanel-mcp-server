@@ -17,10 +17,9 @@ lost_transactions AS (
     ft.market_country_code AS country,
     ft.marketplace_currency,
     ft.document_date,
-    ft.transaction_direction,
     ft.quantity,
     ft.item_purchase_price,
-    ft.item_logistics_cost,
+    (ft.item_landed_cost - ft.item_purchase_price) AS item_logistics_cost,
     ft.item_landed_cost,
     ft.quantity * ft.item_landed_cost AS lost_amount_total,
     ft.destination_warehouse,
@@ -42,7 +41,6 @@ lost_transactions AS (
     AND ({{sku_filter}})
     AND ({{marketplace_filter}})
     AND ({{country_filter}})
-    AND ({{transaction_direction_filter}})
     
     -- Only include transactions with cost data
     AND ft.item_landed_cost IS NOT NULL
@@ -57,7 +55,6 @@ SELECT
   country,
   marketplace_currency,
   CAST(document_date AS VARCHAR) AS document_date,
-  transaction_direction,
   quantity,
   ROUND(item_purchase_price, 2) AS item_purchase_price,
   ROUND(item_logistics_cost, 2) AS item_logistics_cost,

@@ -20,7 +20,7 @@ filtered_transactions AS (
     MONTH(ft.document_date) AS month,
     FORMAT('%d-%02d', YEAR(ft.document_date), MONTH(ft.document_date)) AS year_month,
     ft.item_purchase_price AS purchase_price,
-    ft.item_logistics_cost AS logistics_cost,
+    (ft.item_landed_cost - ft.item_purchase_price) AS logistics_cost,
     ft.item_landed_cost AS landed_cost,
     ft.transaction_id
   FROM neonpanel_iceberg.fifo_transactions_snapshot ft
