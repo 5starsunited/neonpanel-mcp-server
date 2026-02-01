@@ -131,14 +131,12 @@ async function executeInventoryValuationAnalyzeInventoryValue(params: InputType,
   // ALWAYS add p.periodicity to GROUP BY (it's always selected in SQL)
   groupByFields.push('p.periodicity');
   
-  // Add time period CASE expression to GROUP BY only when not 'total'
-  if (periodicity !== 'total') {
-    groupByFields.push(`CASE 
-      WHEN p.periodicity = 'month' THEN FORMAT('%d-%02d', YEAR(lb.document_date), MONTH(lb.document_date))
-      WHEN p.periodicity = 'year' THEN CAST(YEAR(lb.document_date) AS VARCHAR)
-      ELSE NULL
-    END`);
-  }
+  // ALWAYS add time period CASE expression to GROUP BY (it's always selected as time_period in SQL)
+  groupByFields.push(`CASE 
+    WHEN p.periodicity = 'month' THEN FORMAT('%d-%02d', YEAR(lb.document_date), MONTH(lb.document_date))
+    WHEN p.periodicity = 'year' THEN CAST(YEAR(lb.document_date) AS VARCHAR)
+    ELSE NULL
+  END`);
   
   // Add dimension fields
   const dimensionMap: Record<string, string> = {
