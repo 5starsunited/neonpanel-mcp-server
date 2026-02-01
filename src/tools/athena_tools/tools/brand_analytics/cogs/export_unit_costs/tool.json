@@ -1,0 +1,163 @@
+{
+  "name": "cogs_export_unit_costs",
+  "description": "Export monthly unit costs for uploading to Sellerboard or other profitability tools. Returns a flat table with purchase price, logistics cost, and landed cost per SKU per month.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1,
+                "description": "REQUIRED: Company IDs to filter by (at least one required for partition pruning)"
+              },
+              "sku": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: Filter by specific SKUs"
+              },
+              "marketplace": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: Filter by marketplace (e.g., 'amazon.com', 'amazon.de')"
+              },
+              "country": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: Filter by country code (e.g., 'US', 'DE', 'UK')"
+              },
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Optional: Start date (YYYY-MM-DD) - defaults to 12 months ago"
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Optional: End date (YYYY-MM-DD) - defaults to today"
+              }
+            },
+            "required": ["company_id"]
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": ["year_month", "sku", "marketplace", "landed_cost"],
+                "description": "Field to sort by"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "description": "Sort direction"
+              }
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000,
+            "description": "Maximum number of rows to return (default: 10000)"
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "company_id": {
+              "type": "integer",
+              "description": "Company ID"
+            },
+            "marketplace": {
+              "type": "string",
+              "description": "Marketplace (e.g., amazon.com)"
+            },
+            "country": {
+              "type": "string",
+              "description": "Country code"
+            },
+            "marketplace_currency": {
+              "type": "string",
+              "description": "Currency code (USD, EUR, GBP, etc.)"
+            },
+            "sku": {
+              "type": "string",
+              "description": "Product SKU"
+            },
+            "year": {
+              "type": "integer",
+              "description": "Year"
+            },
+            "month": {
+              "type": "integer",
+              "description": "Month (1-12)"
+            },
+            "year_month": {
+              "type": "string",
+              "description": "YYYY-MM format for sorting"
+            },
+            "purchase_price": {
+              "type": "number",
+              "description": "Item purchase price (supplier cost)"
+            },
+            "logistics_cost": {
+              "type": "number",
+              "description": "Item logistics/shipping cost"
+            },
+            "landed_cost": {
+              "type": "number",
+              "description": "Total landed cost (purchase + logistics)"
+            },
+            "last_updated": {
+              "type": "string",
+              "description": "Date of most recent transaction used for this cost"
+            }
+          }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "description": "Query parameters used"
+          },
+          "row_count": {
+            "type": "integer",
+            "description": "Number of rows returned"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit applied"
+          }
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "isConsequential": false
+}
