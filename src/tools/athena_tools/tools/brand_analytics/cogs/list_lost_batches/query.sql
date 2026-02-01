@@ -33,9 +33,6 @@ lost_transactions AS (
     -- CRITICAL: Only transactions where batch is NULL (lost tracking)
     AND ft.io_batch_id IS NULL
     
-    -- Only Invoice transactions (sales/outbound for COGS)
-    AND ft.document_type = 'Invoice'
-    
     -- Date range filter
     AND ft.document_date >= dr.start_date
     AND ft.document_date <= dr.end_date
