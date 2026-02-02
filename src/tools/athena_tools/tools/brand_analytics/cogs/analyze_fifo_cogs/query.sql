@@ -85,6 +85,13 @@ base_transactions AS (
     -- REQUIRED: invoice transactions only
     AND ft.document_type = 'Invoice'
     
+    -- REQUIRED: only outbound transactions (sales/returns have quantity != 0)
+    AND ft.quantity IS NOT NULL
+    AND ft.quantity != 0
+    
+    -- REQUIRED: must have transaction amount
+    AND ft.transaction_amount IS NOT NULL
+    
     -- OPTIONAL: date range filters
     AND (p.start_date IS NULL OR ft.document_date >= CAST(p.start_date AS DATE))
     AND (p.end_date IS NULL OR ft.document_date <= CAST(p.end_date AS DATE))
