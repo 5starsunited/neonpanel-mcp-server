@@ -62,16 +62,17 @@ base_transactions AS (
     ft.document_id,
     ft.document_ref_number,
     
-    -- COGS calculations: convert negative quantities/amounts to positive
-    ABS(ft.quantity) AS units_sold,
-    ABS(ft.transaction_amount) AS cogs_amount,
-    ABS(ft.item_purchase_price * ft.quantity) AS purchase_price_amount,
-    ABS(ft.item_landed_cost * ft.quantity) AS landed_cost_amount,
+    -- COGS calculations: negate to convert outbound (negative) to positive for aggregation
+    -- Selling transactions have negative qty/amounts, returns have opposite signs
+    -1 * ft.quantity AS units_sold,
+    -1 * ft.transaction_amount AS cogs_amount,
+    -1 * (ft.item_purchase_price * ft.quantity) AS purchase_price_amount,
+    -1 * (ft.item_landed_cost * ft.quantity) AS landed_cost_amount,
     
     -- Quality tracking: separate units with/without cost data
-    CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN ABS(ft.quantity) ELSE 0 END AS units_with_cost,
-    CASE WHEN COALESCE(ft.item_landed_cost, 0) = 0 THEN ABS(ft.quantity) ELSE 0 END AS units_missing_cost,
-    CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN ABS(ft.transaction_amount) ELSE 0 END AS cogs_with_cost,
+    CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN -1 * ft.quantity ELSE 0 END AS units_with_cost,
+    CASE WHEN COALESCE(ft.item_landed_cost, 0) = 0 THEN -1 * ft.quantity ELSE 0 END AS units_missing_cost,
+    CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN -1 * ft.transaction_amount ELSE 0 END AS cogs_with_cost,
     
     1 AS transaction_count
     
