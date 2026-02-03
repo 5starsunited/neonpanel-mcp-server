@@ -142,7 +142,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       const templateData: Record<string, string | number> = {
         company_id: companyId,
         shipment_type_filter: '1=1',
-        shipment_status_filter: "s.shipment_status NOT IN ('CLOSED', 'CANCELLED', 'DELETED', 'ERROR')",
+        shipment_status_filter: "s.shipment_status NOT IN ('CLOSED', 'CANCELLED', 'DELETED', 'ERROR', 'ABANDONED')",
         destination_warehouse_filter: '1=1',
         original_warehouse_filter: '1=1',
         origin_country_filter: '1=1',
