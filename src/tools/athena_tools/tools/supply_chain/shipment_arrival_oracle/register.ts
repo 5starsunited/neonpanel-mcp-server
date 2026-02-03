@@ -123,52 +123,58 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
         };
       }
 
-      // Build template data
+      // Build template data - ALWAYS define all variables with defaults (1=1 for no filter)
       const filters = input.query.filters;
       const templateData: Record<string, string | number> = {
         company_id: companyId,
+        shipment_status_filter: '1=1',
+        destination_warehouse_filter: '1=1',
+        original_warehouse_filter: '1=1',
+        origin_country_filter: '1=1',
+        destination_country_filter: '1=1',
+        delay_threshold_filter: '1=1',
+        min_days_in_transit_filter: '1=1',
+        exclude_received_filter: '1=1',
       };
 
       // Shipment status filter
       if (filters.shipment_status && filters.shipment_status.length > 0) {
-        templateData.shipment_status_filter = toSqlStringList(filters.shipment_status);
+        templateData.shipment_status_filter = `s.shipment_status IN (${toSqlStringList(filters.shipment_status)})`;
       }
 
       // Warehouse filters (partial match)
       if (filters.destination_warehouse_name) {
-        templateData.destination_warehouse_filter = 1;
-        templateData.destination_warehouse_name = filters.destination_warehouse_name;
+        const escaped = filters.destination_warehouse_name.replace(/'/g, "''");
+        templateData.destination_warehouse_filter = `LOWER(s.destination_warehouse_name) LIKE LOWER('%${escaped}%')`;
       }
 
       if (filters.original_warehouse_name) {
-        templateData.original_warehouse_filter = 1;
-        templateData.original_warehouse_name = filters.original_warehouse_name;
+        const escaped = filters.original_warehouse_name.replace(/'/g, "''");
+        templateData.original_warehouse_filter = `LOWER(s.original_warehouse_name) LIKE LOWER('%${escaped}%')`;
       }
 
       // Country filters
       if (filters.origin_country_code && filters.origin_country_code.length > 0) {
-        templateData.origin_country_filter = toSqlStringList(filters.origin_country_code);
+        templateData.origin_country_filter = `s.origin_country_code IN (${toSqlStringList(filters.origin_country_code)})`;
       }
 
       if (filters.destination_country_code && filters.destination_country_code.length > 0) {
-        templateData.destination_country_filter = toSqlStringList(filters.destination_country_code);
+        templateData.destination_country_filter = `s.destination_country_code IN (${toSqlStringList(filters.destination_country_code)})`;
       }
 
       // Delay threshold filter
       if (filters.delay_threshold_days !== undefined) {
-        templateData.delay_threshold_filter = 1;
-        templateData.delay_threshold_days = filters.delay_threshold_days;
+        templateData.delay_threshold_filter = `(CASE WHEN s.tracked_eta IS NOT NULL AND s.p80_eta IS NOT NULL THEN DATE_DIFF('day', s.p80_eta, s.tracked_eta) ELSE NULL END >= ${filters.delay_threshold_days})`;
       }
 
       // Min days in transit filter
       if (filters.min_days_in_transit !== undefined) {
-        templateData.min_days_in_transit_filter = 1;
-        templateData.min_days_in_transit = filters.min_days_in_transit;
+        templateData.min_days_in_transit_filter = `DATE_DIFF('day', CAST(s.date_shipped AS DATE), CURRENT_DATE) >= ${filters.min_days_in_transit}`;
       }
 
       // Exclude received shipments by default (in-transit only)
       if (!filters.include_received) {
-        templateData.exclude_received = 1;
+        templateData.exclude_received_filter = 's.arrived_at IS NULL';
       }
 
       // Sort clause

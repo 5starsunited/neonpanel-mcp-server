@@ -43,22 +43,16 @@ SELECT
 
 FROM neonpanel_iceberg.inventory_shipments_snapshot s
 
-WHERE 1=1
-  {{#company_id}}AND s.company_id = {{company_id}}{{/company_id}}
-  {{#shipment_status_filter}}AND s.shipment_status IN ({{shipment_status_filter}}){{/shipment_status_filter}}
-  {{#destination_warehouse_filter}}AND LOWER(s.destination_warehouse_name) LIKE LOWER('%{{destination_warehouse_name}}%'){{/destination_warehouse_filter}}
-  {{#original_warehouse_filter}}AND LOWER(s.original_warehouse_name) LIKE LOWER('%{{original_warehouse_name}}%'){{/original_warehouse_filter}}
-  {{#origin_country_filter}}AND s.origin_country_code IN ({{origin_country_filter}}){{/origin_country_filter}}
-  {{#destination_country_filter}}AND s.destination_country_code IN ({{destination_country_filter}}){{/destination_country_filter}}
-  {{#delay_threshold_filter}}AND (
-    CASE 
-      WHEN s.tracked_eta IS NOT NULL AND s.p80_eta IS NOT NULL 
-      THEN DATE_DIFF('day', s.p80_eta, s.tracked_eta)
-      ELSE NULL
-    END >= {{delay_threshold_days}}
-  ){{/delay_threshold_filter}}
-  {{#min_days_in_transit_filter}}AND DATE_DIFF('day', CAST(s.date_shipped AS DATE), CURRENT_DATE) >= {{min_days_in_transit}}{{/min_days_in_transit_filter}}
-  {{#exclude_received}}AND s.arrived_at IS NULL{{/exclude_received}}
+WHERE s.company_id = {{company_id}}
+  AND {{shipment_status_filter}}
+  AND {{destination_warehouse_filter}}
+  AND {{original_warehouse_filter}}
+  AND {{origin_country_filter}}
+  AND {{destination_country_filter}}
+  AND {{delay_threshold_filter}}
+  AND {{min_days_in_transit_filter}}
+  AND {{exclude_received_filter}}
 
-{{#sort_clause}}ORDER BY {{sort_clause}}{{/sort_clause}}
-{{#limit}}LIMIT {{limit}}{{/limit}}
+ORDER BY {{sort_clause}}
+LIMIT {{limit}}
+
