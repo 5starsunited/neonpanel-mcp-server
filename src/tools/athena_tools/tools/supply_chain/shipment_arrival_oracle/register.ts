@@ -34,6 +34,7 @@ const inputSchema = z
             origin_country_code: z.array(z.string()).optional(),
             destination_country_code: z.array(z.string()).optional(),
             include_received: z.boolean().default(false).optional(),
+            include_terminal_status: z.boolean().default(false).optional(),
             // New filters
             signal: z.array(z.enum(['Ghost Shipment', 'Delayed', 'On Track', 'Early Arrival'])).optional(),
             shipped_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -141,6 +142,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       const templateData: Record<string, string | number> = {
         company_id: companyId,
         shipment_type_filter: '1=1',
+        shipment_status_filter: "s.shipment_status NOT IN ('CLOSED', 'CANCELLED', 'DELETED', 'ERROR')",
         destination_warehouse_filter: '1=1',
         original_warehouse_filter: '1=1',
         origin_country_filter: '1=1',
@@ -160,6 +162,12 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       // Shipment type filter (logistics model: REGULAR, FBA INBOUND, AWD INBOUND)
       if (filters.shipment_type && filters.shipment_type.length > 0) {
         templateData.shipment_type_filter = `s.shipment_type IN (${toSqlStringList(filters.shipment_type)})`;
+      }
+
+      // Shipment status filter: by default excludes CLOSED, CANCELLED, DELETED, ERROR
+      // Disabled when: searching (search/ref_number) or include_terminal_status=true
+      if (filters.include_terminal_status || filters.search || filters.ref_number) {
+        templateData.shipment_status_filter = '1=1';
       }
 
       // Warehouse filters (partial match)

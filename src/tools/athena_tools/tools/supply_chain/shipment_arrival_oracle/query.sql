@@ -71,6 +71,7 @@ FROM neonpanel_iceberg.inventory_shipments_snapshot s
 
 WHERE s.company_id = {{company_id}}
   AND {{shipment_type_filter}}
+  AND {{shipment_status_filter}}
   AND {{destination_warehouse_filter}}
   AND {{original_warehouse_filter}}
   AND {{origin_country_filter}}
