@@ -88,6 +88,8 @@ const inputSchema = z.object({
         'avg_unit_cogs',
         'purchase_price_amount',
         'time_period',
+        'document_date',
+        'transaction_id',
       ]).optional().default('cogs_amount'),
       direction: z.enum(['asc', 'desc']).optional().default('desc'),
     }).optional(),
