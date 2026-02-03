@@ -42,6 +42,9 @@ const inputSchema = z.object({
       analysis_mode: z.enum(['normal', 'lost_batches', 'lost_cogs']).optional().default('normal'),
       // NEW: Detail level - aggregated (default) or individual transactions
       detail_level: z.enum(['aggregated', 'transactions']).optional().default('aggregated'),
+      // NEW: Date filters directly in filters (alternative to aggregation.time)
+      start_date: z.string().optional(),
+      end_date: z.string().optional(),
     }).required({ company_id: true }),
     aggregation: z.object({
       group_by: z.array(z.enum([
@@ -350,8 +353,9 @@ async function executeCogsAnalyzeFifoCogs(
     analysis_mode_filter: buildAnalysisModeFilter(filters.analysis_mode ?? 'normal'),
     // NEW: Detail level - aggregated (default) or individual transactions
     detail_level: sqlStringLiteral(filters.detail_level ?? 'aggregated'),
-    start_date: time.start_date ? sqlStringLiteral(time.start_date) : 'NULL',
-    end_date: time.end_date ? sqlStringLiteral(time.end_date) : 'NULL',
+    // Date filters: prefer filters.start_date/end_date, fallback to aggregation.time
+    start_date: (filters.start_date ?? time.start_date) ? sqlStringLiteral(filters.start_date ?? time.start_date ?? '') : 'NULL',
+    end_date: (filters.end_date ?? time.end_date) ? sqlStringLiteral(filters.end_date ?? time.end_date ?? '') : 'NULL',
     periodicity_sql: sqlStringLiteral(periodicity),
     group_by_fields: sqlStringLiteral(groupBy.join(',')),
     group_by_select_clause: groupBySelectClause,
