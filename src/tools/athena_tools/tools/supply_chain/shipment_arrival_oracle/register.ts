@@ -34,12 +34,18 @@ const inputSchema = z
             origin_country_code: z.array(z.string()).optional(),
             destination_country_code: z.array(z.string()).optional(),
             include_received: z.boolean().default(false).optional(),
+            // New filters
+            signal: z.array(z.enum(['Ghost Shipment', 'Delayed', 'On Track', 'Early Arrival'])).optional(),
+            shipped_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+            shipped_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+            eta_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+            carrier: z.array(z.string()).optional(),
           })
           .strict(),
         sort: z
           .object({
             field: z
-              .enum(['delay_days', 'days_in_transit', 'tracked_eta', 'p80_eta', 'date_shipped', 'shipment_name'])
+              .enum(['delay_days', 'days_in_transit', 'tracked_eta', 'p80_eta', 'date_shipped', 'shipment_name', 'urgency_score'])
               .default('delay_days')
               .optional(),
             direction: z.enum(['asc', 'desc']).default('desc').optional(),
@@ -47,6 +53,8 @@ const inputSchema = z
           .strict()
           .optional(),
         limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
+        // Route aggregation mode
+        aggregate_by_route: z.boolean().default(false).optional(),
       })
       .strict(),
   })
@@ -62,6 +70,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
   const toolDir = __dirname;
   const specPath = path.join(toolDir, 'tool.json');
   const queryPath = path.join(toolDir, 'query.sql');
+  const routesQueryPath = path.join(toolDir, 'query-routes.sql');
 
   let specJson: ToolSpecJson;
   try {
@@ -125,6 +134,8 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
 
       // Build template data - ALWAYS define all variables with defaults (1=1 for no filter)
       const filters = input.query.filters;
+      const isRouteMode = input.query.aggregate_by_route === true;
+      
       const templateData: Record<string, string | number> = {
         company_id: companyId,
         shipment_status_filter: '1=1',
@@ -135,6 +146,12 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
         delay_threshold_filter: '1=1',
         min_days_in_transit_filter: '1=1',
         exclude_received_filter: '1=1',
+        // New filter defaults
+        signal_filter: '1=1',
+        shipped_after_filter: '1=1',
+        shipped_before_filter: '1=1',
+        eta_before_filter: '1=1',
+        carrier_filter: '1=1',
       };
 
       // Shipment status filter
@@ -177,28 +194,78 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
         templateData.exclude_received_filter = 's.arrived_at IS NULL';
       }
 
+      // Signal filter (NEW)
+      if (filters.signal && filters.signal.length > 0) {
+        // Build OR conditions for each signal type
+        const signalConditions = filters.signal.map((sig) => {
+          switch (sig) {
+            case 'Ghost Shipment':
+              return "(s.arrived_at IS NOT NULL AND (s.total_items_received IS NULL OR s.total_items_received = 0))";
+            case 'Delayed':
+              return "(s.tracked_eta IS NOT NULL AND s.p80_eta IS NOT NULL AND DATE_DIFF('day', s.p80_eta, s.tracked_eta) > 0)";
+            case 'On Track':
+              return "(s.arrived_at IS NULL AND (s.tracked_eta IS NULL OR s.p80_eta IS NULL OR DATE_DIFF('day', s.p80_eta, s.tracked_eta) <= 0))";
+            case 'Early Arrival':
+              return "(s.arrived_at IS NOT NULL AND s.p50_eta IS NOT NULL AND CAST(s.arrived_at AS DATE) < s.p50_eta)";
+            default:
+              return '1=1';
+          }
+        });
+        templateData.signal_filter = `(${signalConditions.join(' OR ')})`;
+      }
+
+      // Date range filters (NEW)
+      if (filters.shipped_after) {
+        templateData.shipped_after_filter = `CAST(s.date_shipped AS DATE) >= DATE '${filters.shipped_after}'`;
+      }
+
+      if (filters.shipped_before) {
+        templateData.shipped_before_filter = `CAST(s.date_shipped AS DATE) <= DATE '${filters.shipped_before}'`;
+      }
+
+      if (filters.eta_before) {
+        templateData.eta_before_filter = `(s.tracked_eta IS NOT NULL AND s.tracked_eta <= DATE '${filters.eta_before}')`;
+      }
+
+      // Carrier filter (NEW)
+      if (filters.carrier && filters.carrier.length > 0) {
+        templateData.carrier_filter = `s.carrier IN (${toSqlStringList(filters.carrier)})`;
+      }
+
       // Sort clause
       const sortField = input.query.sort?.field || 'delay_days';
       const sortDirection = input.query.sort?.direction || 'desc';
       
-      // Map sort fields to SQL columns
-      const sortColumnMap: Record<string, string> = {
-        delay_days: 'delay_days',
-        days_in_transit: 'days_in_transit',
-        tracked_eta: 's.tracked_eta',
-        p80_eta: 's.p80_eta',
-        date_shipped: 's.date_shipped',
-        shipment_name: 's.shipment_name',
-      };
+      // Map sort fields to SQL columns (different for route mode)
+      const sortColumnMap: Record<string, string> = isRouteMode
+        ? {
+            delay_days: 'avg_delay_days',
+            days_in_transit: 'avg_days_in_transit',
+            tracked_eta: 'latest_p80_eta',
+            p80_eta: 'latest_p80_eta',
+            date_shipped: 'total_shipments',
+            shipment_name: 'origin_warehouse',
+            urgency_score: 'delayed_count',
+          }
+        : {
+            delay_days: 'delay_days',
+            days_in_transit: 'days_in_transit',
+            tracked_eta: 's.tracked_eta',
+            p80_eta: 's.p80_eta',
+            date_shipped: 's.date_shipped',
+            shipment_name: 's.shipment_name',
+            urgency_score: 'urgency_score',
+          };
 
-      const sortColumn = sortColumnMap[sortField] || 'delay_days';
+      const sortColumn = sortColumnMap[sortField] || (isRouteMode ? 'avg_delay_days' : 'delay_days');
       templateData.sort_clause = `${sortColumn} ${sortDirection.toUpperCase()} NULLS LAST`;
 
       // Limit
       templateData.limit = input.query.limit || 50;
 
-      // Render SQL
-      const queryTemplate = await loadTextFile(queryPath);
+      // Choose query based on mode
+      const selectedQueryPath = isRouteMode ? routesQueryPath : queryPath;
+      const queryTemplate = await loadTextFile(selectedQueryPath);
       const sql = renderSqlTemplate(queryTemplate, templateData);
 
       // Execute query
@@ -212,14 +279,75 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
 
       const rows = result.rows || [];
 
-      // Format response
+      // Route aggregation mode returns different response structure
+      if (isRouteMode) {
+        return {
+          mode: 'route_aggregation',
+          summary: {
+            total_routes: rows.length,
+            total_shipments: rows.reduce((sum: number, r: any) => sum + (Number(r.total_shipments) || 0), 0),
+            routes_with_delays: rows.filter((r: any) => Number(r.delayed_count) > 0).length,
+            routes_with_ghost_shipments: rows.filter((r: any) => Number(r.ghost_shipment_count) > 0).length,
+          },
+          routes: rows.map((row: any) => ({
+            origin_warehouse: row.origin_warehouse,
+            destination_warehouse: row.destination_warehouse,
+            origin_country: row.origin_country_code,
+            destination_country: row.destination_country_code,
+            shipment_counts: {
+              total: Number(row.total_shipments) || 0,
+              in_transit: Number(row.in_transit_count) || 0,
+              completed: Number(row.completed_count) || 0,
+            },
+            transit_time_days: {
+              avg: row.avg_days_in_transit ? Number(row.avg_days_in_transit).toFixed(1) : null,
+              median: row.median_days_in_transit ? Number(row.median_days_in_transit) : null,
+              max: row.max_days_in_transit ? Number(row.max_days_in_transit) : null,
+            },
+            performance: {
+              avg_delay_days: row.avg_delay_days ? Number(row.avg_delay_days).toFixed(1) : null,
+              reliability_pct: row.reliability_pct ? Number(row.reliability_pct).toFixed(1) : null,
+              delayed_count: Number(row.delayed_count) || 0,
+              ghost_shipment_count: Number(row.ghost_shipment_count) || 0,
+            },
+            historical_data: {
+              route_sample_size: row.route_sample_size ? Number(row.route_sample_size) : null,
+              latest_p50_eta: row.latest_p50_eta,
+              latest_p80_eta: row.latest_p80_eta,
+              latest_p95_eta: row.latest_p95_eta,
+            },
+          })),
+        };
+      }
+
+      // Standard shipment-level response
+      // Calculate summary with direct data analysis (not relying on signals column)
+      const ghostShipments = rows.filter(
+        (r: any) => r.arrived_at && (r.total_items_received === null || Number(r.total_items_received) === 0)
+      );
+      const delayedShipments = rows.filter((r: any) => r.delay_days && Number(r.delay_days) > 0);
+      const severelyDelayed = rows.filter((r: any) => r.delay_days && Number(r.delay_days) > 7);
+      const stuckInTransit = rows.filter((r: any) => r.days_in_transit && Number(r.days_in_transit) > 45);
+
+      // Group by destination for summary
+      const byDestination: Record<string, number> = {};
+      rows.forEach((r: any) => {
+        const dest = r.destination_warehouse_name || 'Unknown';
+        byDestination[dest] = (byDestination[dest] || 0) + 1;
+      });
+
       const summary = {
         total_shipments: rows.length,
         in_transit_count: rows.filter((r: any) => !r.arrived_at).length,
-        delayed_count: rows.filter((r: any) => r.delay_days && Number(r.delay_days) > 0).length,
-        ghost_shipment_count: rows.filter(
-          (r: any) => r.arrived_at && r.total_items_received === 0 && r.signals?.includes('Ghost'),
-        ).length,
+        delayed_count: delayedShipments.length,
+        ghost_shipment_count: ghostShipments.length,
+        // Enhanced summary
+        action_required: {
+          ghost_shipments: ghostShipments.length,
+          severely_delayed: severelyDelayed.length,
+          stuck_in_transit: stuckInTransit.length,
+        },
+        by_destination: byDestination,
       };
 
       return {
@@ -240,13 +368,17 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
             days_in_transit: row.days_in_transit,
             tracked_eta: row.tracked_eta,
             first_tracked_eta: row.first_tracked_eta,
+            carrier: row.carrier,
           },
           statistical_etas: {
             p50_eta: row.p50_eta,
             p80_eta: row.p80_eta,
             p95_eta: row.p95_eta,
             delay_days: row.delay_days,
+            has_historical_data: row.has_historical_data === true || row.has_historical_data === 'true',
+            route_sample_size: row.route_sample_size ? Number(row.route_sample_size) : null,
           },
+          urgency_score: row.urgency_score ? Number(row.urgency_score) : 0,
           status: {
             signals: row.signals,
             arrived_at: row.arrived_at,
