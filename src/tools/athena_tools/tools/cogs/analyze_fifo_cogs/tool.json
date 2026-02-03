@@ -90,6 +90,47 @@
                 "type": "array",
                 "items": { "type": "string" },
                 "description": "Filter by invoice reference number(s) - e.g., ['22431653901-12-AUS']"
+              },
+              "transaction_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by FIFO transaction ID(s) - numeric IDs"
+              },
+              "source_batch_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by source batch ID(s) - IO/AO batch where inventory originated. Matches both io_batch_id and ao_batch_id."
+              },
+              "batch_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by batch document ID(s) - final batch with added costs (e.g., FBA shipment)"
+              },
+              "origin_warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by origin warehouse name(s) - where inventory came from"
+              },
+              "destination_warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by destination warehouse name(s) - where inventory went to"
+              },
+              "search": {
+                "type": "string",
+                "description": "Partial text search across all name/ref fields (SKU, brand, product_family, vendor, batch names, warehouse names, etc.). Case-insensitive LIKE search."
+              },
+              "analysis_mode": {
+                "type": "string",
+                "enum": ["normal", "lost_batches", "lost_cogs"],
+                "default": "normal",
+                "description": "Analysis mode for data quality views:\n- 'normal' (default): All transactions - standard COGS analysis with quality metrics\n- 'lost_batches': Only transactions where batch_document_id IS NULL (items without batch assignment - data quality issue)\n- 'lost_cogs': Only transactions where batch exists but item_landed_cost = 0 (batches without costs entered)"
+              },
+              "detail_level": {
+                "type": "string",
+                "enum": ["aggregated", "transactions"],
+                "default": "aggregated",
+                "description": "Output detail level:\n- 'aggregated' (default): Group by dimensions, return summary metrics (cogs_amount, units_sold, quality %)\n- 'transactions': Return individual transaction rows with full details (transaction_id, document_date, SKU, batch, warehouse, etc.). Use 'transactions' when you need to see specific problematic records, especially with analysis_mode='lost_batches' or 'lost_cogs'."
               }
             },
             "additionalProperties": false
@@ -120,7 +161,10 @@
                     "batch_ref_number",
                     "vendor",
                     "document_id",
-                    "document_ref_number"
+                    "document_ref_number",
+                    "origin_warehouse",
+                    "destination_warehouse",
+                    "transaction_id"
                   ]
                 },
                 "description": "Dimensions to group by. Order matters for hierarchical grouping. Empty array = aggregate all matching records.",

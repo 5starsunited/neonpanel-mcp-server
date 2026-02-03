@@ -27,6 +27,21 @@ const inputSchema = z.object({
       vendor: z.array(z.string()).optional(),
       document_id: z.array(z.number().int()).optional(),
       document_ref_number: z.array(z.string()).optional(),
+      // NEW: Transaction ID filter
+      transaction_id: z.array(z.number().int()).optional(),
+      // NEW: Source batch filters (IO/AO batch - where inventory originated)
+      source_batch_id: z.array(z.number().int()).optional(),
+      // NEW: Final batch filters (batch document with added costs)
+      batch_id: z.array(z.number().int()).optional(),
+      // NEW: Warehouse filters
+      origin_warehouse: z.array(z.string()).optional(),
+      destination_warehouse: z.array(z.string()).optional(),
+      // NEW: Search filter (partial match across names and ref_numbers)
+      search: z.string().optional(),
+      // NEW: Analysis mode for data quality views
+      analysis_mode: z.enum(['normal', 'lost_batches', 'lost_cogs']).optional().default('normal'),
+      // NEW: Detail level - aggregated (default) or individual transactions
+      detail_level: z.enum(['aggregated', 'transactions']).optional().default('aggregated'),
     }).required({ company_id: true }),
     aggregation: z.object({
       group_by: z.array(z.enum([
@@ -48,6 +63,9 @@ const inputSchema = z.object({
         'vendor',
         'document_id',
         'document_ref_number',
+        'origin_warehouse',
+        'destination_warehouse',
+        'transaction_id',
       ])).optional().default([]),
       time: z.object({
         periodicity: z.enum(['month', 'year', 'total']).optional().default('total'),
@@ -86,6 +104,61 @@ type CompaniesWithPermissionResponse = {
 
 function sqlStringLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Build a search filter that searches across multiple name and ref_number fields
+ * Uses LIKE with wildcards for partial matching
+ * Returns '1=1' if no search term (no filter applied)
+ */
+function buildSearchFilter(search: string | undefined): string {
+  if (!search || search.trim() === '') {
+    return '1=1';
+  }
+  
+  const searchTerm = search.trim().replace(/'/g, "''");
+  const likePattern = `'%${searchTerm}%'`;
+  
+  // Search across all name and ref_number fields
+  const searchFields = [
+    'ft.sku',
+    'ft.brand',
+    'ft.product_family',
+    'ft.child_asin',
+    'ft.parent_asin',
+    'ft.vendor',
+    'ft.io_batch_name',
+    'ft.io_batch_ref_number',
+    'ft.ao_batch_name',
+    'ft.ao_batch_ref_number',
+    'ft.batch_document_name',
+    'ft.batch_document_ref_number',
+    'ft.document_name',
+    'ft.document_ref_number',
+    'ft.origin_warehouse',
+    'ft.destination_warehouse',
+  ];
+  
+  const conditions = searchFields.map(field => `LOWER(${field}) LIKE LOWER(${likePattern})`);
+  return `(${conditions.join(' OR ')})`;
+}
+
+/**
+ * Build analysis mode filter for data quality views
+ * - 'normal': All transactions (no filter)
+ * - 'lost_batches': batch_document_id IS NULL (transactions without batch assignment)
+ * - 'lost_cogs': batch_document_id IS NOT NULL AND item_landed_cost = 0 (batches without costs)
+ */
+function buildAnalysisModeFilter(mode: 'normal' | 'lost_batches' | 'lost_cogs'): string {
+  switch (mode) {
+    case 'lost_batches':
+      return 'ft.batch_document_id IS NULL';
+    case 'lost_cogs':
+      return 'ft.batch_document_id IS NOT NULL AND COALESCE(ft.item_landed_cost, 0) = 0';
+    case 'normal':
+    default:
+      return '1=1'; // No filter - all transactions
+  }
 }
 
 function sqlVarcharArrayExpr(values: string[]): string {
@@ -185,6 +258,9 @@ async function executeCogsAnalyzeFifoCogs(
     vendor: 'bt.vendor',
     document_id: 'bt.document_id',
     document_ref_number: 'bt.document_ref_number',
+    origin_warehouse: 'bt.origin_warehouse',
+    destination_warehouse: 'bt.destination_warehouse',
+    transaction_id: 'bt.transaction_id',
   };
   
   for (const dim of groupBy) {
@@ -230,6 +306,13 @@ async function executeCogsAnalyzeFifoCogs(
     ? selectDimensions.join(',\n  ') + ','
     : '';
 
+  // Build transaction-level dimensions (use td. prefix for transaction_details CTE)
+  // For UNION compatibility, we need the same number of columns
+  // Transaction output includes all columns from td.* so we use NULL placeholders for group_by dimensions
+  const selectDimensionsTransactionsClause = selectDimensions.length > 0
+    ? selectDimensions.map(dim => `NULL AS ${dim.replace('ac.', '')}`).join(',\n  ') + ','
+    : '';
+
   // Load SQL template
   const sqlPath = path.join(__dirname, 'query.sql');
   const template = await loadTextFile(sqlPath);
@@ -251,6 +334,22 @@ async function executeCogsAnalyzeFifoCogs(
     vendors_array: sqlVarcharArrayExpr(filters.vendor ?? []),
     document_ids_array: sqlBigintArrayExpr(filters.document_id ?? []),
     document_ref_numbers_array: sqlVarcharArrayExpr(filters.document_ref_number ?? []),
+    // NEW: Transaction ID filter
+    transaction_ids_array: sqlBigintArrayExpr(filters.transaction_id ?? []),
+    // NEW: Source batch filters (IO/AO batch - where inventory originated)
+    source_batch_ids_array: sqlBigintArrayExpr(filters.source_batch_id ?? []),
+    // NEW: Final batch filters (batch document with added costs)
+    batch_ids_array: sqlBigintArrayExpr(filters.batch_id ?? []),
+    // NEW: Warehouse filters
+    origin_warehouses_array: sqlVarcharArrayExpr(filters.origin_warehouse ?? []),
+    destination_warehouses_array: sqlVarcharArrayExpr(filters.destination_warehouse ?? []),
+    // NEW: Search filter (partial match across names and ref_numbers)
+    search_filter: buildSearchFilter(filters.search),
+    // NEW: Analysis mode for data quality views
+    analysis_mode_sql: sqlStringLiteral(filters.analysis_mode ?? 'normal'),
+    analysis_mode_filter: buildAnalysisModeFilter(filters.analysis_mode ?? 'normal'),
+    // NEW: Detail level - aggregated (default) or individual transactions
+    detail_level: sqlStringLiteral(filters.detail_level ?? 'aggregated'),
     start_date: time.start_date ? sqlStringLiteral(time.start_date) : 'NULL',
     end_date: time.end_date ? sqlStringLiteral(time.end_date) : 'NULL',
     periodicity_sql: sqlStringLiteral(periodicity),
@@ -258,6 +357,7 @@ async function executeCogsAnalyzeFifoCogs(
     group_by_select_clause: groupBySelectClause,
     group_by_clause: groupByClause,
     select_dimensions: selectDimensionsClause,
+    select_dimensions_transactions: selectDimensionsTransactionsClause,
     order_by_clause: orderByClause,
     sort_field_sql: sqlStringLiteral(sortField),
     sort_direction_sql: sqlStringLiteral(sortDirection),

@@ -24,6 +24,20 @@ WITH params AS (
     {{vendors_array}} AS vendors,
     {{document_ids_array}} AS document_ids,
     {{document_ref_numbers_array}} AS document_ref_numbers,
+    {{transaction_ids_array}} AS transaction_ids,
+    
+    -- Source batch filters (IO/AO batch - where inventory originated)
+    {{source_batch_ids_array}} AS source_batch_ids,
+    
+    -- Final batch filters (batch document with added costs)
+    {{batch_ids_array}} AS batch_ids,
+    
+    -- Warehouse filters
+    {{origin_warehouses_array}} AS origin_warehouses,
+    {{destination_warehouses_array}} AS destination_warehouses,
+    
+    -- Analysis mode: 'normal', 'lost_batches', 'lost_cogs'
+    {{analysis_mode_sql}} AS analysis_mode,
     
     -- Date range filters (nullable)
     {{start_date}} AS start_date,
@@ -36,11 +50,15 @@ WITH params AS (
     -- Sort and limit
     {{sort_field_sql}} AS sort_field,
     {{sort_direction_sql}} AS sort_direction,
-    {{limit_rows}} AS limit_rows
+    {{limit_rows}} AS limit_rows,
+    
+    -- Detail level: 'aggregated' or 'transactions'
+    {{detail_level}} AS detail_level
 ),
 
 base_transactions AS (
   SELECT
+    ft.transaction_id,
     ft.company_id,
     ft.sku,
     ft.brand,
@@ -51,17 +69,25 @@ base_transactions AS (
     ft.country,
     ft.marketplace_currency,
     ft.revenue_abcd_class,
+    ft.revenue_abcd_class_description,
     ft.pareto_abc_class,
     ft.inventory_id,
+    -- Source batch (where inventory originated - IO or AO)
     COALESCE(ft.io_batch_id, ft.ao_batch_id) AS source_batch_id,
+    COALESCE(ft.io_batch_name, ft.ao_batch_name) AS source_batch,
+    COALESCE(ft.io_batch_ref_number, ft.ao_batch_ref_number) AS source_batch_ref_number,
+    -- Final batch (batch document with added costs)
     ft.batch_document_id AS batch_id,
     ft.batch_document_name AS batch,
     ft.batch_document_ref_number AS batch_ref_number,
     ft.vendor,
+    -- Warehouse
+    ft.origin_warehouse,
+    ft.destination_warehouse,
     ft.document_date,
     ft.document_id,
+    ft.document_name,
     ft.document_ref_number,
-    
     -- COGS calculations: negate to convert outbound (negative) to positive for aggregation
     -- Selling transactions have negative qty/amounts, returns have opposite signs
     -1 * ft.quantity AS units_sold,
@@ -111,6 +137,28 @@ base_transactions AS (
     AND (cardinality(p.vendors) = 0 OR contains(p.vendors, ft.vendor))
     AND (cardinality(p.document_ids) = 0 OR contains(p.document_ids, ft.document_id))
     AND (cardinality(p.document_ref_numbers) = 0 OR contains(p.document_ref_numbers, ft.document_ref_number))
+    
+    -- NEW: Transaction ID filter
+    AND (cardinality(p.transaction_ids) = 0 OR contains(p.transaction_ids, ft.transaction_id))
+    
+    -- NEW: Source batch filters (IO/AO batch - where inventory originated)
+    AND (cardinality(p.source_batch_ids) = 0 OR contains(p.source_batch_ids, ft.io_batch_id) OR contains(p.source_batch_ids, ft.ao_batch_id))
+    
+    -- NEW: Final batch filters (batch document with added costs)
+    AND (cardinality(p.batch_ids) = 0 OR contains(p.batch_ids, ft.batch_document_id))
+    
+    -- NEW: Warehouse filters
+    AND (cardinality(p.origin_warehouses) = 0 OR contains(p.origin_warehouses, ft.origin_warehouse))
+    AND (cardinality(p.destination_warehouses) = 0 OR contains(p.destination_warehouses, ft.destination_warehouse))
+    
+    -- NEW: Search filter (searches across names and ref_numbers)
+    AND {{search_filter}}
+    
+    -- ANALYSIS MODE FILTER:
+    -- 'normal' = all transactions (no filter)
+    -- 'lost_batches' = batch_document_id IS NULL (transactions without batch assignment)
+    -- 'lost_cogs' = batch_document_id IS NOT NULL AND item_landed_cost = 0 (batches without costs)
+    AND {{analysis_mode_filter}}
 ),
 
 aggregated_cogs AS (
@@ -139,10 +187,52 @@ aggregated_cogs AS (
     
   FROM base_transactions bt
   CROSS JOIN params p
+  WHERE p.detail_level = 'aggregated'
   GROUP BY 
     {{group_by_clause}}
+),
+
+-- Transaction-level detail output (when detail_level = 'transactions')
+transaction_details AS (
+  SELECT
+    bt.transaction_id,
+    bt.document_date,
+    bt.document_id,
+    bt.document_name,
+    bt.document_ref_number,
+    bt.sku,
+    bt.brand,
+    bt.product_family,
+    bt.child_asin,
+    bt.parent_asin,
+    bt.marketplace,
+    bt.country,
+    bt.marketplace_currency,
+    bt.revenue_abcd_class,
+    bt.revenue_abcd_class_description,
+    bt.pareto_abc_class,
+    bt.inventory_id,
+    bt.source_batch_id,
+    bt.source_batch,
+    bt.source_batch_ref_number,
+    bt.batch_id,
+    bt.batch,
+    bt.batch_ref_number,
+    bt.vendor,
+    bt.origin_warehouse,
+    bt.destination_warehouse,
+    bt.units_sold,
+    bt.cogs_amount,
+    bt.purchase_price_amount,
+    bt.landed_cost_amount,
+    -- Quality indicator for this transaction
+    CASE WHEN bt.units_with_cost > 0 THEN 'has_cost' ELSE 'missing_cost' END AS cost_status
+  FROM base_transactions bt
+  CROSS JOIN params p
+  WHERE p.detail_level = 'transactions'
 )
 
+-- Output: Aggregated data when detail_level = 'aggregated'
 SELECT
   ac.time_period,
   {{select_dimensions}}
@@ -177,7 +267,75 @@ SELECT
   CASE 
     WHEN ac.units_sold > 0 THEN ROUND(ac.cogs_amount / ac.units_sold, 2)
     ELSE 0.0 
-  END AS avg_unit_cogs
+  END AS avg_unit_cogs,
+  -- Placeholder columns for UNION compatibility
+  NULL AS transaction_id,
+  NULL AS document_date,
+  NULL AS document_id,
+  NULL AS document_name,
+  NULL AS document_ref_number_detail,
+  NULL AS sku_detail,
+  NULL AS brand_detail,
+  NULL AS product_family_detail,
+  NULL AS child_asin_detail,
+  NULL AS parent_asin_detail,
+  NULL AS source_batch_id_detail,
+  NULL AS source_batch_detail,
+  NULL AS source_batch_ref_number_detail,
+  NULL AS batch_id_detail,
+  NULL AS batch_detail,
+  NULL AS batch_ref_number_detail,
+  NULL AS vendor_detail,
+  NULL AS origin_warehouse_detail,
+  NULL AS destination_warehouse_detail,
+  NULL AS cost_status,
+  'aggregated' AS output_type
 FROM aggregated_cogs ac
+WHERE EXISTS (SELECT 1 FROM params p WHERE p.detail_level = 'aggregated')
+
+UNION ALL
+
+-- Output: Transaction-level detail when detail_level = 'transactions'
+SELECT
+  CAST(td.document_date AS VARCHAR) AS time_period,
+  {{select_dimensions_transactions}}
+  td.cogs_amount,
+  td.units_sold,
+  CASE WHEN td.cost_status = 'has_cost' THEN td.units_sold ELSE 0 END AS units_with_cost,
+  CASE WHEN td.cost_status = 'missing_cost' THEN td.units_sold ELSE 0 END AS units_missing_cost,
+  -- Quality percentage (100% or 0% for individual transaction)
+  CASE WHEN td.cost_status = 'has_cost' THEN 100.0 ELSE 0.0 END AS cogs_quality_pct,
+  -- Quality status
+  CASE WHEN td.cost_status = 'has_cost' THEN '🟢' ELSE '🔴' END AS cogs_quality_status,
+  -- Estimated lost COGS (0 for has_cost, full amount for missing)
+  CASE WHEN td.cost_status = 'missing_cost' THEN td.cogs_amount ELSE 0.0 END AS estimated_lost_cogs,
+  1 AS transactions_count,
+  td.purchase_price_amount,
+  CASE WHEN td.units_sold > 0 THEN ROUND(td.cogs_amount / td.units_sold, 2) ELSE 0.0 END AS avg_unit_cogs,
+  -- Transaction-level detail columns
+  td.transaction_id,
+  td.document_date,
+  td.document_id,
+  td.document_name,
+  td.document_ref_number AS document_ref_number_detail,
+  td.sku AS sku_detail,
+  td.brand AS brand_detail,
+  td.product_family AS product_family_detail,
+  td.child_asin AS child_asin_detail,
+  td.parent_asin AS parent_asin_detail,
+  td.source_batch_id AS source_batch_id_detail,
+  td.source_batch AS source_batch_detail,
+  td.source_batch_ref_number AS source_batch_ref_number_detail,
+  td.batch_id AS batch_id_detail,
+  td.batch AS batch_detail,
+  td.batch_ref_number AS batch_ref_number_detail,
+  td.vendor AS vendor_detail,
+  td.origin_warehouse AS origin_warehouse_detail,
+  td.destination_warehouse AS destination_warehouse_detail,
+  td.cost_status,
+  'transactions' AS output_type
+FROM transaction_details td
+WHERE EXISTS (SELECT 1 FROM params p WHERE p.detail_level = 'transactions')
+
 {{order_by_clause}}
 LIMIT {{limit_rows}}
