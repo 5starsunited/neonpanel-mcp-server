@@ -26,7 +26,7 @@ const inputSchema = z
         filters: z
           .object({
             company_id: z.coerce.number().int().min(1),
-            shipment_status: z.array(z.enum(['REGULAR', 'FBA INBOUND', 'AWD INBOUND'])).optional(),
+            shipment_type: z.array(z.enum(['REGULAR', 'FBA INBOUND', 'AWD INBOUND'])).optional(),
             destination_warehouse_name: z.string().optional(),
             original_warehouse_name: z.string().optional(),
             delay_threshold_days: z.coerce.number().int().min(0).optional(),
@@ -39,6 +39,9 @@ const inputSchema = z
             shipped_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
             shipped_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
             eta_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+            // Search filters
+            search: z.string().optional(),
+            ref_number: z.string().optional(),
           })
           .strict(),
         sort: z
@@ -137,7 +140,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       
       const templateData: Record<string, string | number> = {
         company_id: companyId,
-        shipment_status_filter: '1=1',
+        shipment_type_filter: '1=1',
         destination_warehouse_filter: '1=1',
         original_warehouse_filter: '1=1',
         origin_country_filter: '1=1',
@@ -150,11 +153,13 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
         shipped_after_filter: '1=1',
         shipped_before_filter: '1=1',
         eta_before_filter: '1=1',
+        // Search filter defaults
+        search_filter: '1=1',
       };
 
-      // Shipment status filter
-      if (filters.shipment_status && filters.shipment_status.length > 0) {
-        templateData.shipment_status_filter = `s.shipment_status IN (${toSqlStringList(filters.shipment_status)})`;
+      // Shipment type filter (logistics model: REGULAR, FBA INBOUND, AWD INBOUND)
+      if (filters.shipment_type && filters.shipment_type.length > 0) {
+        templateData.shipment_type_filter = `s.shipment_type IN (${toSqlStringList(filters.shipment_type)})`;
       }
 
       // Warehouse filters (partial match)
@@ -210,6 +215,16 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
           }
         });
         templateData.signal_filter = `(${signalConditions.join(' OR ')})`;
+      }
+
+      // Search filter (NEW) - searches shipment_name and ref_number
+      if (filters.search) {
+        const escaped = filters.search.replace(/'/g, "''");
+        templateData.search_filter = `(LOWER(s.shipment_name) LIKE LOWER('%${escaped}%') OR LOWER(s.ref_number) LIKE LOWER('%${escaped}%'))`;
+      } else if (filters.ref_number) {
+        // Exact match for ref_number if specified directly
+        const escaped = filters.ref_number.replace(/'/g, "''");
+        templateData.search_filter = `s.ref_number = '${escaped}'`;
       }
 
       // Date range filters (NEW)
@@ -348,7 +363,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
           shipment_id: row.shipment_id,
           shipment_name: row.shipment_name,
           ref_number: row.ref_number,
-          shipment_status: row.shipment_status,
+          shipment_type: row.shipment_type,
           route: {
             origin: row.original_warehouse_name,
             origin_country: row.origin_country_code,

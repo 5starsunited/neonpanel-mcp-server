@@ -5,7 +5,7 @@ SELECT
   s.shipment_id,
   s.shipment_name,
   s.ref_number,
-  s.shipment_status,
+  s.shipment_type,
   s.original_warehouse_name,
   s.destination_warehouse_name,
   s.origin_country_code,
@@ -70,7 +70,7 @@ SELECT
 FROM neonpanel_iceberg.inventory_shipments_snapshot s
 
 WHERE s.company_id = {{company_id}}
-  AND {{shipment_status_filter}}
+  AND {{shipment_type_filter}}
   AND {{destination_warehouse_filter}}
   AND {{original_warehouse_filter}}
   AND {{origin_country_filter}}
@@ -82,6 +82,7 @@ WHERE s.company_id = {{company_id}}
   AND {{shipped_after_filter}}
   AND {{shipped_before_filter}}
   AND {{eta_before_filter}}
+  AND {{search_filter}}
 
 ORDER BY {{sort_clause}}
 LIMIT {{limit}}

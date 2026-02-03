@@ -1,0 +1,30 @@
+CREATE TABLE neonpanel_iceberg.inventory_shipments_snapshot (
+  company_id bigint,
+  company string,
+  shipment_id bigint,
+  shipment_name string,
+  ref_number string,
+  shipment_type string,
+  shipment_status string,
+  original_warehouse_name string,
+  destination_warehouse_name string,
+  origin_country_code string,
+  destination_country_code string,
+  date_shipped string,
+  arrived_at timestamp,
+  signals string,
+  total_items_received bigint,
+  tracked_eta date,
+  first_tracked_eta date,
+  shipment_tracking_details string,
+  p50_eta date,
+  p80_eta date,
+  p95_eta date)
+PARTITIONED BY (`company_id`)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/inventory_shipments_snapshot'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);
