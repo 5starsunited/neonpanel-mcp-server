@@ -1,0 +1,100 @@
+{
+  "name": "supply_chain_shipment_arrival_oracle",
+  "description": "Monitor in-transit shipments with predictive ETAs based on historical warehouse-to-warehouse performance.\n\nThis tool provides real-time visibility into shipment status with:\n- Statistical ETA predictions: P50 (median), P80 (conservative), P95 (worst-case) arrival dates\n- Delay detection: Compare carrier-provided ETAs against historical route performance\n- Ghost shipment identification: Detect shipments physically arrived but not ledger-received\n- Route performance insights: Identify consistently slow/fast shipping lanes\n\nDATA SOURCE:\n- Table: neonpanel_iceberg.inventory_shipments_snapshot\n- Coverage: All shipment types (warehouse-to-warehouse, FBA inbound, AWD inbound)\n- Updates: Daily refresh with latest tracking data\n\nSTATISTICAL ETA CALCULATION:\n- p50_eta: Median arrival date (50th percentile) - expected arrival under normal conditions\n- p80_eta: Conservative estimate (80th percentile) - accounts for typical delays\n- p95_eta: Worst-case estimate (95th percentile) - accounts for severe delays\n- Based on historical performance for each origin→destination warehouse pair\n- Automatically calculated from historical shipment data\n\nSHIPMENT STATUS TYPES:\n- 'REGULAR': Standard warehouse-to-warehouse transfers\n- 'FBA INBOUND': Shipments to Amazon FBA fulfillment centers\n- 'AWD INBOUND': Shipments to Amazon Warehousing & Distribution\n\nSIGNALS (Actionable Alerts):\n- 'Ghost Shipment': Physically arrived (arrived_at set) but not received in ledger (total_items_received = 0)\n- 'Delayed': Carrier ETA exceeds statistical P80 arrival date by threshold days\n- 'On Track': Shipment progressing normally within expected timeframes\n- 'Early Arrival': Arrived earlier than P50 estimate\n\nTRACKING DETAILS:\n- shipment_tracking_details: JSON string with carrier tracking events and status updates\n- tracked_eta: Carrier-provided estimated arrival date (from tracking API)\n- first_tracked_eta: Original ETA when shipment started (tracks ETA changes)\n\nFILTERING:\n- company_id (REQUIRED): Company owning the shipments\n- shipment_status: Filter by logistics model type\n- destination_warehouse_name: Find shipments to specific warehouse (supports partial match)\n- original_warehouse_name: Find shipments from specific origin\n- delay_threshold_days: Show only shipments delayed by X+ days beyond P80 estimate\n- min_days_in_transit: Show only shipments in transit for X+ days\n\nSORT OPTIONS (query.sort.field):\n- delay_days: Most delayed shipments first (tracked_eta - p80_eta)\n- days_in_transit: Longest in-transit shipments first (today - date_shipped)\n- tracked_eta: Soonest arrivals first\n- p80_eta: Conservative estimates\n- date_shipped: Most recently shipped first\n\nEXAMPLE USE CASES:\n\n1. Find delayed FBA shipments:\n   - filters: {company_id: 103, shipment_status: ['FBA INBOUND'], delay_threshold_days: 3}\n   - sort: {field: 'delay_days', direction: 'desc'}\n   - Shows FBA shipments running 3+ days behind P80 estimates\n\n2. Monitor shipments to specific warehouse:\n   - filters: {company_id: 103, destination_warehouse_name: 'LGB8'}\n   - sort: {field: 'tracked_eta', direction: 'asc'}\n   - Track all inbound shipments to LGB8 by expected arrival\n\n3. Identify ghost shipments:\n   - filters: {company_id: 103}\n   - Returns all shipments with 'Ghost Shipment' signal\n   - Action: Check ledger entries and receive shipments\n\n4. Long in-transit shipments:\n   - filters: {company_id: 103, min_days_in_transit: 30}\n   - sort: {field: 'days_in_transit', direction: 'desc'}\n   - Find shipments stuck in transit for 30+ days\n\n5. Route performance analysis:\n   - filters: {company_id: 103, original_warehouse_name: 'Main Warehouse'}\n   - Analyze all routes from specific origin to optimize logistics\n\nOUTPUT FIELDS:\n- shipment_id: Unique identifier\n- shipment_name: Human-readable shipment reference\n- ref_number: External tracking/reference number\n- shipment_status: Logistics model type\n- original_warehouse_name: Origin location\n- destination_warehouse_name: Destination location\n- origin_country_code: Source country (e.g., US, CN)\n- destination_country_code: Destination country\n- date_shipped: Shipment departure date\n- days_in_transit: Days since shipment (today - date_shipped)\n- tracked_eta: Carrier-provided arrival estimate\n- first_tracked_eta: Original carrier estimate\n- p50_eta: Statistical median arrival date\n- p80_eta: Statistical conservative arrival date\n- p95_eta: Statistical worst-case arrival date\n- delay_days: Days delayed beyond P80 (tracked_eta - p80_eta)\n- signals: Actionable alerts (Ghost Shipment, Delayed, On Track)\n- arrived_at: Physical arrival timestamp (NULL if not arrived)\n- total_items_received: Items received in ledger (0 = ghost shipment)\n- shipment_tracking_details: JSON tracking events\n\nIMPORTANT NOTES:\n- company_id filter is REQUIRED (multi-tenant data)\n- Statistical ETAs are calculated from historical warehouse pair performance\n- NULL statistical ETAs mean no historical data for that route\n- Ghost shipments need manual ledger reconciliation\n- Delay threshold is measured against P80 (conservative estimate), not carrier ETA\n- Results limited to in-transit shipments by default (exclude already received)\n\nInput uses the standard query envelope:\n- query.filters: WHERE clause conditions\n- query.sort: ORDER BY field and direction\n- query.limit: Maximum rows to return (default: 50)",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Standard query envelope for shipment monitoring",
+        "required": ["filters"],
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "WHERE clause filters. company_id is required.",
+            "required": ["company_id"],
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Company identifier - required for multi-tenant isolation"
+              },
+              "shipment_status": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["REGULAR", "FBA INBOUND", "AWD INBOUND"]
+                },
+                "description": "Filter by logistics model type(s)"
+              },
+              "destination_warehouse_name": {
+                "type": "string",
+                "description": "Filter shipments to specific destination warehouse (supports partial match, e.g., 'LGB8')"
+              },
+              "original_warehouse_name": {
+                "type": "string",
+                "description": "Filter shipments from specific origin warehouse"
+              },
+              "delay_threshold_days": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Show only shipments where tracked_eta exceeds p80_eta by this many days. Use 0 to show all delayed shipments."
+              },
+              "min_days_in_transit": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Show only shipments in transit for at least this many days"
+              },
+              "origin_country_code": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by origin country code(s) - e.g., ['US', 'CN']"
+              },
+              "destination_country_code": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by destination country code(s) - e.g., ['US', 'UK']"
+              },
+              "include_received": {
+                "type": "boolean",
+                "default": false,
+                "description": "Include shipments already received (arrived_at is not NULL). Default false = in-transit only."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Sort results by any output field",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": ["delay_days", "days_in_transit", "tracked_eta", "p80_eta", "date_shipped", "shipment_name"],
+                "default": "delay_days",
+                "description": "Field to sort by. Default: delay_days (most delayed first)"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50,
+            "description": "Maximum number of shipments to return"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  }
+}
