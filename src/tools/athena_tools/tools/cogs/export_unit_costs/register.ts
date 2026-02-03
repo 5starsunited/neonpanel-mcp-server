@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../../clients/athena';
-import { config } from '../../../../../../config';
-import type { ToolRegistry, ToolSpecJson } from '../../../../../types';
-import { loadTextFile } from '../../../../runtime/load-assets';
-import { renderSqlTemplate } from '../../../../runtime/render-sql';
+import { runAthenaQuery } from '../../../../../clients/athena';
+import { config } from '../../../../../config';
+import type { ToolRegistry, ToolSpecJson } from '../../../../types';
+import { loadTextFile } from '../../../runtime/load-assets';
+import { renderSqlTemplate } from '../../../runtime/render-sql';
 
 const inputSchema = z.object({
   query: z.object({
