@@ -39,9 +39,6 @@ SELECT
          AND DATE_DIFF('day', s.p80_eta, s.tracked_eta) > 0 THEN 1 
   END) AS delayed_count,
   
-  -- Historical data quality
-  MAX(s.route_sample_size) AS route_sample_size,
-  
   -- Statistical ETA benchmarks (most recent values for this route)
   MAX(s.p50_eta) AS latest_p50_eta,
   MAX(s.p80_eta) AS latest_p80_eta,

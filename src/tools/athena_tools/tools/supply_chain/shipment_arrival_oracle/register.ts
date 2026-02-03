@@ -39,7 +39,6 @@ const inputSchema = z
             shipped_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
             shipped_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
             eta_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-            carrier: z.array(z.string()).optional(),
           })
           .strict(),
         sort: z
@@ -151,7 +150,6 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
         shipped_after_filter: '1=1',
         shipped_before_filter: '1=1',
         eta_before_filter: '1=1',
-        carrier_filter: '1=1',
       };
 
       // Shipment status filter
@@ -225,11 +223,6 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
 
       if (filters.eta_before) {
         templateData.eta_before_filter = `(s.tracked_eta IS NOT NULL AND s.tracked_eta <= DATE '${filters.eta_before}')`;
-      }
-
-      // Carrier filter (NEW)
-      if (filters.carrier && filters.carrier.length > 0) {
-        templateData.carrier_filter = `s.carrier IN (${toSqlStringList(filters.carrier)})`;
       }
 
       // Sort clause
@@ -311,7 +304,6 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
               ghost_shipment_count: Number(row.ghost_shipment_count) || 0,
             },
             historical_data: {
-              route_sample_size: row.route_sample_size ? Number(row.route_sample_size) : null,
               latest_p50_eta: row.latest_p50_eta,
               latest_p80_eta: row.latest_p80_eta,
               latest_p95_eta: row.latest_p95_eta,
@@ -368,7 +360,6 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
             days_in_transit: row.days_in_transit,
             tracked_eta: row.tracked_eta,
             first_tracked_eta: row.first_tracked_eta,
-            carrier: row.carrier,
           },
           statistical_etas: {
             p50_eta: row.p50_eta,
@@ -376,7 +367,6 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
             p95_eta: row.p95_eta,
             delay_days: row.delay_days,
             has_historical_data: row.has_historical_data === true || row.has_historical_data === 'true',
-            route_sample_size: row.route_sample_size ? Number(row.route_sample_size) : null,
           },
           urgency_score: row.urgency_score ? Number(row.urgency_score) : 0,
           status: {

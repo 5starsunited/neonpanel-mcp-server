@@ -18,7 +18,6 @@ SELECT
   -- Carrier tracking data
   s.tracked_eta,
   s.first_tracked_eta,
-  s.carrier,
   
   -- Statistical ETA predictions (from historical data)
   s.p50_eta,
@@ -26,7 +25,6 @@ SELECT
   s.p95_eta,
   
   -- Historical data quality indicators
-  s.route_sample_size,
   CASE WHEN s.p80_eta IS NOT NULL THEN TRUE ELSE FALSE END AS has_historical_data,
   
   -- Delay calculation: how many days beyond P80 estimate
@@ -84,7 +82,6 @@ WHERE s.company_id = {{company_id}}
   AND {{shipped_after_filter}}
   AND {{shipped_before_filter}}
   AND {{eta_before_filter}}
-  AND {{carrier_filter}}
 
 ORDER BY {{sort_clause}}
 LIMIT {{limit}}
