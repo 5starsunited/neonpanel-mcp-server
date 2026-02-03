@@ -6,6 +6,7 @@ SELECT
   s.shipment_name,
   s.ref_number,
   s.shipment_type,
+  s.shipment_status,
   s.original_warehouse_name,
   s.destination_warehouse_name,
   s.origin_country_code,

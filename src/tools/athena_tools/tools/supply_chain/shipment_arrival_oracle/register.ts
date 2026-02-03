@@ -372,6 +372,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
           shipment_name: row.shipment_name,
           ref_number: row.ref_number,
           shipment_type: row.shipment_type,
+          shipment_status: row.shipment_status,
           route: {
             origin: row.original_warehouse_name,
             origin_country: row.origin_country_code,
