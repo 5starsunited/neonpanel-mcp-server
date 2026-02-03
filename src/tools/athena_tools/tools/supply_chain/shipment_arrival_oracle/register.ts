@@ -84,26 +84,40 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       const input = inputSchema.parse(args);
       const companyId = input.query.filters.company_id;
 
-      // Verify user has permission for this company
-      const permission = 'view:quicksight_group.business_planning_new';
-      const companiesResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
+      // Verify user has permission for this company - needs at least ONE of these permissions
+      const permissions = [
+        'view:quicksight_group.inventory_management_new',
+        'view:quicksight_group.finance-new',
+      ];
 
-      const companies = companiesResponse.companies || [];
-      const hasPermission = companies.some(
-        (c: { company_id?: number; companyId?: number; id?: number }) =>
-          (c.company_id ?? c.companyId ?? c.id) === companyId ||
-          String(c.company_id ?? c.companyId ?? c.id) === String(companyId),
-      );
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const companiesResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+
+          const companies = companiesResponse.companies || [];
+          companies.forEach((c: { company_id?: number; companyId?: number; id?: number }) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch (err) {
+          // Continue if one permission check fails
+        }
+      }
+
+      const hasPermission = allPermittedCompanyIds.has(companyId);
 
       if (!hasPermission) {
         return {
           content: [
             {
               type: 'text',
-              text: `Permission denied: You don't have access to company_id=${companyId}. Available companies: ${companies.map((c: { name?: string; company_id?: number; companyId?: number; id?: number }) => `${c.name} (id=${c.company_id ?? c.companyId ?? c.id})`).join(', ')}`,
+              text: `Permission denied: You don't have access to company_id=${companyId}. Requires view:quicksight_group.inventory_management_new OR view:quicksight_group.finance-new permission.`,
             },
           ],
         };

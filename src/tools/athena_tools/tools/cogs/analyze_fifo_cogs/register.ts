@@ -102,27 +102,43 @@ async function executeCogsAnalyzeFifoCogs(
   params: CogsAnalyzeInput,
   context: ToolExecutionContext,
 ): Promise<{ items: unknown[]; meta: Record<string, unknown> }> {
-  // Permission gate
-  const permission = 'view:quicksight_group.business_planning_new';
-  const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-    token: context.userToken,
-    path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-  });
+  // Permission gate - user needs at least ONE of these permissions
+  const permissions = [
+    'view:quicksight_group.inventory_management_new',
+    'view:quicksight_group.finance-new',
+  ];
 
-  const permittedCompanies = (permissionResponse.companies ?? []).filter(
-    (c): c is { company_id?: number; companyId?: number; id?: number } =>
-      c !== null && typeof c === 'object',
-  );
+  // Fetch permitted companies from both permissions
+  const allPermittedCompanyIds = new Set<number>();
+  for (const permission of permissions) {
+    try {
+      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+        token: context.userToken,
+        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+      });
 
-  const permittedCompanyIds = permittedCompanies
-    .map((c) => c.company_id ?? c.companyId ?? c.id)
-    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+      const permittedCompanies = (permissionResponse.companies ?? []).filter(
+        (c): c is { company_id?: number; companyId?: number; id?: number } =>
+          c !== null && typeof c === 'object',
+      );
 
+      permittedCompanies.forEach((c) => {
+        const id = c.company_id ?? c.companyId ?? c.id;
+        if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+          allPermittedCompanyIds.add(id);
+        }
+      });
+    } catch (err) {
+      // Continue if one permission check fails
+    }
+  }
+
+  const permittedCompanyIds = Array.from(allPermittedCompanyIds);
   const requestedCompanyIds = params.query.filters.company_id;
   const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
   if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
-    return { items: [], meta: { error: 'No permitted companies or access denied' } };
+    return { items: [], meta: { error: 'No permitted companies or access denied. Requires view:quicksight_group.inventory_management_new OR view:quicksight_group.finance-new permission' } };
   }
 
   // Extract parameters

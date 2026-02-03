@@ -2,10 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
-import type { ToolRegistry, ToolSpecJson } from '../../../../types';
+import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+
+interface CompaniesWithPermissionResponse {
+  companies?: Array<{ company_id?: number; companyId?: number; id?: number; name?: string }>;
+}
 
 const inputSchema = z.object({
   query: z.object({
@@ -57,8 +62,53 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
     inputSchema,
     outputSchema: specJson.outputSchema as Record<string, unknown>,
     specJson,
-    execute: async (input: Input) => {
+    execute: async (input: Input, context: ToolExecutionContext) => {
       const { filters, limit } = input.query;
+
+      // Permission check - user needs at least ONE of these permissions
+      const permissions = [
+        'view:quicksight_group.inventory_management_new',
+        'view:quicksight_group.finance-new',
+      ];
+
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+
+          const permittedCompanies = (permissionResponse.companies ?? []).filter(
+            (c): c is { company_id?: number; companyId?: number; id?: number } =>
+              c !== null && typeof c === 'object',
+          );
+
+          permittedCompanies.forEach((c) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch (err) {
+          // Continue if one permission check fails
+        }
+      }
+
+      const permittedCompanyIds = Array.from(allPermittedCompanyIds);
+      const requestedCompanyIds = filters.company_id;
+      const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
+
+      if (allowedCompanyIds.length === 0) {
+        return {
+          items: [],
+          meta: {
+            error: 'No permitted companies or access denied. Requires view:quicksight_group.inventory_management_new OR view:quicksight_group.finance-new permission',
+            row_count: 0,
+            limit: limit || 5,
+          },
+        };
+      }
 
       // Build template data with complete SQL expressions
       const templateData: any = {

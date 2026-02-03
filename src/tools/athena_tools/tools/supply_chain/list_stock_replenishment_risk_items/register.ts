@@ -125,18 +125,33 @@ async function resolveCompanyIds(
     }
   }
 
-  // Fallback: fetch from NeonPanel API
+  // Fallback: fetch from NeonPanel API - needs at least ONE of these permissions
   if (companyIds.length === 0) {
     try {
-      const permission = 'view:quicksight_group.business_planning_new';
-      const response = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
-      const companies = response.companies ?? [];
-      companyIds = companies
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && id > 0);
+      const permissions = [
+        'view:quicksight_group.inventory_management_new',
+        'view:quicksight_group.finance-new',
+      ];
+
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const response = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+          const companies = response.companies ?? [];
+          companies.forEach((c) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch {
+          // Continue if one permission check fails
+        }
+      }
+      companyIds = Array.from(allPermittedCompanyIds);
     } catch {
       // If API fails, default to empty (will cause SQL to return no results)
       companyIds = [];

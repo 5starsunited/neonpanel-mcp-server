@@ -97,21 +97,36 @@ async function executeInventoryValuationAnalyzeInventoryValue(params: InputType,
   const sort = params.query.sort ?? { field: 'balance_amount' as const, direction: 'desc' as const };
   const limit = params.query.limit ?? 100;
 
-  // Permission check
-  const permission = 'view:quicksight_group.business_planning_new';
-  const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-    token: context.userToken,
-    path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-  });
+  // Permission check - user needs at least ONE of these permissions
+  const permissions = [
+    'view:quicksight_group.inventory_management_new',
+    'view:quicksight_group.finance-new',
+  ];
 
-  const permittedCompanies = (permissionResponse.companies ?? []).filter(
-    (c): c is { company_id?: number; companyId?: number; id?: number } => c !== null && typeof c === 'object',
-  );
+  const allPermittedCompanyIds = new Set<number>();
+  for (const permission of permissions) {
+    try {
+      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+        token: context.userToken,
+        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+      });
 
-  const permittedCompanyIds = permittedCompanies
-    .map((c) => c.company_id ?? c.companyId ?? c.id)
-    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+      const permittedCompanies = (permissionResponse.companies ?? []).filter(
+        (c): c is { company_id?: number; companyId?: number; id?: number } => c !== null && typeof c === 'object',
+      );
 
+      permittedCompanies.forEach((c) => {
+        const id = c.company_id ?? c.companyId ?? c.id;
+        if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+          allPermittedCompanyIds.add(id);
+        }
+      });
+    } catch (err) {
+      // Continue if one permission check fails
+    }
+  }
+
+  const permittedCompanyIds = Array.from(allPermittedCompanyIds);
   const requestedCompanyIds = filters.company_id;
   const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
