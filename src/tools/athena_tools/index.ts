@@ -10,10 +10,9 @@ import { registerForecastingListLatestSalesForecastTool } from './tools/forecast
 import { registerForecastingCompareSalesForecastScenariosTool } from './tools/forecasting/compare_sales_forecast_scenarios/register';
 import { registerForecastingWriteSalesForecastTool } from './tools/forecasting/write_sales_forecast/register';
 import { registerForecastingGenerateSalesForecastTool } from './tools/forecasting/generate_sales_forecast/register';
-import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/brand_analytics_get_competitive_landscape/register';
+import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/get_competitive_landscape/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
-import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
 import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
 
@@ -33,7 +32,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsGetCompetitiveLandscapeTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsExportUnitCostsTool(registry);
-  registerCogsListLostBatchesTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }

@@ -1,0 +1,213 @@
+{
+  "name": "brand_analytics_analyze_search_catalog_performance",
+  "description": "Analyzes Search Catalog Performance using the Brand Analytics catalog performance report. Returns KPI metrics, trend deltas, and 4 high-level RYG signals (strength, weakness, opportunity, threshold) with explanations. Supports filtering by classification and signal colors.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Brand Analytics tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "WHERE clause filters. company_id is required.",
+            "properties": {
+              "company_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Company identifier(s) - required for multi-tenant isolation."
+              },
+              "asins": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: filter by child ASINs."
+              },
+              "parent_asins": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: filter by parent ASINs."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              },
+              "row_type": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["child", "parent"] },
+                "description": "Optional: restrict to child or parent rows."
+              },
+              "revenue_abcd_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "default": ["A", "B"],
+                "description": "Filter by revenue classification (A=top 70%, B=next 20%, C=next 8%, D=bottom 2%). Default: A,B."
+              },
+              "pareto_abc_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "description": "Filter by Pareto classification (A=top 80%, B=next 15%, C=bottom 5%)."
+              },
+              "strength_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by strength signal color."
+              },
+              "weakness_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by weakness signal color."
+              },
+              "opportunity_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by opportunity signal color."
+              },
+              "threshold_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by threshold signal color."
+              },
+              "click_trend_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by click rate trend signal color."
+              },
+              "cart_add_trend_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by cart add rate trend signal color."
+              },
+              "purchase_trend_colors": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "description": "Filter by purchase rate trend signal color."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 52,
+                    "default": 12
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "week_start",
+                  "impressiondata_impressioncount",
+                  "clickdata_clickcount",
+                  "purchasedata_purchasecount",
+                  "kpi_click_rate",
+                  "kpi_cart_add_rate",
+                  "kpi_purchase_rate",
+                  "purchasedata_searchtrafficsales_amount"
+                ],
+                "default": "week_start"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 200
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "week_start": { "type": "string", "format": "date" },
+            "company_id": { "type": "integer" },
+            "marketplace": { "type": "string" },
+            "marketplace_country_code": { "type": "string" },
+            "parent_asin": { "type": "string" },
+            "asin": { "type": "string" },
+            "row_type": { "type": "string" },
+            "revenue_abcd_class": { "type": "string" },
+            "pareto_abc_class": { "type": "string" },
+            "brand": { "type": "string" },
+            "title": { "type": "string" },
+            "impressiondata_impressioncount": { "type": "number" },
+            "clickdata_clickcount": { "type": "number" },
+            "cartadddata_cartaddcount": { "type": "number" },
+            "purchasedata_purchasecount": { "type": "number" },
+            "clickdata_clickrate": { "type": "number" },
+            "purchasedata_conversionrate": { "type": "number" },
+            "purchasedata_searchtrafficsales_amount": { "type": "number" },
+            "purchasedata_searchtrafficsales_currencycode": { "type": "string" },
+            "kpi_click_rate": { "type": "number" },
+            "kpi_cart_add_rate": { "type": "number" },
+            "kpi_purchase_rate": { "type": "number" },
+            "kpi_sales_per_click": { "type": "number" },
+            "kpi_sales_per_impression": { "type": "number" },
+            "kpi_click_rate_wow": { "type": "number" },
+            "kpi_click_rate_wolast4": { "type": "number" },
+            "kpi_click_rate_wolast12": { "type": "number" },
+            "kpi_cart_add_rate_wow": { "type": "number" },
+            "kpi_cart_add_rate_wolast4": { "type": "number" },
+            "kpi_cart_add_rate_wolast12": { "type": "number" },
+            "kpi_purchase_rate_wow": { "type": "number" },
+            "kpi_purchase_rate_wolast4": { "type": "number" },
+            "kpi_purchase_rate_wolast12": { "type": "number" },
+            "cvr_same_day": { "type": "number" },
+            "cvr_one_day": { "type": "number" },
+            "cvr_two_day": { "type": "number" },
+            "cvr_same_vs_two_ratio": { "type": "number" },
+            "cvr_one_vs_two_ratio": { "type": "number" },
+            "kpi_click_rate_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
+            "kpi_cart_add_rate_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
+            "kpi_purchase_rate_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
+            "strength_signal": { "type": "string" },
+            "weakness_signal": { "type": "string" },
+            "opportunity_signal": { "type": "string" },
+            "threshold_signal": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  }
+}

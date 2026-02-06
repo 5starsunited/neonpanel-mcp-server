@@ -40,7 +40,7 @@ raw AS (
     clickshare,
     conversionshare,
     departmentname,
-    CAST(rspec_marketplaceids AS VARCHAR) AS amazon_marketplace_id,
+    rspec_marketplaceids AS marketplace_ids,
     CAST(ingest_company_id AS BIGINT) AS company_id
   FROM "{{catalog}}"."sp_api_iceberg"."brand_analytics_search_terms_report"
 ),
@@ -59,8 +59,9 @@ filtered AS (
   SELECT r.*
   FROM raw r
   CROSS JOIN params p
+  CROSS JOIN UNNEST(r.marketplace_ids) AS t(marketplace_id)
   LEFT JOIN marketplaces_dim m
-    ON lower(m.amazon_marketplace_id) = lower(r.amazon_marketplace_id)
+    ON lower(m.amazon_marketplace_id) = lower(t.marketplace_id)
   WHERE
     contains(p.company_ids, r.company_id)
     AND (
@@ -72,7 +73,7 @@ filtered AS (
           m.country_code,
           m.marketplace,
           m.domain,
-          lower(m.amazon_marketplace_id)
+          lower(t.marketplace_id)
         )
       )
     )
