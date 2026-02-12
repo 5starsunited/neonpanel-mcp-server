@@ -3,7 +3,7 @@
 --          enriched with ASIN attributes via campaign→ASIN mapping.
 -- Join chain:
 --   sp_search_term  ST
---     → amazon_sellers       S    ON CAST(S.id AS VARCHAR) = ST.ingest_seller_id
+--     → amazon_sellers       S    ON S.amazon_seller_id = ST.ingest_seller_id
 --     → amazon_marketplaces  M    ON M.id = S.marketplace_id
 --     → campaign_asin_map    CAM  ON CAM.campaign_id = CAST(ST.campaignid AS VARCHAR)
 --                                 AND CAM.company_id = ST.ingest_company_id
@@ -59,7 +59,7 @@ marketplaces_dim AS (
 -- ─── Seller → marketplace mapping ──────────────────────────────────────────
 sellers_dim AS (
   SELECT
-    CAST(id AS VARCHAR) AS seller_id_str,
+    amazon_seller_id,
     marketplace_id
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers"
 ),
@@ -120,7 +120,7 @@ enriched AS (
 
   -- ST → Seller (to get marketplace_id)
   INNER JOIN sellers_dim s
-    ON s.seller_id_str = st.ingest_seller_id
+    ON s.amazon_seller_id = st.ingest_seller_id
 
   -- Seller → Marketplace
   INNER JOIN marketplaces_dim m
