@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_search_term_momentum",
-  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week averages, top-3 competitor ASINs with click/conversion shares, and a pre-scored momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (growing, stable, declining)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
+  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -58,8 +58,8 @@
               },
               "momentum_signal": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "Optional: filter by pre-scored momentum signal values."
+                "items": { "type": "string", "enum": ["accelerating", "growing", "stable", "declining", "collapsing", "new"] },
+                "description": "Optional: filter by computed momentum signal. Values: accelerating (WoW up + 4w > 12w), growing (WoW up), stable, declining (WoW down), collapsing (WoW down + 4w < 12w), new (first week)."
               }
             },
             "required": ["company_id"],
@@ -97,14 +97,19 @@
                   "wow_delta",
                   "avg_share_l4w",
                   "avg_share_l12w",
-                  "displacement_opportunity_score"
+                  "displacement_opportunity_score",
+                  "revenue_share",
+                  "click_share_to_leader",
+                  "leader_conversion_share"
                 ],
-                "default": "search_volume"
+                "default": "search_volume",
+                "description": "Column to sort by. A 'rank' column (1-based) is added to the output reflecting this sort order. Use wow_delta DESC to find biggest gainers, wow_delta ASC for biggest losers."
               },
               "direction": {
                 "type": "string",
                 "enum": ["asc", "desc"],
-                "default": "desc"
+                "default": "desc",
+                "description": "Sort direction. DESC for highest-first (top performers, biggest opportunities). ASC for lowest-first (biggest decliners, weakest positions)."
               }
             },
             "additionalProperties": false
@@ -175,8 +180,11 @@
         "items": {
           "type": "object",
           "properties": {
+            "rank": { "type": "integer", "description": "1-based row number reflecting the chosen sort order." },
             "search_term": { "type": "string", "description": "The search query shoppers typed on Amazon." },
-            "marketplace": { "type": "string", "description": "Amazon marketplace country code (e.g., 'us')." },
+            "company_name": { "type": "string", "description": "Company name associated with this data row." },
+            "marketplace": { "type": "string", "description": "Amazon marketplace country code (e.g., 'US', 'DE', 'UK')." },
+            "currency": { "type": "string", "description": "Currency code for the marketplace (e.g., 'USD', 'EUR', 'GBP')." },
             "category": { "type": "string", "description": "Product department/category associated with this search term." },
             "search_volume": { "type": "number", "description": "Relative search volume for this term (higher = more popular)." },
             "period_start": { "type": "string", "format": "date", "description": "Start date of the reporting week." },
@@ -188,11 +196,12 @@
             "wow_delta": { "type": "number", "description": "Week-over-week change in click share (this week minus last week). Positive = gaining share." },
             "avg_share_l4w": { "type": "number", "description": "Average click share over the last 4 weeks (0-1 scale). Smooths out weekly noise." },
             "avg_share_l12w": { "type": "number", "description": "Average click share over the last 12 weeks (0-1 scale). Shows long-term trend." },
-            "momentum_signal": { "type": "string", "description": "Pre-scored momentum classification: 'accelerating', 'growing', 'stable', 'declining', 'collapsing'." },
+            "momentum_signal": { "type": "string", "description": "Computed momentum classification: 'accelerating' (WoW up + 4w > 12w), 'growing' (WoW up), 'stable', 'declining' (WoW down), 'collapsing' (WoW down + 4w < 12w), 'new' (first week)." },
             "revenue_abcd_class": { "type": "string", "description": "Revenue ABCD class of the ASIN (A=highest revenue, D=lowest)." },
             "pareto_abc_class": { "type": "string", "description": "Pareto ABC class (A=top 80% revenue, C=long tail)." },
             "asin_class": { "type": "string", "description": "Combined ASIN classification." },
             "product_family": { "type": "string", "description": "Product family grouping from ASIN attributes." },
+            "revenue_share": { "type": ["number", "null"], "description": "Revenue share of this ASIN within its company portfolio (0-1 scale). Higher = more important product." },
             "rank_1_asin": { "type": "string", "description": "ASIN with the highest click share (position #1)." },
             "rank_1_itemname": { "type": "string", "description": "Product title of the #1 clicked ASIN." },
             "rank_1_department": { "type": "string", "description": "Department of the #1 clicked ASIN." },

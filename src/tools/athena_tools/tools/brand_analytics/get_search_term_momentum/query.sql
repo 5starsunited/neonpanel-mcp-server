@@ -1,11 +1,12 @@
 -- Tool: brand_analytics_get_search_term_momentum
--- Purpose: Weekly search term momentum from the pre-aggregated smart snapshot.
--- Source: search_term_smart_snapshot (weekly, top-3 flattened, WoW/4w/12w pre-computed).
+-- Purpose: Weekly search term momentum from the smart snapshot.
+-- Source: search_term_smart_snapshot (weekly, top-3 flattened).
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
--- - Snapshot is weekly only.
+-- - Snapshot is weekly only; partitioned by (company_id, year, week_start).
 -- - Top-3 competitor ASINs, click shares, conversion shares are pre-flattened.
--- - WoW delta, 4-week avg, 12-week avg are pre-computed in ETL.
+-- - WoW delta, 4w avg, 12w avg, momentum_signal are COMPUTED here via window fns.
+-- - We read 12 extra weeks before start_date for rolling average history.
 
 WITH params AS (
   SELECT
@@ -35,14 +36,19 @@ WITH params AS (
     CAST({{min_search_volume}} AS DOUBLE)                 AS min_search_volume
 ),
 
--- ─── 1. Filter snapshot rows ───────────────────────────────────────────────
-filtered AS (
+-- ─── 1. Base filter: dimension filters + partition pruning ─────────────────
+-- We do NOT filter on dates here so the "latest" CTE can find the true max week.
+-- A rough year guard limits the scan to recent partitions only.
+base_filtered AS (
   SELECT s.*
   FROM "{{catalog}}"."brand_analytics_iceberg"."search_term_smart_snapshot" s
   CROSS JOIN params p
   WHERE
-    -- Partition pruning on company_id (BIGINT in snapshot)
+    -- Partition pruning on company_id (BIGINT)
     contains(p.company_ids, s.company_id)
+
+    -- Rough year guard (current year ± 1 covers any 52-week lookback + 12-week history)
+    AND s.year >= year(current_date) - 2
 
     -- Optional search terms with match_type
     AND (
@@ -81,10 +87,6 @@ filtered AS (
     AND (cardinality(p.revenue_abcd_class) = 0
          OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(s.revenue_abcd_class)))
 
-    -- Optional momentum signal
-    AND (cardinality(p.momentum_signals) = 0
-         OR any_match(p.momentum_signals, m -> lower(m) = lower(s.momentum_signal)))
-
     -- Optional: at least one of my/competitor ASINs must appear in row or top-3
     AND (
       (cardinality(p.asins) = 0 AND cardinality(p.competitor_asins) = 0)
@@ -95,9 +97,9 @@ filtered AS (
     )
 ),
 
--- ─── 2. Date window ────────────────────────────────────────────────────────
+-- ─── 2. Date bounds ────────────────────────────────────────────────────────
 latest AS (
-  SELECT max(week_start) AS latest_week FROM filtered
+  SELECT max(week_start) AS latest_week FROM base_filtered
 ),
 
 date_bounds AS (
@@ -108,15 +110,56 @@ date_bounds AS (
   CROSS JOIN latest l
 ),
 
-windowed AS (
+-- ─── 3. Expanded window: requested range + 12-week lookback for rolling avgs ─
+expanded AS (
   SELECT f.*
-  FROM filtered f
+  FROM base_filtered f
   CROSS JOIN date_bounds d
-  WHERE f.week_start BETWEEN d.start_date AND d.end_date
-    AND f.year BETWEEN year(d.start_date) AND year(d.end_date)
+  WHERE f.week_start BETWEEN date_add('week', -12, d.start_date) AND d.end_date
+    AND f.year BETWEEN year(date_add('week', -12, d.start_date)) AND year(d.end_date)
 ),
 
--- ─── 3. Pick latest week per (search_term, asin, marketplace) ──────────────
+-- ─── 4. Compute momentum via window functions ─────────────────────────────
+with_momentum AS (
+  SELECT
+    e.*,
+    LAG(e.my_click_share, 1) OVER w                                        AS prev_week_share,
+    e.my_click_share - LAG(e.my_click_share, 1) OVER w                    AS wow_delta,
+    AVG(e.my_click_share) OVER (
+      PARTITION BY e.search_term, e.asin, e.marketplace_country_code, e.company_id
+      ORDER BY e.week_start
+      ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+    )                                                                       AS avg_share_l4w,
+    AVG(e.my_click_share) OVER (
+      PARTITION BY e.search_term, e.asin, e.marketplace_country_code, e.company_id
+      ORDER BY e.week_start
+      ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
+    )                                                                       AS avg_share_l12w
+  FROM expanded e
+  WINDOW w AS (
+    PARTITION BY e.search_term, e.asin, e.marketplace_country_code, e.company_id
+    ORDER BY e.week_start
+  )
+),
+
+-- ─── 5. Trim to actual date range + label momentum signal ─────────────────
+windowed AS (
+  SELECT
+    m.*,
+    CASE
+      WHEN m.wow_delta IS NULL                                        THEN 'new'
+      WHEN m.wow_delta > 0 AND m.avg_share_l4w > m.avg_share_l12w    THEN 'accelerating'
+      WHEN m.wow_delta > 0                                            THEN 'growing'
+      WHEN m.wow_delta < 0 AND m.avg_share_l4w < m.avg_share_l12w    THEN 'collapsing'
+      WHEN m.wow_delta < 0                                            THEN 'declining'
+      ELSE 'stable'
+    END AS momentum_signal
+  FROM with_momentum m
+  CROSS JOIN date_bounds d
+  WHERE m.week_start BETWEEN d.start_date AND d.end_date
+),
+
+-- ─── 6. Pick latest week per (search_term, asin, marketplace) ──────────────
 latest_per_term AS (
   SELECT search_term, asin, marketplace_country_code,
          MAX(week_start) AS max_week
@@ -134,11 +177,13 @@ current_rows AS (
     AND w.week_start               = lp.max_week
 ),
 
--- ─── 4. Enrich with computed fields ────────────────────────────────────────
+-- ─── 7. Enrich with computed fields ────────────────────────────────────────
 enriched AS (
   SELECT
     c.search_term,
+    c.company                  AS company_name,
     c.marketplace_country_code AS marketplace,
+    c.currency,
     c.rank_1_department        AS category,
     c.volume                   AS search_volume,
     c.week_start               AS period_start,
@@ -149,9 +194,9 @@ enriched AS (
     c.brand                    AS my_brand,
     c.my_click_share,
     c.prev_week_share,
-    c.wow_delta,
-    c.avg_share_l4w,
-    c.avg_share_l12w,
+    ROUND(c.wow_delta, 6)      AS wow_delta,
+    ROUND(c.avg_share_l4w, 6)  AS avg_share_l4w,
+    ROUND(c.avg_share_l12w, 6) AS avg_share_l12w,
     c.momentum_signal,
 
     -- Product classification
@@ -159,6 +204,7 @@ enriched AS (
     c.pareto_abc_class,
     c.asin_class,
     c.product_family,
+    ROUND(c.revenue_share, 4)  AS revenue_share,
 
     -- Top 3 (pre-flattened from ETL)
     c.rank_1_asin, c.rank_1_itemname, c.rank_1_department, c.rank_1_clickshare, c.rank_1_conversionshare,
@@ -203,13 +249,17 @@ enriched AS (
   CROSS JOIN params p
 )
 
-SELECT *
+SELECT
+  ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+  e.*
 FROM enriched e
 CROSS JOIN params p
 WHERE
+  -- Optional momentum signal filter (applied post-computation)
+  (cardinality(p.momentum_signals) = 0
+   OR any_match(p.momentum_signals, s -> lower(s) = lower(e.momentum_signal)))
   -- Tool-specific min thresholds
-  (p.min_click_share = 0 OR COALESCE(e.my_click_share, 0) >= p.min_click_share)
+  AND (p.min_click_share = 0 OR COALESCE(e.my_click_share, 0) >= p.min_click_share)
   AND (p.min_search_volume = 0 OR COALESCE(e.search_volume, 0) >= p.min_search_volume)
-ORDER BY
-  e.search_volume DESC NULLS LAST
-LIMIT {{limit_top_n}};
+ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
+LIMIT p.limit_top_n;

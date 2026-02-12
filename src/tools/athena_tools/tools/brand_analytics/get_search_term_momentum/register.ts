@@ -160,7 +160,7 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
 
       // ── Extract filter values ─────────────────────────────────────────────
       const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
+      const database = 'brand_analytics_iceberg';
 
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
@@ -177,9 +177,17 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const minClickShare = toolSpecific?.min_click_share ?? 0;
       const minSearchVolume = toolSpecific?.min_search_volume ?? 0;
 
+      const SORTABLE_FIELDS = new Set([
+        'search_volume', 'my_click_share', 'wow_delta', 'avg_share_l4w',
+        'avg_share_l12w', 'displacement_opportunity_score', 'revenue_share',
+        'click_share_to_leader', 'leader_conversion_share',
+      ]);
+
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 100;
+      const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_volume';
+      const sortDirection = query.sort?.direction ?? 'desc';
 
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
@@ -203,6 +211,10 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
         weak_leader_min_search_volume: Number(weakLeaderMinVolume),
         min_click_share: Number(minClickShare),
         min_search_volume: Number(minSearchVolume),
+
+        // Sort (whitelisted column name, safe for interpolation)
+        sort_column: sortField,
+        sort_direction: sortDirection.toUpperCase(),
       });
 
       const athenaResult = await runAthenaQuery({
