@@ -1,0 +1,16 @@
+CREATE TABLE brand_analytics_iceberg.asin_attributes (
+  asin string,
+  marketplace_id bigint,
+  company_id bigint,
+  product_family string,
+  revenue_abcd_class string,
+  pareto_abc_class string,
+  brand string,
+  revenue_share double)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/asin_attributes'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);

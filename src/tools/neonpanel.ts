@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { neonPanelRequest } from '../clients/neonpanel-api';
+import { neonPanelRequest, NeonPanelApiError } from '../clients/neonpanel-api';
 import type { ToolRegistry } from './types';
 
 const listCompaniesInputSchema = z.object({
@@ -67,6 +67,26 @@ const listInventoryItemsOutputSchema = {
     },
   },
   required: ['data'],
+};
+
+const listingDetailsByAsinInputSchema = z.object({
+  companyUuid: z.string().min(1, 'companyUuid is required'),
+  asin: z.string().min(1, 'asin is required'),
+  sync: z.boolean().default(true).optional(),
+});
+
+const listingDetailsByAsinOutputSchema = {
+  type: 'object',
+  properties: {
+    listingId: { type: ['integer', 'null'] },
+    listing: { type: ['object', 'null'], additionalProperties: true },
+    listings: {
+      type: 'array',
+      items: { type: 'object', additionalProperties: true },
+    },
+    synced: { type: 'boolean' },
+  },
+  required: ['listingId', 'listing', 'listings', 'synced'],
 };
 
 const listWarehousesInputSchema = z.object({
@@ -464,6 +484,113 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
             sku: parsed.sku,
           },
         });
+      },
+    })
+    .register({
+      name: 'neonpanel_getListingDetailsByAsin',
+      description:
+        'Find listing by ASIN and return the latest listing details (auto-syncs the listing by default).',
+      isConsequential: false,
+      inputSchema: listingDetailsByAsinInputSchema,
+      outputSchema: listingDetailsByAsinOutputSchema,
+      examples: [
+        {
+          name: 'Fetch listing details by ASIN',
+          arguments: {
+            companyUuid: 'company-uuid',
+            asin: 'B000123456',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = listingDetailsByAsinInputSchema.parse(args);
+        const { companyUuid, asin, sync } = parsed;
+
+        const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
+        let listingsResponse: any;
+
+        try {
+          listingsResponse = await neonPanelRequest({
+            token: context.userToken,
+            path: listPath,
+            method: 'POST',
+            body: { asin },
+          });
+        } catch (error) {
+          if (error instanceof NeonPanelApiError && [400, 404, 405].includes(error.status ?? 0)) {
+            try {
+              listingsResponse = await neonPanelRequest({
+                token: context.userToken,
+                path: listPath,
+                query: { asin },
+              });
+            } catch (fallbackError) {
+              if (fallbackError instanceof NeonPanelApiError && [400, 404].includes(fallbackError.status ?? 0)) {
+                listingsResponse = await neonPanelRequest({
+                  token: context.userToken,
+                  path: listPath,
+                  query: { search: asin },
+                });
+              } else {
+                throw fallbackError;
+              }
+            }
+          } else {
+            throw error;
+          }
+        }
+
+        const listings = Array.isArray((listingsResponse as any)?.data)
+          ? (listingsResponse as any).data
+          : [];
+        const listing = listings[0] ?? null;
+        const listingId = listing && typeof listing.id === 'number' ? listing.id : null;
+
+        if (!listingId) {
+          return {
+            listingId: null,
+            listing: null,
+            listings,
+            synced: false,
+          };
+        }
+
+        if (sync) {
+          try {
+            const syncedListing = await neonPanelRequest({
+              token: context.userToken,
+              path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings/${encodeURIComponent(
+                String(listingId),
+              )}/sync`,
+              method: 'POST',
+            });
+
+            return {
+              listingId,
+              listing: syncedListing ?? listing,
+              listings,
+              synced: true,
+            };
+          } catch (syncError) {
+            if (syncError instanceof NeonPanelApiError) {
+              return {
+                listingId,
+                listing,
+                listings,
+                synced: false,
+                sync_error: syncError.details ?? syncError.message,
+              } as any;
+            }
+            throw syncError;
+          }
+        }
+
+        return {
+          listingId,
+          listing,
+          listings,
+          synced: false,
+        };
       },
     })
     .register({

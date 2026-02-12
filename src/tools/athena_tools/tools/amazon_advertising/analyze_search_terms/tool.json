@@ -1,0 +1,301 @@
+{
+  "name": "advertising_analyze_search_terms",
+  "description": "Analyzes Amazon Sponsored Products Search Term Report data enriched with product attributes via campaign→ASIN mapping.\n\nUse this tool to:\n- Harvest 'Proven Winners': high-converting search terms to promote to exact match or inject into organic SEO (Title/Bullets)\n- Identify 'Bleeders': terms with high spend but no/low sales for Negative Exact targeting\n- Compare match type efficiency (broad vs phrase vs exact)\n- Slice PPC performance by product dimensions: product_family, brand, pareto_abc_class, revenue_abcd_class\n- Find which product families or brands drive the most efficient ad spend\n- Bridge paid and organic strategy by cross-referencing with Brand Analytics tools\n\nData enrichment: Each search term row is joined to its campaign's ASIN via campaign_asin_map, then enriched with ASIN attributes (product_family, brand, pareto_abc_class, revenue_abcd_class, revenue_share) for filtering and grouping.\n\nAttribution: Uses the longest available attribution window (30d → 14d → 7d → 1d) for sales/purchases/units.\n\nIntegration note: Cross-reference results with brand_analytics_get_keyword_funnel_metrics to compare paid efficiency vs organic share, or with brand_analytics_get_search_term_momentum to see organic momentum for the same terms.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-search-term-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for search term analysis.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for search term analysis. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "search_terms": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by specific search queries typed by shoppers."
+              },
+              "match_type": {
+                "type": "string",
+                "enum": ["exact", "contains", "starts_with"],
+                "default": "contains",
+                "description": "How to match search_terms: 'exact' = full match, 'contains' = substring, 'starts_with' = prefix."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Single value."
+              },
+              "campaign_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by campaign name(s). Exact match."
+              },
+              "ad_match_types": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["BROAD", "PHRASE", "EXACT"] },
+                "description": "Filter by PPC match type: BROAD, PHRASE, EXACT."
+              },
+              "asins": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by specific ASIN(s) targeted by campaigns."
+              },
+              "product_families": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product family (from ASIN attributes). E.g., 'Widgets', 'Gadgets'."
+              },
+              "brands": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by brand name (from ASIN attributes)."
+              },
+              "pareto_abc_classes": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "description": "Filter by Pareto ABC class (from ASIN attributes). A = top revenue, C = long tail."
+              },
+              "revenue_abcd_classes": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "description": "Filter by revenue ABCD class (from ASIN attributes)."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "Controls time window and grouping.",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Start of date range (YYYY-MM-DD). If omitted, derived from periods_back."
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "End of date range (YYYY-MM-DD). If omitted, uses latest available date."
+                  },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 52,
+                    "default": 4,
+                    "description": "Number of weeks back from latest date. Default 4."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["search_term", "campaign_name", "match_type", "product_family", "brand", "pareto_abc_class"]
+                },
+                "default": ["search_term"],
+                "description": "Dimensions to group results by. Default: ['search_term']. Use multiple for cross-tabulation."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ranking and ordering of results. Rows are returned with a 'rank' column (1 = best).",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": ["impressions", "clicks", "cost", "sales", "purchases", "units_sold", "cpc", "ctr_pct", "cvr_pct", "acos_pct", "roas", "sales_same_sku", "days_active", "asin_count"],
+                "default": "cost",
+                "description": "Metric column to sort and rank by. Default: cost."
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction. 'desc' = highest first (e.g., top spenders), 'asc' = lowest first (e.g., best ACoS)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100,
+            "description": "Maximum rows to return. Default 100."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rank": { "type": "integer", "description": "1-based position according to sort field and direction. rank=1 is the 'best' row." },
+            "search_term": { "type": ["string", "null"], "description": "Shopper search query. Null when not in group_by." },
+            "campaign_name": { "type": ["string", "null"], "description": "SP campaign name. Null when not in group_by." },
+            "match_type": { "type": ["string", "null"], "description": "PPC match type (BROAD/PHRASE/EXACT). Null when not in group_by." },
+            "product_family": { "type": ["string", "null"], "description": "Product family from ASIN attributes. 'undefined' when campaign→ASIN mapping is missing. Null when not in group_by." },
+            "brand": { "type": ["string", "null"], "description": "Brand from ASIN attributes. 'undefined' when mapping is missing. Null when not in group_by." },
+            "pareto_abc_class": { "type": ["string", "null"], "description": "Pareto ABC class (A=top revenue, C=long tail). 'undefined' when mapping is missing. Null when not in group_by." },
+            "marketplace": { "type": ["string", "null"], "description": "Amazon marketplace country code (e.g., 'us', 'de')." },
+            "impressions": { "type": "integer", "description": "Total ad impressions in the date range." },
+            "clicks": { "type": "integer", "description": "Total ad clicks in the date range." },
+            "cost": { "type": "number", "description": "Total ad spend in marketplace currency (e.g., USD)." },
+            "sales": { "type": "number", "description": "Attributed sales using longest available window (30d→14d→7d→1d)." },
+            "purchases": { "type": "integer", "description": "Attributed order count (longest window)." },
+            "units_sold": { "type": "integer", "description": "Attributed units sold (longest window)." },
+            "cpc": { "type": ["number", "null"], "description": "Cost per click = cost / clicks. Null if 0 clicks." },
+            "ctr_pct": { "type": ["number", "null"], "description": "Click-through rate as percentage (0-100). Null if 0 impressions." },
+            "cvr_pct": { "type": ["number", "null"], "description": "Conversion rate as percentage (0-100) = purchases / clicks. Null if 0 clicks." },
+            "acos_pct": { "type": ["number", "null"], "description": "ACoS as percentage (0-100) = cost / sales × 100. Lower is better. Null if 0 sales." },
+            "roas": { "type": ["number", "null"], "description": "Return on ad spend = sales / cost. Higher is better. Null if 0 cost." },
+            "sales_same_sku": { "type": ["number", "null"], "description": "Sales attributed to the same SKU that was advertised." },
+            "sales_other_sku": { "type": ["number", "null"], "description": "Sales attributed to other SKUs (halo effect). 7d window only." },
+            "units_sold_same_sku": { "type": ["integer", "null"], "description": "Units sold for the same SKU." },
+            "units_other_sku": { "type": ["integer", "null"], "description": "Units sold for other SKUs. 7d window only." },
+            "purchases_same_sku": { "type": ["integer", "null"], "description": "Orders for the same SKU." },
+            "days_active": { "type": "integer", "description": "Number of distinct reporting days in the date range." },
+            "asin_count": { "type": "integer", "description": "Number of distinct ASINs associated with the aggregated rows." },
+            "avg_revenue_share": { "type": ["number", "null"], "description": "Average revenue share from ASIN attributes (0-1 scale). Null when mapping is missing." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "description": "Top 10 highest-spending search terms for company 42 in the US over the last 4 weeks",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"]
+          },
+          "sort": { "field": "cost", "direction": "desc" },
+          "limit": 10
+        }
+      }
+    },
+    {
+      "description": "Find 'Bleeders': search terms with the worst ACoS (highest cost relative to sales) for A-class products",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"],
+            "pareto_abc_classes": ["A"]
+          },
+          "sort": { "field": "acos_pct", "direction": "desc" },
+          "limit": 20
+        }
+      }
+    },
+    {
+      "description": "Best-converting search terms (lowest ACoS) from Exact match campaigns only",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"],
+            "ad_match_types": ["EXACT"]
+          },
+          "sort": { "field": "acos_pct", "direction": "asc" },
+          "limit": 15
+        }
+      }
+    },
+    {
+      "description": "Compare match type efficiency: aggregate all search terms by match type, ranked by ROAS",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"]
+          },
+          "aggregation": {
+            "group_by": ["match_type"]
+          },
+          "sort": { "field": "roas", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "description": "PPC performance breakdown by product family: which product lines get the best return on ad spend?",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"]
+          },
+          "aggregation": {
+            "group_by": ["product_family"]
+          },
+          "sort": { "field": "roas", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "description": "Search terms containing 'vitamin' with the most impressions over the last 12 weeks",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"],
+            "search_terms": ["vitamin"],
+            "match_type": "contains"
+          },
+          "aggregation": {
+            "time": { "periods_back": 12 }
+          },
+          "sort": { "field": "impressions", "direction": "desc" },
+          "limit": 25
+        }
+      }
+    },
+    {
+      "description": "Cross-tabulation: search term × product family for a specific ASIN, ranked by sales",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": ["US"],
+            "asins": ["B0ABC12345"]
+          },
+          "aggregation": {
+            "group_by": ["search_term", "product_family"]
+          },
+          "sort": { "field": "sales", "direction": "desc" },
+          "limit": 50
+        }
+      }
+    }
+  ]
+}

@@ -188,6 +188,12 @@ curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
 | `/openapi.yaml` | GET | OpenAPI specification (YAML) |
 | `/.well-known/oauth-authorization-server` | GET | OAuth server metadata |
 
+## OpenAPI Additions (2026-01-20)
+
+**Company Forecast Settings**
+- `GET /api/v1/companies/{companyUuid}/settings/forecasts`
+- `PUT /api/v1/companies/{companyUuid}/settings/forecasts`
+
 ## Rate Limiting
 
 - **Window**: 10 seconds

@@ -1,4 +1,4 @@
--- Tool query for brand_analytics_search_catalog_performance_report
+-- Tool query for search_catalog_performance_snapshot
 -- Provides KPI signals (strength/weakness/opportunity/threshold) and trend deltas for catalog-level performance.
 
 WITH params AS (
@@ -30,83 +30,22 @@ WITH params AS (
         {{purchase_trend_colors_array}} AS purchase_trend_colors
 ),
 
-asin_attributes AS (
-    SELECT
-        child_asin as asin,
-        marketplace_id,
-        MIN(revenue_abcd_class) as revenue_abcd_class,
-        MIN(pareto_abc_class) as pareto_abc_class,
-        MIN(brand) as brand,
-        SUM(revenue_share) as revenue_share
-    FROM awsdatacatalog.inventory_planning.last_snapshot_inventory_planning
-    GROUP BY 1,2
-),
-
 raw AS (
-    SELECT
-        asin,
-        cartadddata_cartaddcount,
-        cartadddata_cartaddedmedianprice_amount,
-        cartadddata_cartaddedmedianprice_currencycode,
-        cartadddata_onedayshippingcartaddcount,
-        cartadddata_samedayshippingcartaddcount,
-        cartadddata_twodayshippingcartaddcount,
-        clickdata_clickcount,
-        clickdata_clickedmedianprice_amount,
-        clickdata_clickedmedianprice_currencycode,
-        clickdata_clickrate,
-        clickdata_onedayshippingclickcount,
-        clickdata_samedayshippingclickcount,
-        clickdata_twodayshippingclickcount,
-        CAST(date AS DATE) AS report_date,
-        enddate,
-        impressiondata_impressioncount,
-        impressiondata_impressionmedianprice_amount,
-        impressiondata_impressionmedianprice_currencycode,
-        impressiondata_onedayshippingimpressioncount,
-        impressiondata_samedayshippingimpressioncount,
-        impressiondata_twodayshippingimpressioncount,
-        purchasedata_conversionrate,
-        purchasedata_onedayshippingpurchasecount,
-        purchasedata_purchasecount,
-        purchasedata_purchasemedianprice_amount,
-        purchasedata_purchasemedianprice_currencycode,
-        purchasedata_samedayshippingpurchasecount,
-        purchasedata_searchtrafficsales_amount,
-        purchasedata_searchtrafficsales_currencycode,
-        purchasedata_twodayshippingpurchasecount,
-        rspec_marketplaceids,
-        startdate,
-        ingest_ts_utc,
-        CAST(ingest_company_id AS BIGINT) AS company_id,
-        ingest_seller_id as amazon_seller_id,
-        week_start,
-        year
-    FROM "{{catalog}}"."sp_api_iceberg"."brand_analytics_search_catalog_performance_report"
-),
-
-marketplaces_dim AS (
-    SELECT
-        CAST(amazon_marketplace_id AS VARCHAR) AS amazon_marketplace_id,
-        lower(country) AS country,
-        lower(code) AS country_code,
-        lower(name) AS marketplace,
-        lower(domain) AS domain,
-        id as marketplace_id
-    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
+    SELECT *
+    FROM "{{catalog}}"."brand_analytics_iceberg"."search_catalog_performance_snapshot"
 ),
 
 base_child AS (
     SELECT
-        c.name as company,
-        m.marketplace as marketplace,
-        m.country_code as marketplace_country_code,
-        COALESCE(al.parent_asin, r.asin) as parent_asin,
-        attr.revenue_abcd_class,
-        attr.pareto_abc_class,
-        attr.brand,
-        attr.revenue_share,
-        al.title,
+        r.company,
+        r.marketplace,
+        r.marketplace_country_code,
+        r.parent_asin,
+        r.revenue_abcd_class,
+        r.pareto_abc_class,
+        r.brand,
+        r.revenue_share,
+        r.title,
         r.asin,
         r.week_start,
         r.year,
@@ -135,34 +74,14 @@ base_child AS (
         r.impressiondata_twodayshippingimpressioncount,
         r.company_id,
         r.amazon_seller_id,
-        -- KPI base calculations
-        r.clickdata_clickrate AS kpi_click_rate,
-        CASE
-            WHEN r.impressiondata_impressioncount = 0 THEN NULL
-            ELSE r.cartadddata_cartaddcount / r.impressiondata_impressioncount
-        END AS kpi_cart_add_rate,
-        r.purchasedata_conversionrate AS kpi_purchase_rate,
-        CASE
-            WHEN r.clickdata_clickcount = 0 THEN NULL
-            ELSE r.purchasedata_searchtrafficsales_amount / r.clickdata_clickcount
-        END AS kpi_sales_per_click,
-        CASE
-            WHEN r.impressiondata_impressioncount = 0 THEN NULL
-            ELSE r.purchasedata_searchtrafficsales_amount / r.impressiondata_impressioncount
-        END AS kpi_sales_per_impression,
+        r.kpi_click_rate,
+        r.kpi_cart_add_rate,
+        r.kpi_purchase_rate,
+        r.kpi_sales_per_click,
+        r.kpi_sales_per_impression,
         'child' AS row_type
     FROM raw r
     CROSS JOIN params p
-    LEFT JOIN marketplaces_dim m
-        ON lower(m.amazon_marketplace_id) = lower(r.rspec_marketplaceids)
-    LEFT JOIN athenadatacatalog.neonpanel.amazon_listings al
-        ON al.asin = r.asin
-        AND al.marketplace_id = m.marketplace_id
-    LEFT JOIN awsdatacatalog.neonpanel_iceberg.app_companies c
-        ON CAST(c.id as VARCHAR) = CAST(r.company_id AS VARCHAR)
-    LEFT JOIN asin_attributes attr
-        ON attr.asin = r.asin
-        AND attr.marketplace_id = m.marketplace_id
     WHERE
         contains(p.company_ids, r.company_id)
         AND (
@@ -170,18 +89,16 @@ base_child AS (
             OR any_match(
                 p.marketplaces,
                 input -> lower(input) IN (
-                    m.country,
-                    m.country_code,
-                    m.marketplace,
-                    m.domain,
-                    lower(m.amazon_marketplace_id)
+                    lower(r.marketplace_country_code),
+                    lower(r.marketplace)
                 )
             )
         )
         AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(r.asin)))
-        AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(COALESCE(al.parent_asin, r.asin))))
-        AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(attr.revenue_abcd_class)))
-        AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, c -> upper(c) = upper(attr.pareto_abc_class)))
+        AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(r.parent_asin)))
+        AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(r.revenue_abcd_class)))
+        AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, c -> upper(c) = upper(r.pareto_abc_class)))
+        AND lower(r.row_type) = 'child'
 ),
 
 latest AS (
@@ -350,38 +267,46 @@ with_deltas AS (
     FROM final_base fb
 ),
 
-signal_base AS (
+cvr_base AS (
     SELECT
         w.*,
         -- Delivery speed CVR (purchase per click)
         CASE
-            WHEN w.clickdata_totalsamedayshippingclickcount = 0 THEN NULL
+            WHEN w.clickdata_samedayshippingclickcount = 0 THEN NULL
+            ELSE w.purchasedata_samedayshippingpurchasecount / w.clickdata_samedayshippingclickcount
+        END AS cvr_same_day,
         CASE
-            WHEN w.clickdata_totalonedayshippingclickcount = 0 THEN NULL
-            ELSE w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount
+            WHEN w.clickdata_onedayshippingclickcount = 0 THEN NULL
+            ELSE w.purchasedata_onedayshippingpurchasecount / w.clickdata_onedayshippingclickcount
         END AS cvr_one_day,
         CASE
-            WHEN w.clickdata_totaltwodayshippingclickcount = 0 THEN NULL
-            ELSE w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount
+            WHEN w.clickdata_twodayshippingclickcount = 0 THEN NULL
+            ELSE w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount
         END AS cvr_two_day,
         CASE
-            WHEN w.clickdata_totalsamedayshippingclickcount = 0
-              OR w.clickdata_totaltwodayshippingclickcount = 0
-              OR w.purchasedata_totaltwodayshippingpurchasecount IS NULL
-              OR w.purchasedata_totalsamedayshippingpurchasecount IS NULL
-              THEN NULL
-            ELSE (w.purchasedata_totalsamedayshippingpurchasecount / w.clickdata_totalsamedayshippingclickcount)
-              / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
+            WHEN w.clickdata_samedayshippingclickcount = 0
+                OR w.clickdata_twodayshippingclickcount = 0
+                OR w.purchasedata_twodayshippingpurchasecount IS NULL
+                OR w.purchasedata_samedayshippingpurchasecount IS NULL
+                THEN NULL
+            ELSE (w.purchasedata_samedayshippingpurchasecount / w.clickdata_samedayshippingclickcount)
+                / (w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount)
         END AS cvr_same_vs_two_ratio,
         CASE
-            WHEN w.clickdata_totalonedayshippingclickcount = 0
-              OR w.clickdata_totaltwodayshippingclickcount = 0
-              OR w.purchasedata_totaltwodayshippingpurchasecount IS NULL
-              OR w.purchasedata_totalonedayshippingpurchasecount IS NULL
-              THEN NULL
-            ELSE (w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount)
-              / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
-        END AS cvr_one_vs_two_ratio,
+            WHEN w.clickdata_onedayshippingclickcount = 0
+                OR w.clickdata_twodayshippingclickcount = 0
+                OR w.purchasedata_twodayshippingpurchasecount IS NULL
+                OR w.purchasedata_onedayshippingpurchasecount IS NULL
+                THEN NULL
+            ELSE (w.purchasedata_onedayshippingpurchasecount / w.clickdata_onedayshippingclickcount)
+                / (w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount)
+        END AS cvr_one_vs_two_ratio
+    FROM with_deltas w
+),
+
+signal_base AS (
+    SELECT
+        w.*,
         -- Strength signal
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN NULL
@@ -458,7 +383,7 @@ signal_base AS (
             WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'Approaching ceiling; optimize for marginal gains.'
             ELSE 'No ceiling detected.'
         END AS threshold_description
-    FROM with_deltas w
+    FROM cvr_base w
 ),
 
 final AS (

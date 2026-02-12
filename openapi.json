@@ -29,7 +29,15 @@
     },
     {
       "name": "Inventory",
-      "description": "Inventory, COGS, and Landed Costs"
+      "description": "Inventory catalog data, COGS, and Landed Costs"
+    },
+    {
+      "name": "Products",
+      "description": "Products catalog CRUD operations"
+    },
+    {
+      "name": "Listings",
+      "description": "Listings catalog CRUD operations"
     },
     {
       "name": "Import",
@@ -94,7 +102,7 @@
               "null"
             ],
             "format": "date-time",
-            "example": "2024-01-01 15:30:00 UTC"
+            "example": "2024-01-01T15:30:00.000Z"
           },
           "ref_number": {
             "type": [
@@ -110,7 +118,7 @@
               "null"
             ],
             "format": "date",
-            "example": "2024-01-01",
+            "example": "2024-01-01T00:00:00.000Z",
             "description": "Date for COGS or Landed Costs related documents"
           }
         }
@@ -210,12 +218,12 @@
           "start_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           },
           "end_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           }
         }
       },
@@ -321,6 +329,223 @@
           }
         }
       },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1001
+          },
+          "name": {
+            "type": "string",
+            "example": "John Doe"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "user@neonpanel.com"
+          },
+          "avatar_url": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://example.com/path/to/resource"
+          },
+          "verified_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-01-01T15:30:00.000Z"
+          },
+          "last_login_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-01-01T15:30:00.000Z"
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1001
+          },
+          "sku": {
+            "type": "string",
+            "example": "SKU123"
+          },
+          "parent_sku": {
+            "type": "string",
+            "example": "SKU123"
+          },
+          "name": {
+            "type": "string",
+            "example": "Blue Shirt"
+          },
+          "image": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://example.com/path/to/resource"
+          },
+          "weight": {
+            "type": "number",
+            "example": 80.5,
+            "description": "Weight of product in pounds"
+          },
+          "length": {
+            "type": "number",
+            "example": 80.5,
+            "description": "Length of product in inches"
+          },
+          "height": {
+            "type": "number",
+            "example": 80.5,
+            "description": "Height of product in inches"
+          },
+          "depth": {
+            "type": "number",
+            "example": 80.5,
+            "description": "Depth of product in inches"
+          }
+        }
+      },
+      "Listing": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1001
+          },
+          "asin": {
+            "type": "string",
+            "example": "ASIN123"
+          },
+          "parent_asin": {
+            "type": "string",
+            "example": "ASIN123"
+          },
+          "title": {
+            "type": "string",
+            "example": "Blue Shirt"
+          },
+          "brand": {
+            "type": "string",
+            "example": "5 Stars United"
+          },
+          "color": {
+            "type": "string",
+            "example": "White"
+          },
+          "image": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://example.com/path/to/resource"
+          },
+          "bullet_points": {
+            "type": "object",
+            "nullable": true,
+            "description": "Bullet points grouped by language tag.\nEach key is a BCP 47 language tag (e.g. en_US, de_DE), and\nthe value is an ordered list of bullet point strings.\n",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "Bullet point text (order preserved)"
+              }
+            },
+            "example": {
+              "en_US": [
+                "First description of bullet point",
+                "Second description of bullet point"
+              ]
+            },
+            "default": {}
+          }
+        }
+      },
+      "InventoryRestockData": {
+        "type": "object",
+        "properties": {
+          "daily_sales_target": {
+            "type": "number"
+          },
+          "unit_vendor_price": {
+            "type": "number"
+          },
+          "unit_landed_cost": {
+            "type": "number"
+          },
+          "estimated_daily_sales": {
+            "type": "number"
+          },
+          "estimated_price": {
+            "type": "number"
+          },
+          "lead_time_days": {
+            "type": "number"
+          },
+          "safety_stock_days": {
+            "type": "number"
+          },
+          "fba_lead_time_days": {
+            "type": "number"
+          },
+          "fba_safety_stock_days": {
+            "type": "number"
+          },
+          "target_fba_fee": {
+            "type": "number"
+          },
+          "target_price": {
+            "type": "number"
+          },
+          "target_referral_percentage": {
+            "type": "number"
+          },
+          "daily_unit_sales_target": {
+            "type": "number"
+          }
+        }
+      },
+      "InventoryItemFullData": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1001
+          },
+          "country_code": {
+            "type": "string",
+            "example": "US"
+          },
+          "source": {
+            "type": "string",
+            "example": "amazon"
+          },
+          "fnsku": {
+            "type": "string",
+            "example": "FNSKU12345"
+          },
+          "variation": {
+            "type": "string"
+          },
+          "manager": {
+            "$ref": "#/components/schemas/User"
+          },
+          "product": {
+            "$ref": "#/components/schemas/Product"
+          },
+          "listing": {
+            "$ref": "#/components/schemas/Listing"
+          },
+          "restock_data": {
+            "$ref": "#/components/schemas/InventoryRestockData"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-01-01T15:30:00.000Z"
+          }
+        }
+      },
       "InventoryFilters": {
         "type": "object",
         "properties": {
@@ -375,7 +600,7 @@
               "balances_date": {
                 "type": "string",
                 "format": "date",
-                "example": "2024-01-01"
+                "example": "2024-01-01T00:00:00.000Z"
               },
               "data": {
                 "type": "array",
@@ -424,48 +649,7 @@
             "$ref": "#/components/schemas/InventoryItem"
           },
           "restock_data": {
-            "type": "object",
-            "properties": {
-              "daily_sales_target": {
-                "type": "number"
-              },
-              "unit_vendor_price": {
-                "type": "number"
-              },
-              "unit_landed_cost": {
-                "type": "number"
-              },
-              "estimated_daily_sales": {
-                "type": "number"
-              },
-              "estimated_price": {
-                "type": "number"
-              },
-              "lead_time_days": {
-                "type": "number"
-              },
-              "safety_stock_days": {
-                "type": "number"
-              },
-              "fba_lead_time_days": {
-                "type": "number"
-              },
-              "fba_safety_stock_days": {
-                "type": "number"
-              },
-              "target_fba_fee": {
-                "type": "number"
-              },
-              "target_price": {
-                "type": "number"
-              },
-              "target_referral_percentage": {
-                "type": "number"
-              },
-              "daily_unit_sales_target": {
-                "type": "number"
-              }
-            }
+            "$ref": "#/components/schemas/InventoryRestockData"
           },
           "balances_data": {
             "type": "object",
@@ -627,12 +811,12 @@
           "start_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           },
           "end_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           }
         }
       },
@@ -672,6 +856,42 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/CostItem"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ProductsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Pagination"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ListingsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Pagination"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Listing"
                 }
               }
             }
@@ -752,12 +972,12 @@
           "start_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           },
           "end_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           }
         }
       },
@@ -767,12 +987,12 @@
           "start_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           },
           "end_date": {
             "type": "string",
             "format": "date",
-            "example": "2024-01-01"
+            "example": "2024-01-01T00:00:00.000Z"
           },
           "revenue_amount": {
             "type": "number",
@@ -849,9 +1069,7 @@
         "description": "Returns paginated list of available for user companies",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -899,9 +1117,7 @@
         "summary": "Retrieve a list of Companies where the User has the specified Permission",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -954,9 +1170,7 @@
         "description": "Returns list of reports with groups, descriptions and direct links",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "responses": {
@@ -984,9 +1198,7 @@
         "description": "Returns total values of Sales and COGS by specified periodicity and grouping",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1058,7 +1270,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-01-01"
+              "example": "2024-01-01T00:00:00.000Z"
             }
           },
           {
@@ -1067,7 +1279,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-12-31"
+              "example": "2024-12-31T00:00:00.000Z"
             },
             "description": "Defaults to current date if not provided"
           }
@@ -1098,9 +1310,7 @@
         "description": "Returns paginated list of warehouses of specified company with search by name",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1167,9 +1377,7 @@
         "description": "Returns paginated list of warehouse inventory balances of specified warehouse",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1216,7 +1424,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-01-01"
+              "example": "2024-01-01T00:00:00.000Z"
             },
             "description": "Set a date if you need a balances in a past. Defaults to current date if not provided"
           }
@@ -1247,9 +1455,7 @@
         "description": "Returns paginated list of company inventory with filters and search",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1336,22 +1542,278 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Companies",
+          "Inventory"
+        ],
+        "operationId": "createInventoryItem",
+        "x-openai-isConsequential": false,
+        "summary": "Create Inventory Item for a Company",
+        "description": "Returns newly created Inventory Item full data",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "country_code": {
+                    "type": "string",
+                    "example": "US"
+                  },
+                  "source": {
+                    "type": "string",
+                    "example": "amazon"
+                  },
+                  "fnsku": {
+                    "type": "string",
+                    "example": "FNSKU123"
+                  },
+                  "variation": {
+                    "type": "string"
+                  },
+                  "manager_id": {
+                    "type": "integer",
+                    "example": 1001
+                  },
+                  "listing_id": {
+                    "type": "integer",
+                    "example": 1001
+                  },
+                  "product_id": {
+                    "type": "integer",
+                    "example": 1001
+                  },
+                  "restock_data": {
+                    "$ref": "#/components/schemas/InventoryRestockData"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inventory Item data created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItemFullData"
+                }
+              }
+            }
+          }
+        }
       }
     },
-    "/api/v1/companies/{companyUuid}/inventory-items/{inventoryId}/details": {
+    "/api/v1/companies/{companyUuid}/inventory-items/{inventoryId}": {
+      "get": {
+        "tags": [
+          "Companies",
+          "Inventory"
+        ],
+        "operationId": "getInventoryItemFullData",
+        "x-openai-isConsequential": false,
+        "summary": "Get Inventory Item full info",
+        "description": "Returns Inventory Item full info with related Manager, Product and Listing",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          },
+          {
+            "name": "inventoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the inventory item"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventory Item data created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItemFullData"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Companies",
+          "Inventory"
+        ],
+        "operationId": "updateInventoryItem",
+        "x-openai-isConsequential": false,
+        "summary": "Update Inventory Item",
+        "description": "Updates and returns Inventory Item full info with related Manager, Product and Listing",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          },
+          {
+            "name": "inventoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the inventory item"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "country_code": {
+                    "type": "string",
+                    "example": "US"
+                  },
+                  "source": {
+                    "type": "string",
+                    "example": "amazon"
+                  },
+                  "fnsku": {
+                    "type": "string",
+                    "example": "FNSKU123"
+                  },
+                  "variation": {
+                    "type": "string"
+                  },
+                  "manager_id": {
+                    "type": "integer",
+                    "example": 1001
+                  },
+                  "listing_id": {
+                    "type": "integer",
+                    "example": 1001
+                  },
+                  "product_id": {
+                    "type": "integer",
+                    "example": 1001
+                  },
+                  "restock_data": {
+                    "$ref": "#/components/schemas/InventoryRestockData"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inventory Item data created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItemFullData"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Companies",
+          "Inventory"
+        ],
+        "operationId": "deleteInventoryItem",
+        "x-openai-isConsequential": false,
+        "summary": "Delete Inventory Item",
+        "description": "Deletes Inventory Item",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          },
+          {
+            "name": "inventoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the inventory item"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Inventory Item data deleted successfully"
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{companyUuid}/inventory-items/{inventoryId}/balances": {
       "get": {
         "tags": [
           "Inventory"
         ],
-        "operationId": "inventoryDetails",
+        "operationId": "inventoryBalances",
         "x-openai-isConsequential": false,
         "summary": "Retrieve restock information and warehouse balances for an Inventory Item",
         "description": "Returns general information, restock information and detailed warehouse balances",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1379,7 +1841,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-01-01"
+              "example": "2024-01-01T00:00:00.000Z"
             },
             "description": "Set a date if you need a balances information in a past. Defaults to current date if not provided"
           }
@@ -1409,9 +1871,7 @@
         "description": "Returns detailed manufacturing expenses (Landed Costs) for specified inventory by period and warehouse",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1468,7 +1928,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-01-01"
+              "example": "2024-01-01T00:00:00.000Z"
             }
           },
           {
@@ -1477,7 +1937,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-12-31"
+              "example": "2024-12-31T00:00:00.000Z"
             },
             "description": "Defaults to current date if not provided"
           }
@@ -1507,9 +1967,7 @@
         "description": "Returns detailed cost of goods sold (COGS) for inventory by period",
         "security": [
           {
-            "OAuth2": [
-
-            ]
+            "OAuth2": []
           }
         ],
         "parameters": [
@@ -1557,7 +2015,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-01-01"
+              "example": "2024-01-01T00:00:00.000Z"
             }
           },
           {
@@ -1566,7 +2024,7 @@
             "schema": {
               "type": "string",
               "format": "date",
-              "example": "2024-12-31"
+              "example": "2024-12-31T00:00:00.000Z"
             },
             "description": "Defaults to current date if not provided"
           }
@@ -1578,6 +2036,340 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CogsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{companyUuid}/products": {
+      "get": {
+        "tags": [
+          "Companies",
+          "Inventory",
+          "Products"
+        ],
+        "operationId": "getProducts",
+        "x-openai-isConsequential": false,
+        "summary": "Retrieve products information with filters",
+        "description": "Returns a list of products filtered by parameters",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "description": "ID of Product. It will return only 1 product if such was found"
+                  },
+                  "sku": {
+                    "type": "string",
+                    "example": "SKU123",
+                    "description": "Filter by exact SKU value"
+                  },
+                  "search": {
+                    "type": "string",
+                    "example": "Blue Shirt",
+                    "description": "Search by SKU, Name or Parent SKU"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Products data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Companies",
+          "Inventory",
+          "Products"
+        ],
+        "operationId": "createProduct",
+        "x-openai-isConsequential": false,
+        "summary": "Create product",
+        "description": "Creates and returns a product",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Products data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{companyUuid}/products/{productId}": {
+      "put": {
+        "tags": [
+          "Companies",
+          "Inventory",
+          "Products"
+        ],
+        "operationId": "updateProduct",
+        "x-openai-isConsequential": false,
+        "summary": "Update product",
+        "description": "Updates and returns a product",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the product"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product data updated and retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Companies",
+          "Inventory",
+          "Products"
+        ],
+        "operationId": "deleteProduct",
+        "x-openai-isConsequential": false,
+        "summary": "Delete product",
+        "description": "Deletes a product",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the product"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Product has been deleted successfully"
+          },
+          "403": {
+            "description": "Product has not been deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "bool",
+                      "default": false
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Error description"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{companyUuid}/listings": {
+      "get": {
+        "tags": [
+          "Companies",
+          "Inventory",
+          "Listings"
+        ],
+        "operationId": "getListings",
+        "x-openai-isConsequential": false,
+        "summary": "Retrieve listings information with filters",
+        "description": "Returns a list of listings filtered by parameters",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "description": "ID of Product. It will return only 1 product if such was found"
+                  },
+                  "asin": {
+                    "type": "string",
+                    "example": "ASIN123",
+                    "description": "Filter by exact ASIN value"
+                  },
+                  "search": {
+                    "type": "string",
+                    "example": "Blue Shirt",
+                    "description": "Search by ASIN or Title"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Listings data retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{companyUuid}/listings/{listingId}/sync": {
+      "post": {
+        "tags": [
+          "Companies",
+          "Inventory",
+          "Listings"
+        ],
+        "operationId": "syncListing",
+        "x-openai-isConsequential": false,
+        "summary": "Retrieve updated from Amazon listing",
+        "description": "Returns the listing data updated from Amazon",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyUuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The UUID of the company"
+          },
+          {
+            "name": "listingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "The ID of the listing"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listings data updated and retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Listing"
                 }
               }
             }

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { fetch as undiciFetch } from 'undici';
 import { logger } from '../logging/logger';
 import { config } from '../config';
+import yaml from 'js-yaml';
 
 export interface OpenApiStatusOptions {
   includeCache?: boolean;
@@ -128,7 +129,10 @@ export class OpenApiService {
     logger.info({ url: this.remoteUrl }, 'Refreshing OpenAPI schema from NeonPanel');
 
     const response = await this.fetchFn(this.remoteUrl, {
-      headers: this.etag ? { 'If-None-Match': this.etag } : undefined,
+      headers: {
+        Accept: 'application/json',
+        ...(this.etag ? { 'If-None-Match': this.etag } : undefined),
+      },
     });
 
     if (response.status === 304) {
@@ -150,18 +154,23 @@ export class OpenApiService {
     // Be defensive: the remote endpoint may intermittently return non-JSON payloads
     // (e.g. HTML error pages behind a CDN) while still being a 2xx response.
     const rawBody = await response.text().catch(() => '<unavailable>');
+    const contentType = response.headers.get('content-type') ?? '';
     let document: unknown;
     try {
-      document = JSON.parse(rawBody);
+      if (contentType.includes('yaml') || rawBody.trimStart().startsWith('openapi:')) {
+        document = yaml.load(rawBody);
+      } else {
+        document = JSON.parse(rawBody);
+      }
     } catch (error) {
       logger.error(
         {
           err: error,
           status: response.status,
-          contentType: response.headers.get('content-type'),
+          contentType,
           bodySnippet: rawBody === '<unavailable>' ? rawBody : rawBody.slice(0, 500),
         },
-        'Failed to parse OpenAPI schema JSON; keeping existing cache',
+        'Failed to parse OpenAPI schema payload; keeping existing cache',
       );
 
       if (!this.cache) {

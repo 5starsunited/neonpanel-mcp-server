@@ -1,0 +1,87 @@
+{
+  "name": "advertising_analyze_campaign_performance",
+  "description": "Analyzes aggregated Amazon Advertising campaign performance across Sponsored Products (SP), Sponsored Brands (SB), and Sponsored Display (SD) from Marketing Stream data.\n\nUse this tool to:\n- Compare campaign-level ROAS, ACoS, and spend efficiency across ad types\n- Identify top-performing and underperforming campaigns\n- Track spend/sales trends over time\n- Analyze performance by campaign type (SP vs SB vs SD)\n- Spot budget allocation opportunities\n\nIntegration note: Use with advertising_analyze_search_terms for query-level drill-down, or brand_analytics_get_search_term_momentum to correlate ad spend with organic momentum.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-campaign-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope for Amazon Advertising tools.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters for campaign analysis.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "campaign_types": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["sponsored_products", "sponsored_brands", "sponsored_display"]
+                },
+                "description": "Optional: filter by ad type."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 52,
+                    "default": 4
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  }
+}

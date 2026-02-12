@@ -174,6 +174,13 @@ neonpanel.import
 6. **Revenue Analytics**: Analyze revenue and COGS by period
 7. **Generate Reports**: Access NeonPanel reports
 8. **Import Documents**: Upload bills and invoices
+9. **Forecast Settings**: Read and update company forecasting defaults
+
+### New OpenAPI Endpoints (2026-01-20)
+
+**Company Forecast Settings**
+- `GET /api/v1/companies/{companyUuid}/settings/forecasts` – list forecasting settings
+- `PUT /api/v1/companies/{companyUuid}/settings/forecasts` – update forecasting settings
 
 ---
 

@@ -10,6 +10,7 @@ WITH params AS (
 
         -- REQUIRED (authorization + partition pruning)
         {{company_ids_array}} AS company_ids,
+        transform({{company_ids_array}}, x -> CAST(x AS VARCHAR)) AS company_ids_str,
 
         -- OPTIONAL filters (empty array => no filter)
         {{marketplaces_array}} AS marketplaces,
@@ -35,7 +36,7 @@ WITH params AS (
 
 raw AS (
     SELECT *
-    FROM "{{catalog}}"."sp_api_iceberg"."search_query_performance_snapshot"
+    FROM "{{catalog}}"."brand_analytics_iceberg"."search_query_performance_snapshot"
 ),
 
 filtered AS (
@@ -43,7 +44,7 @@ filtered AS (
     FROM raw r
     CROSS JOIN params p
     WHERE
-        contains(p.company_ids, r.company_id)
+        contains(p.company_ids_str, r.company_id)
         AND (cardinality(p.search_terms) = 0 OR any_match(p.search_terms, t -> lower(t) = lower(r.searchquerydata_searchquery)))
         AND (
             cardinality(p.marketplaces) = 0
@@ -94,40 +95,46 @@ windowed AS (
       AND f.year BETWEEN year(d.lookback_start) AND year(d.end_date)
 ),
 
+cvr_base AS (
+    SELECT
+        w.*,
+        -- Delivery speed CVR (purchase per click)
+        CASE
+            WHEN w.clickdata_totalsamedayshippingclickcount = 0 THEN NULL
+            ELSE w.purchasedata_totalsamedayshippingpurchasecount / w.clickdata_totalsamedayshippingclickcount
+        END AS cvr_same_day,
+        CASE
+            WHEN w.clickdata_totalonedayshippingclickcount = 0 THEN NULL
+            ELSE w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount
+        END AS cvr_one_day,
+        CASE
+            WHEN w.clickdata_totaltwodayshippingclickcount = 0 THEN NULL
+            ELSE w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount
+        END AS cvr_two_day,
+        CASE
+            WHEN w.clickdata_totalsamedayshippingclickcount = 0
+                OR w.clickdata_totaltwodayshippingclickcount = 0
+                OR w.purchasedata_totaltwodayshippingpurchasecount IS NULL
+                OR w.purchasedata_totalsamedayshippingpurchasecount IS NULL
+                THEN NULL
+            ELSE (w.purchasedata_totalsamedayshippingpurchasecount / w.clickdata_totalsamedayshippingclickcount)
+                / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
+        END AS cvr_same_vs_two_ratio,
+        CASE
+            WHEN w.clickdata_totalonedayshippingclickcount = 0
+                OR w.clickdata_totaltwodayshippingclickcount = 0
+                OR w.purchasedata_totaltwodayshippingpurchasecount IS NULL
+                OR w.purchasedata_totalonedayshippingpurchasecount IS NULL
+                THEN NULL
+            ELSE (w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount)
+                / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
+        END AS cvr_one_vs_two_ratio
+    FROM windowed w
+),
+
 signal_base AS (
     SELECT
         w.*,
-                -- Delivery speed CVR (purchase per click)
-                CASE
-                        WHEN w.clickdata_totalsamedayshippingclickcount = 0 THEN NULL
-                        ELSE w.purchasedata_totalsamedayshippingpurchasecount / w.clickdata_totalsamedayshippingclickcount
-                END AS cvr_same_day,
-                CASE
-                        WHEN w.clickdata_totalonedayshippingclickcount = 0 THEN NULL
-                        ELSE w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount
-                END AS cvr_one_day,
-                CASE
-                        WHEN w.clickdata_totaltwodayshippingclickcount = 0 THEN NULL
-                        ELSE w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount
-                END AS cvr_two_day,
-                CASE
-                        WHEN w.clickdata_totalsamedayshippingclickcount = 0
-                            OR w.clickdata_totaltwodayshippingclickcount = 0
-                            OR w.purchasedata_totaltwodayshippingpurchasecount IS NULL
-                            OR w.purchasedata_totalsamedayshippingpurchasecount IS NULL
-                            THEN NULL
-                        ELSE (w.purchasedata_totalsamedayshippingpurchasecount / w.clickdata_totalsamedayshippingclickcount)
-                            / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
-                END AS cvr_same_vs_two_ratio,
-                CASE
-                        WHEN w.clickdata_totalonedayshippingclickcount = 0
-                            OR w.clickdata_totaltwodayshippingclickcount = 0
-                            OR w.purchasedata_totaltwodayshippingpurchasecount IS NULL
-                            OR w.purchasedata_totalonedayshippingpurchasecount IS NULL
-                            THEN NULL
-                        ELSE (w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount)
-                            / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
-                END AS cvr_one_vs_two_ratio,
         -- Strength signal
         CASE
             WHEN w.kpi_click_share IS NULL OR w.kpi_purchase_rate IS NULL THEN NULL
@@ -208,8 +215,8 @@ signal_base AS (
             WHEN w.kpi_impression_share >= 0.05 AND w.kpi_ctr_advantage >= 1.2 THEN 'Approaching visibility ceiling.'
             ELSE 'No ceiling detected.'
         END AS threshold_description
-    FROM windowed w
-)
+    FROM cvr_base w
+),
 
 final AS (
     SELECT
@@ -280,60 +287,5 @@ WHERE
     AND (cardinality(params.cart_add_trend_colors) = 0 OR any_match(params.cart_add_trend_colors, c -> lower(c) = lower(f.kpi_cart_add_rate_trend_signal)))
     AND (cardinality(params.purchase_trend_colors) = 0 OR any_match(params.purchase_trend_colors, c -> lower(c) = lower(f.kpi_purchase_rate_trend_signal)))
     AND (cardinality(params.ctr_advantage_trend_colors) = 0 OR any_match(params.ctr_advantage_trend_colors, c -> lower(c) = lower(f.kpi_ctr_advantage_trend_signal)))
-    CASE
-        WHEN sb.kpi_impression_share_wow > 0.02
-         AND sb.kpi_impression_share_wolast4 > 0.02
-         AND sb.kpi_impression_share_wolast12 > 0.02 THEN 'green'
-        WHEN sb.kpi_impression_share_wow < -0.02
-         AND sb.kpi_impression_share_wolast4 < -0.02
-         AND sb.kpi_impression_share_wolast12 < -0.02 THEN 'red'
-        ELSE 'yellow'
-    END AS kpi_impression_share_trend_signal,
-    CASE
-        WHEN sb.kpi_click_share_wow > 0.02
-         AND sb.kpi_click_share_wolast4 > 0.02
-         AND sb.kpi_click_share_wolast12 > 0.02 THEN 'green'
-        WHEN sb.kpi_click_share_wow < -0.02
-         AND sb.kpi_click_share_wolast4 < -0.02
-         AND sb.kpi_click_share_wolast12 < -0.02 THEN 'red'
-        ELSE 'yellow'
-    END AS kpi_click_share_trend_signal,
-    CASE
-        WHEN sb.kpi_cart_add_rate_wow > 0.02
-         AND sb.kpi_cart_add_rate_wolast4 > 0.02
-         AND sb.kpi_cart_add_rate_wolast12 > 0.02 THEN 'green'
-        WHEN sb.kpi_cart_add_rate_wow < -0.02
-         AND sb.kpi_cart_add_rate_wolast4 < -0.02
-         AND sb.kpi_cart_add_rate_wolast12 < -0.02 THEN 'red'
-        ELSE 'yellow'
-    END AS kpi_cart_add_rate_trend_signal,
-    CASE
-        WHEN sb.kpi_purchase_rate_wow > 0.02
-         AND sb.kpi_purchase_rate_wolast4 > 0.02
-         AND sb.kpi_purchase_rate_wolast12 > 0.02 THEN 'green'
-        WHEN sb.kpi_purchase_rate_wow < -0.02
-         AND sb.kpi_purchase_rate_wolast4 < -0.02
-         AND sb.kpi_purchase_rate_wolast12 < -0.02 THEN 'red'
-        ELSE 'yellow'
-    END AS kpi_purchase_rate_trend_signal,
-    CASE
-        WHEN sb.kpi_ctr_advantage_wow > 0.02
-         AND sb.kpi_ctr_advantage_wolast4 > 0.02
-         AND sb.kpi_ctr_advantage_wolast12 > 0.02 THEN 'green'
-        WHEN sb.kpi_ctr_advantage_wow < -0.02
-         AND sb.kpi_ctr_advantage_wolast4 < -0.02
-         AND sb.kpi_ctr_advantage_wolast12 < -0.02 THEN 'red'
-        ELSE 'yellow'
-    END AS kpi_ctr_advantage_trend_signal,
-    json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.strength_color, sb.strength_code, sb.strength_description]) AS JSON)) AS strength_signal,
-    json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.weakness_color, sb.weakness_code, sb.weakness_description]) AS JSON)) AS weakness_signal,
-    json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.opportunity_color, sb.opportunity_code, sb.opportunity_description]) AS JSON)) AS opportunity_signal,
-    json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.threshold_color, sb.threshold_code, sb.threshold_description]) AS JSON)) AS threshold_signal
-FROM signal_base sb
-WHERE
-    (cardinality(params.strength_colors) = 0 OR any_match(params.strength_colors, c -> lower(c) = lower(sb.strength_color)))
-    AND (cardinality(params.weakness_colors) = 0 OR any_match(params.weakness_colors, c -> lower(c) = lower(sb.weakness_color)))
-    AND (cardinality(params.opportunity_colors) = 0 OR any_match(params.opportunity_colors, c -> lower(c) = lower(sb.opportunity_color)))
-    AND (cardinality(params.threshold_colors) = 0 OR any_match(params.threshold_colors, c -> lower(c) = lower(sb.threshold_color)))
-ORDER BY sb.week_start DESC
+ORDER BY f.week_start DESC
 LIMIT {{limit_top_n}};
