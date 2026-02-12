@@ -40,6 +40,21 @@
                 "minItems": 1,
                 "maxItems": 1,
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Single marketplace per query."
+              },
+              "product_family": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional: filter by product family name(s). Narrows results to keywords associated with specific product families."
+              },
+              "revenue_abcd_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "description": "Optional: filter by revenue classification (A=top revenue, D=lowest)."
+              },
+              "pareto_abc_class": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "description": "Optional: filter by Pareto ABC classification (A=top 80% revenue, B=next 15%, C=bottom 5%)."
               }
             },
             "required": ["company_id", "marketplace"],

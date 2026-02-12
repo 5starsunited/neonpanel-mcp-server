@@ -27,6 +27,8 @@ WITH params AS (
     {{categories_array}}              AS categories,
     {{brands_array}}                  AS brands,
     {{revenue_abcd_class_array}}      AS revenue_abcd_class,
+    {{pareto_abc_class_array}}         AS pareto_abc_class,
+    {{product_families_array}}         AS product_families,
     {{momentum_signals_array}}        AS momentum_signals,
 
     -- Tool-specific thresholds
@@ -86,6 +88,14 @@ base_filtered AS (
     -- Optional revenue class
     AND (cardinality(p.revenue_abcd_class) = 0
          OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(s.revenue_abcd_class)))
+
+    -- Optional Pareto ABC class
+    AND (cardinality(p.pareto_abc_class) = 0
+         OR any_match(p.pareto_abc_class, c -> upper(c) = upper(s.pareto_abc_class)))
+
+    -- Optional product family
+    AND (cardinality(p.product_families) = 0
+         OR any_match(p.product_families, f -> lower(f) = lower(s.product_family)))
 
     -- Optional: at least one of my/competitor ASINs must appear in row or top-3
     AND (

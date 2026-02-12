@@ -54,6 +54,9 @@ const querySchema = z
         asin: z.array(z.string()).optional(),
         brand: z.array(z.string()).optional(),
         marketplace: z.array(z.string()).min(1).max(1).optional(),
+        product_family: z.array(z.string()).optional(),
+        revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
+        pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
       })
       .strict(),
     aggregation: z
@@ -169,6 +172,9 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const marketplaces = (query.filters.marketplace ?? []).map((m) => m.trim()).filter(Boolean);
       const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
       const brands = (query.filters.brand ?? []).map((b) => b.trim()).filter(Boolean);
+      const productFamilies = (query.filters.product_family ?? []).map((f) => f.trim()).filter(Boolean);
+      const revenueClass = (query.filters.revenue_abcd_class ?? []).map((c) => c.trim()).filter(Boolean);
+      const paretoClass = (query.filters.pareto_abc_class ?? []).map((c) => c.trim()).filter(Boolean);
 
       const matchType = toolSpecific?.match_type ?? 'contains';
       const minSfr = toolSpecific?.min_search_frequency_rank ?? 0;
@@ -204,6 +210,9 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
         marketplaces_array: sqlVarcharArrayExpr(marketplaces),
         asins_array: sqlVarcharArrayExpr(asins),
         brands_array: sqlVarcharArrayExpr(brands),
+        product_families_array: sqlVarcharArrayExpr(productFamilies),
+        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
         min_search_frequency_rank: Number(minSfr),
         min_impressions: Number(minImpressions),
 

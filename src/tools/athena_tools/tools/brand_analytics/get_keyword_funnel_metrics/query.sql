@@ -26,6 +26,9 @@ WITH params AS (
     {{marketplaces_array}}            AS marketplaces,
     {{asins_array}}                   AS asins,
     {{brands_array}}                  AS brands,
+    {{product_families_array}}         AS product_families,
+    {{revenue_abcd_class_array}}       AS revenue_abcd_class,
+    {{pareto_abc_class_array}}         AS pareto_abc_class,
 
     -- Tool-specific thresholds
     CAST({{min_search_frequency_rank}} AS INTEGER) AS min_search_frequency_rank,
@@ -70,6 +73,18 @@ raw AS (
 
     -- Optional brand filter
     AND (cardinality(p.brands) = 0 OR any_match(p.brands, b -> lower(b) = lower(r.brand)))
+
+    -- Optional product family
+    AND (cardinality(p.product_families) = 0
+         OR any_match(p.product_families, f -> lower(f) = lower(r.product_family)))
+
+    -- Optional revenue ABCD class
+    AND (cardinality(p.revenue_abcd_class) = 0
+         OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(r.revenue_abcd_class)))
+
+    -- Optional Pareto ABC class
+    AND (cardinality(p.pareto_abc_class) = 0
+         OR any_match(p.pareto_abc_class, c -> upper(c) = upper(r.pareto_abc_class)))
 
     -- Only child rows for funnel (parent rows aggregate differently)
     AND r.row_type = 'child'

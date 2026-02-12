@@ -57,6 +57,8 @@ const querySchema = z
         category: z.array(z.string()).optional(),
         brand: z.array(z.string()).optional(),
         revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
+        pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
+        product_family: z.array(z.string()).optional(),
         momentum_signal: z.array(z.string()).optional(),
       })
       .strict(),
@@ -169,6 +171,8 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const categories = (query.filters.category ?? []).map((c) => c.trim()).filter(Boolean);
       const brands = (query.filters.brand ?? []).map((b) => b.trim()).filter(Boolean);
       const revenueClass = (query.filters.revenue_abcd_class ?? []).map((c) => c.trim()).filter(Boolean);
+      const paretoClass = (query.filters.pareto_abc_class ?? []).map((c) => c.trim()).filter(Boolean);
+      const productFamilies = (query.filters.product_family ?? []).map((f) => f.trim()).filter(Boolean);
       const momentumSignals = (query.filters.momentum_signal ?? []).map((m) => m.trim()).filter(Boolean);
 
       const matchType = toolSpecific?.match_type ?? 'exact';
@@ -206,6 +210,8 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
         categories_array: sqlVarcharArrayExpr(categories),
         brands_array: sqlVarcharArrayExpr(brands),
         revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+        product_families_array: sqlVarcharArrayExpr(productFamilies),
         momentum_signals_array: sqlVarcharArrayExpr(momentumSignals),
         weak_leader_max_conversion_share: Number(weakLeaderMax),
         weak_leader_min_search_volume: Number(weakLeaderMinVolume),
