@@ -248,7 +248,7 @@ aggregated AS (
     CASE WHEN p.group_by_brand = 1 THEN w.asin_brand ELSE NULL END,
     CASE WHEN p.group_by_pareto_class = 1 THEN w.pareto_abc_class ELSE NULL END,
     w.marketplace
-)
+),
 
 -- ─── Final output with computed KPIs ────────────────────────────────────────
 with_kpis AS (
