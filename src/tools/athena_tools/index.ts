@@ -20,6 +20,7 @@ import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
 import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
 import { registerAdvertisingAnalyzeSearchTermsTool } from './tools/amazon_advertising/analyze_search_terms/register';
+import { registerAdvertisingAnalyzeCampaignPerformanceTool } from './tools/amazon_advertising/analyze_campaign_performance/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -43,5 +44,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerCogsExportUnitCostsTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
   registerAdvertisingAnalyzeSearchTermsTool(registry);
+  registerAdvertisingAnalyzeCampaignPerformanceTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }

@@ -1,17 +1,17 @@
 {
   "name": "advertising_analyze_campaign_performance",
-  "description": "Analyzes aggregated Amazon Advertising campaign performance across Sponsored Products (SP), Sponsored Brands (SB), and Sponsored Display (SD) from Marketing Stream data.\n\nUse this tool to:\n- Compare campaign-level ROAS, ACoS, and spend efficiency across ad types\n- Identify top-performing and underperforming campaigns\n- Track spend/sales trends over time\n- Analyze performance by campaign type (SP vs SB vs SD)\n- Spot budget allocation opportunities\n\nIntegration note: Use with advertising_analyze_search_terms for query-level drill-down, or brand_analytics_get_search_term_momentum to correlate ad spend with organic momentum.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-campaign-analysis",
+  "description": "Analyzes Amazon Advertising Marketing Stream data across Sponsored Products (SP), Sponsored Brands (SB), and Sponsored Display (SD), enriched with ASIN attributes.\n\nUse this tool to:\n- Compare campaign-level or ad-group-level ROAS, ACoS, and spend efficiency\n- Analyze performance by placement (Top of Search, Detail Page, Other, Off Amazon)\n- Slice spend by ad type (SP vs SB vs SD) to find the most efficient channel\n- Track monthly or yearly trends in advertising efficiency\n- Identify top/bottom campaigns by any KPI\n- Filter by product dimensions (product_family, brand, pareto class) to see ad spend allocation by portfolio segment\n- Drill into targeting keywords to see which targeting expressions drive conversions\n\nData enrichment: Each row is enriched with ASIN attributes (product_family, brand, pareto_abc_class, revenue_abcd_class, revenue_share) via the purchased/advertised ASIN.\n\nPeriodicity: Data is daily granularity. Group by day, month, year, or total (no time breakdown).\n\nIntegration note: Use with advertising_analyze_search_terms for search-query-level drill-down (SP only), or brand_analytics_get_search_term_momentum to correlate ad spend with organic momentum.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-campaign-analysis",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
       "query": {
         "type": "object",
-        "description": "Shared query envelope for Amazon Advertising tools.",
+        "description": "Query envelope for Marketing Stream campaign analysis.",
         "properties": {
           "filters": {
             "type": "object",
-            "description": "Standard filters for campaign analysis.",
+            "description": "Filters for campaign performance analysis. company_id is required; all others are optional.",
             "properties": {
               "company_id": {
                 "type": "integer",
@@ -24,14 +24,78 @@
                   "type": "string",
                   "enum": ["sponsored_products", "sponsored_brands", "sponsored_display"]
                 },
-                "description": "Optional: filter by ad type."
+                "description": "Filter by ad type: sponsored_products, sponsored_brands, sponsored_display."
               },
               "marketplace": {
                 "type": "array",
                 "items": { "type": "string" },
                 "minItems": 1,
                 "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+                "description": "Amazon marketplace filter. Accepts country code ('US', 'UK', 'DE'), country name ('united states'), or marketplace name. Single value."
+              },
+              "campaign_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by campaign name(s). Exact match."
+              },
+              "ad_group_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by ad group name(s). Exact match."
+              },
+              "target_keywords": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by targeting keyword/expression text."
+              },
+              "keyword_match_type": {
+                "type": "string",
+                "enum": ["exact", "contains", "starts_with"],
+                "default": "contains",
+                "description": "How to match target_keywords: 'exact' = full match, 'contains' = substring, 'starts_with' = prefix."
+              },
+              "placements": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "Top of Search on-Amazon",
+                    "Detail Page on-Amazon",
+                    "Other on-Amazon",
+                    "Off Amazon"
+                  ]
+                },
+                "description": "Filter by ad placement. Values: 'Top of Search on-Amazon', 'Detail Page on-Amazon', 'Other on-Amazon', 'Off Amazon'."
+              },
+              "match_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by targeting match type (e.g., 'TARGETING_EXPRESSION', 'TARGETING_EXPRESSION_PREDEFINED')."
+              },
+              "asins": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by purchased or advertised ASIN(s)."
+              },
+              "product_families": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product family (from ASIN attributes)."
+              },
+              "brands": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by brand name (from ASIN attributes)."
+              },
+              "pareto_abc_classes": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "description": "Filter by Pareto ABC class. A = top revenue, C = long tail."
+              },
+              "revenue_abcd_classes": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "description": "Filter by revenue ABCD class."
               }
             },
             "required": ["company_id"],
@@ -39,20 +103,92 @@
           },
           "aggregation": {
             "type": "object",
+            "description": "Controls time window, periodicity, and grouping.",
             "properties": {
               "time": {
                 "type": "object",
                 "properties": {
-                  "start_date": { "type": "string", "format": "date" },
-                  "end_date": { "type": "string", "format": "date" },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Start of date range (YYYY-MM-DD). If omitted, derived from periods_back."
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "End of date range (YYYY-MM-DD). If omitted, uses latest available date."
+                  },
                   "periods_back": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 52,
-                    "default": 4
+                    "default": 4,
+                    "description": "Number of weeks back from latest date. Default 4."
                   }
                 },
                 "additionalProperties": false
+              },
+              "periodicity": {
+                "type": "string",
+                "enum": ["day", "month", "year", "total"],
+                "default": "total",
+                "description": "Time grouping: 'day' = daily rows, 'month' = aggregate by YYYY-MM, 'year' = aggregate by year, 'total' = single aggregate (no time breakdown)."
+              },
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "campaign_name",
+                    "ad_group_name",
+                    "placement",
+                    "match_type",
+                    "dataset",
+                    "target_keyword",
+                    "advertised_asin",
+                    "product_family",
+                    "brand",
+                    "pareto_abc_class",
+                    "revenue_abcd_class",
+                    "company",
+                    "marketplace"
+                  ]
+                },
+                "default": ["campaign_name"],
+                "description": "Dimensions to group by. Combine freely. 'dataset' = ad type (SP/SB/SD). 'marketplace' outputs marketplace name + country code + currency. Default: ['campaign_name']."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ranking and ordering of results. Rows are returned with a 'rank' column (1 = best).",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "impressions",
+                  "clicks",
+                  "cost",
+                  "attributed_sales",
+                  "conversions",
+                  "attributed_units_ordered",
+                  "cpc",
+                  "ctr_pct",
+                  "cvr_pct",
+                  "acos_pct",
+                  "roas",
+                  "days_active",
+                  "asin_count"
+                ],
+                "default": "cost",
+                "description": "Metric column to sort and rank by. Default: cost."
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction. 'desc' = highest first (e.g., top spenders), 'asc' = lowest first (e.g., best ACoS)."
               }
             },
             "additionalProperties": false
@@ -61,7 +197,8 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 500,
-            "default": 100
+            "default": 100,
+            "description": "Max rows to return. Default 100."
           }
         },
         "required": ["filters"],
@@ -78,10 +215,159 @@
         "type": "array",
         "items": {
           "type": "object",
+          "properties": {
+            "rank": { "type": "integer", "description": "1-based position according to sort field and direction. rank=1 is the 'best' row." },
+            "time_period": { "type": ["string", "null"], "description": "Time bucket label: date string (day), YYYY-MM (month), YYYY (year), or null (total)." },
+            "campaign_name": { "type": ["string", "null"], "description": "Campaign name. Null when not in group_by." },
+            "ad_group_name": { "type": ["string", "null"], "description": "Ad group name. Null when not in group_by." },
+            "placement": { "type": ["string", "null"], "description": "Ad placement (Top of Search, Detail Page, Other, Off Amazon). Null when not in group_by." },
+            "match_type": { "type": ["string", "null"], "description": "Targeting match type. Null when not in group_by." },
+            "dataset": { "type": ["string", "null"], "description": "Ad type: sponsored_products, sponsored_brands, or sponsored_display. Null when not in group_by." },
+            "target_keyword": { "type": ["string", "null"], "description": "Targeting keyword or expression. Null when not in group_by." },
+            "advertised_asin": { "type": ["string", "null"], "description": "Advertised ASIN. Null when not in group_by." },
+            "product_family": { "type": ["string", "null"], "description": "Product family from ASIN attributes. 'undefined' when ASIN has no attributes. Null when not in group_by." },
+            "brand": { "type": ["string", "null"], "description": "Brand from ASIN attributes. 'undefined' when ASIN has no attributes. Null when not in group_by." },
+            "pareto_abc_class": { "type": ["string", "null"], "description": "Pareto ABC class (A=top revenue, C=long tail). Null when not in group_by." },
+            "revenue_abcd_class": { "type": ["string", "null"], "description": "Revenue ABCD class. Null when not in group_by." },
+            "company_id": { "type": ["integer", "null"], "description": "Company identifier. Null when not in group_by." },
+            "marketplace": { "type": ["string", "null"], "description": "Marketplace name (e.g., 'Amazon.com'). Null when marketplace not in group_by." },
+            "marketplace_country_code": { "type": ["string", "null"], "description": "Marketplace country code (e.g., 'us', 'de'). Null when marketplace not in group_by." },
+            "currency": { "type": ["string", "null"], "description": "Currency code (e.g., 'USD', 'EUR'). Null when marketplace not in group_by." },
+            "impressions": { "type": "integer", "description": "Total ad impressions in the date range." },
+            "clicks": { "type": "integer", "description": "Total ad clicks in the date range." },
+            "cost": { "type": "number", "description": "Total ad spend in marketplace currency." },
+            "attributed_sales": { "type": "number", "description": "Total attributed sales from Marketing Stream." },
+            "conversions": { "type": "integer", "description": "Total attributed conversions (orders)." },
+            "attributed_units_ordered": { "type": "integer", "description": "Total attributed units ordered." },
+            "cpc": { "type": ["number", "null"], "description": "Cost per click = cost / clicks. Null if 0 clicks." },
+            "ctr_pct": { "type": ["number", "null"], "description": "Click-through rate as percentage (0-100). Null if 0 impressions." },
+            "cvr_pct": { "type": ["number", "null"], "description": "Conversion rate as percentage (0-100) = conversions / clicks. Null if 0 clicks." },
+            "acos_pct": { "type": ["number", "null"], "description": "ACoS as percentage (0-100) = cost / attributed_sales × 100. Lower is better. Null if 0 sales." },
+            "roas": { "type": ["number", "null"], "description": "Return on ad spend = attributed_sales / cost. Higher is better. Null if 0 cost." },
+            "days_active": { "type": "integer", "description": "Number of distinct reporting days in the date range." },
+            "asin_count": { "type": "integer", "description": "Number of distinct advertised ASINs in the aggregated rows." },
+            "avg_revenue_share": { "type": ["number", "null"], "description": "Average revenue share from ASIN attributes (0-1 scale). Null when ASIN has no attributes." }
+          },
           "additionalProperties": true
         }
       }
     },
     "required": ["items"]
-  }
+  },
+  "examples": [
+    {
+      "title": "Top campaigns by spend (last 4 weeks)",
+      "description": "Which campaigns spent the most in the last 4 weeks?",
+      "request": {
+        "query": {
+          "filters": { "company_id": 81, "marketplace": ["US"] },
+          "aggregation": { "group_by": ["campaign_name"] },
+          "sort": { "field": "cost", "direction": "desc" },
+          "limit": 20
+        }
+      }
+    },
+    {
+      "title": "SP vs SB vs SD efficiency comparison",
+      "description": "Compare ROAS across ad types for the last 8 weeks.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 81, "marketplace": ["US"] },
+          "aggregation": {
+            "time": { "periods_back": 8 },
+            "group_by": ["dataset"]
+          },
+          "sort": { "field": "roas", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "Monthly spend trend by campaign",
+      "description": "Track month-over-month spend and ROAS for each campaign.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 81, "marketplace": ["US"] },
+          "aggregation": {
+            "time": { "periods_back": 12 },
+            "periodicity": "month",
+            "group_by": ["campaign_name"]
+          },
+          "sort": { "field": "cost", "direction": "desc" },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "Placement analysis for SP campaigns",
+      "description": "Which placements (Top of Search, Detail Page, etc.) deliver the best ROAS for Sponsored Products?",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 81,
+            "marketplace": ["US"],
+            "campaign_types": ["sponsored_products"]
+          },
+          "aggregation": { "group_by": ["placement"] },
+          "sort": { "field": "roas", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "Top of Search performance by product family",
+      "description": "How does Top of Search placement perform across product families?",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 81,
+            "marketplace": ["US"],
+            "placements": ["Top of Search on-Amazon"]
+          },
+          "aggregation": { "group_by": ["product_family"] },
+          "sort": { "field": "attributed_sales", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "Worst-performing campaigns by ACoS",
+      "description": "Find campaigns with the highest ACoS (most inefficient spend).",
+      "request": {
+        "query": {
+          "filters": { "company_id": 81, "marketplace": ["US"] },
+          "aggregation": { "group_by": ["campaign_name"] },
+          "sort": { "field": "acos_pct", "direction": "desc" },
+          "limit": 20
+        }
+      }
+    },
+    {
+      "title": "Ad spend by brand (product attribute)",
+      "description": "How is advertising spend distributed across brands?",
+      "request": {
+        "query": {
+          "filters": { "company_id": 81, "marketplace": ["US"] },
+          "aggregation": { "group_by": ["brand"] },
+          "sort": { "field": "cost", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "Daily performance for a specific campaign",
+      "description": "Daily granularity for a specific campaign to spot day-over-day trends.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 81,
+            "marketplace": ["US"],
+            "campaign_names": ["BOOST - SP - Teddy Onesie - PTA - Category: Women's Novelty One-Piece Pajamas - 06072024"]
+          },
+          "aggregation": {
+            "periodicity": "day",
+            "group_by": ["campaign_name"]
+          },
+          "sort": { "field": "cost", "direction": "desc" },
+          "limit": 30
+        }
+      }
+    }
+  ]
 }
