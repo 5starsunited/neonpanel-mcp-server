@@ -295,6 +295,5 @@ SELECT
   ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
   k.*
 FROM with_kpis k
-CROSS JOIN params p
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
-LIMIT p.limit_top_n
+LIMIT {{limit_top_n}}

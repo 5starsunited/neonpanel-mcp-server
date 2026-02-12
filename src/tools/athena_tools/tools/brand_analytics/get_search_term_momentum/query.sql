@@ -262,4 +262,4 @@ WHERE
   AND (p.min_click_share = 0 OR COALESCE(e.my_click_share, 0) >= p.min_click_share)
   AND (p.min_search_volume = 0 OR COALESCE(e.search_volume, 0) >= p.min_search_volume)
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
-LIMIT p.limit_top_n;
+LIMIT {{limit_top_n}};
