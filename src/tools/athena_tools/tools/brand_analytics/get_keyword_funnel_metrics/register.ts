@@ -50,7 +50,7 @@ const querySchema = z
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
-        keywords: z.array(z.string()).min(1).max(50),
+        keywords: z.array(z.string()).max(50).optional(),
         asin: z.array(z.string()).optional(),
         brand: z.array(z.string()).optional(),
         marketplace: z.array(z.string()).min(1).max(1).optional(),
@@ -165,7 +165,7 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const catalog = config.athena.catalog;
       const database = 'sp_api_iceberg';
 
-      const keywords = query.filters.keywords.map((k) => k.trim()).filter(Boolean);
+      const keywords = (query.filters.keywords ?? []).map((k) => k.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplace ?? []).map((m) => m.trim()).filter(Boolean);
       const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
       const brands = (query.filters.brand ?? []).map((b) => b.trim()).filter(Boolean);
@@ -174,9 +174,21 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const minSfr = toolSpecific?.min_search_frequency_rank ?? 0;
       const minImpressions = toolSpecific?.min_impressions ?? 0;
 
+      const SORTABLE_FIELDS = new Set([
+        'search_frequency_rank', 'total_impressions', 'brand_impression_share',
+        'total_clicks', 'brand_click_share', 'total_cart_adds', 'brand_cart_add_share',
+        'total_purchases', 'brand_purchase_share',
+        'market_impression_to_click_rate', 'market_click_to_cart_rate',
+        'market_cart_to_purchase_rate', 'market_impression_to_purchase_rate',
+        'brand_impression_to_click_rate', 'brand_click_to_cart_rate',
+        'brand_cart_to_purchase_rate', 'brand_impression_to_purchase_rate',
+      ]);
+
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 100;
+      const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_frequency_rank';
+      const sortDirection = query.sort?.direction ?? (sortField === 'search_frequency_rank' ? 'asc' : 'desc');
 
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
@@ -194,6 +206,10 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
         brands_array: sqlVarcharArrayExpr(brands),
         min_search_frequency_rank: Number(minSfr),
         min_impressions: Number(minImpressions),
+
+        // Sort (whitelisted column name, safe for interpolation)
+        sort_column: sortField,
+        sort_direction: sortDirection.toUpperCase(),
       });
 
       const athenaResult = await runAthenaQuery({

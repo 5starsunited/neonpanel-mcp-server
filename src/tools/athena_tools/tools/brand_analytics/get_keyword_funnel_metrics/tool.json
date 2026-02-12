@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_keyword_funnel_metrics",
-  "description": "Returns search funnel data (Impressions, Clicks, Cart Adds, Purchases) for specific keywords from Amazon Brand Analytics Search Query Performance (SQP) report.\n\nCompares 'Brand Share' against 'Total Market' to determine if the product is a conversion leader or needs SEO/PPC adjustments.\n\nUse this tool to:\n- Identify organic growth potential vs. conversion efficiency\n- Find keywords where you have high impressions but low click share (visibility gap)\n- Discover keywords where you have high clicks but low cart-add share (content/pricing issue)\n- Analyze conversion funnel drop-off points at each stage\n\nIntegration note: Cross-reference results with advertising_analyze_search_terms to compare organic funnel share vs paid PPC efficiency on the same keywords, or with brand_analytics_get_search_term_momentum to track click share trends over time.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-sqp",
+  "description": "Returns search funnel data (Impressions, Clicks, Cart Adds, Purchases) for keywords from Amazon Brand Analytics Search Query Performance (SQP) report.\n\nCompares 'Brand Share' against 'Total Market' to determine if the product is a conversion leader or needs SEO/PPC adjustments.\n\nUse this tool to:\n- Identify organic growth potential vs. conversion efficiency\n- Find keywords where you have high impressions but low click share (visibility gap)\n- Discover keywords where you have high clicks but low cart-add share (content/pricing issue)\n- Analyze conversion funnel drop-off points at each stage\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When 'keywords' is omitted, ALL keywords are considered but only the top N by sort order are returned. A company may have thousands of tracked keywords. To explore different keyword groups: (1) change sort field/direction to surface different keywords, (2) use keywords filter with match_type='contains' to drill into a keyword theme (e.g., ['ring'] returns all ring-related terms), or (3) use brand filters to narrow by product line.\n\nIntegration note: Cross-reference results with advertising_analyze_search_terms to compare organic funnel share vs paid PPC efficiency on the same keywords, or with brand_analytics_get_search_term_momentum to track click share trends over time.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-sqp",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -21,9 +21,8 @@
               "keywords": {
                 "type": "array",
                 "items": { "type": "string" },
-                "minItems": 1,
                 "maxItems": 50,
-                "description": "Search terms to analyze. Supports exact match and contains matching based on match_type."
+                "description": "Optional: search terms to analyze. When omitted, ALL keywords are included (subject to 'limit'). Use with match_type='contains' to explore keyword themes (e.g., ['ring'] returns all ring-related terms). Combine multiple: ['ring', 'bracelet']."
               },
               "asin": {
                 "type": "array",
@@ -43,7 +42,7 @@
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Single marketplace per query."
               }
             },
-            "required": ["company_id", "keywords", "marketplace"],
+            "required": ["company_id", "marketplace"],
             "additionalProperties": false
           },
           "aggregation": {
@@ -98,16 +97,19 @@
                   "brand_cart_add_share",
                   "total_purchases",
                   "brand_purchase_share",
-                  "click_to_cart_rate",
-                  "cart_to_purchase_rate",
-                  "impression_to_purchase_rate"
+                  "brand_impression_to_click_rate",
+                  "brand_click_to_cart_rate",
+                  "brand_cart_to_purchase_rate",
+                  "brand_impression_to_purchase_rate"
                 ],
-                "default": "search_frequency_rank"
+                "default": "search_frequency_rank",
+                "description": "Column to sort and rank by. A 'rank' column (1-based) is added to the output. Default: search_frequency_rank ASC (highest volume first). Use total_impressions DESC for broadest reach, brand_purchase_share DESC for best conversion."
               },
               "direction": {
                 "type": "string",
                 "enum": ["asc", "desc"],
-                "default": "asc"
+                "default": "asc",
+                "description": "Sort direction. For search_frequency_rank use ASC (lower rank = higher volume). For most other metrics use DESC (higher = better)."
               }
             },
             "additionalProperties": false
@@ -122,7 +124,7 @@
             "minimum": 1,
             "maximum": 500,
             "default": 100,
-            "description": "Max number of keyword rows to return."
+            "description": "Maximum rows to return (default 100, max 500). Only the top N rows by the chosen sort order are returned. Increase to 500 for broader coverage, or use keywords filter to focus on specific keyword segments."
           }
         },
         "required": ["filters"],
@@ -191,33 +193,36 @@
         "items": {
           "type": "object",
           "properties": {
+            "rank": { "type": "integer", "description": "1-based position by the chosen sort order" },
             "keyword": { "type": "string" },
+            "marketplace": { "type": "string" },
             "period_start": { "type": "string", "format": "date" },
             "period_end": { "type": "string", "format": "date" },
-            "search_frequency_rank": { "type": "integer" },
-            "total_impressions": { "type": "integer" },
-            "brand_impression_share": { "type": "number" },
-            "brand_impression_share_trend": { "type": "number" },
+            "search_frequency_rank": { "type": "integer", "description": "Amazon SFR (lower = higher search volume)" },
+            "total_impressions": { "type": "integer", "description": "Total market impressions for this keyword" },
+            "brand_impressions": { "type": "integer", "description": "Your brand's impressions for this keyword" },
+            "brand_impression_share": { "type": "number", "description": "Your share of total impressions (0-1)" },
+            "brand_impression_share_wow": { "type": ["number", "null"], "description": "Week-over-week change in impression share" },
             "total_clicks": { "type": "integer" },
-            "brand_click_share": { "type": "number" },
-            "brand_click_share_trend": { "type": "number" },
+            "brand_clicks": { "type": "integer" },
+            "brand_click_share": { "type": "number", "description": "Your share of total clicks (0-1)" },
+            "brand_click_share_wow": { "type": ["number", "null"] },
             "total_cart_adds": { "type": "integer" },
-            "brand_cart_add_share": { "type": "number" },
-            "brand_cart_add_share_trend": { "type": "number" },
+            "brand_cart_adds": { "type": "integer" },
+            "brand_cart_add_share": { "type": "number", "description": "Your share of total cart adds (0-1)" },
+            "brand_cart_add_share_wow": { "type": ["number", "null"] },
             "total_purchases": { "type": "integer" },
-            "brand_purchase_share": { "type": "number" },
-            "brand_purchase_share_trend": { "type": "number" },
-            "funnel_analysis": {
-              "type": "object",
-              "properties": {
-                "impression_to_click_rate": { "type": "number" },
-                "click_to_cart_rate": { "type": "number" },
-                "cart_to_purchase_rate": { "type": "number" },
-                "impression_to_purchase_rate": { "type": "number" },
-                "biggest_drop_off_stage": { "type": "string" },
-                "vs_benchmark": { "type": "string" }
-              }
-            }
+            "brand_purchases": { "type": "integer" },
+            "brand_purchase_share": { "type": "number", "description": "Your share of total purchases (0-1)" },
+            "brand_purchase_share_wow": { "type": ["number", "null"] },
+            "market_impression_to_click_rate": { "type": ["number", "null"], "description": "Market-level click-through rate" },
+            "market_click_to_cart_rate": { "type": ["number", "null"], "description": "Market-level add-to-cart rate" },
+            "market_cart_to_purchase_rate": { "type": ["number", "null"], "description": "Market-level purchase conversion rate" },
+            "market_impression_to_purchase_rate": { "type": ["number", "null"], "description": "Market-level end-to-end conversion" },
+            "brand_impression_to_click_rate": { "type": ["number", "null"], "description": "Your brand's click-through rate" },
+            "brand_click_to_cart_rate": { "type": ["number", "null"], "description": "Your brand's add-to-cart rate" },
+            "brand_cart_to_purchase_rate": { "type": ["number", "null"], "description": "Your brand's purchase conversion rate" },
+            "brand_impression_to_purchase_rate": { "type": ["number", "null"], "description": "Your brand's end-to-end conversion" }
           },
           "additionalProperties": true
         }

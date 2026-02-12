@@ -2,7 +2,7 @@
 -- Purpose: Raw funnel stage metrics (Impressions → Clicks → Cart Adds → Purchases)
 --          with brand share vs total market at each stage, plus WoW trending.
 -- Difference from analyze_search_query_performance:
---   • Keyword-centric (requires keywords filter, supports match_type)
+--   • Keyword-centric (optional keywords filter with match_type, returns all if omitted)
 --   • Returns raw funnel totals + shares, NOT scored RYG signals
 --   • Computes funnel stage drop-off rates
 --   • Optionally includes competitor context (top 3 ASINs from search_term_smart_snapshot)
@@ -41,16 +41,19 @@ raw AS (
     -- Partition pruning: company_id is VARCHAR in the table
     contains(p.company_ids_str, r.company_id)
 
-    -- Keyword matching (required)
+    -- Keyword matching (optional — when empty, returns all keywords)
     AND (
-      CASE p.match_type
-        WHEN 'exact' THEN
-          any_match(p.keywords, k -> lower(k) = lower(r.searchquerydata_searchquery))
-        WHEN 'starts_with' THEN
-          any_match(p.keywords, k -> lower(r.searchquerydata_searchquery) LIKE lower(k) || '%')
-        ELSE -- 'contains'
-          any_match(p.keywords, k -> lower(r.searchquerydata_searchquery) LIKE '%' || lower(k) || '%')
-      END
+      cardinality(p.keywords) = 0
+      OR (
+        CASE p.match_type
+          WHEN 'exact' THEN
+            any_match(p.keywords, k -> lower(k) = lower(r.searchquerydata_searchquery))
+          WHEN 'starts_with' THEN
+            any_match(p.keywords, k -> lower(r.searchquerydata_searchquery) LIKE lower(k) || '%')
+          ELSE -- 'contains'
+            any_match(p.keywords, k -> lower(r.searchquerydata_searchquery) LIKE '%' || lower(k) || '%')
+        END
+      )
     )
 
     -- Optional marketplace
@@ -222,7 +225,9 @@ final AS (
     AND (p.min_impressions = 0 OR COALESCE(f.total_impressions, 0) >= p.min_impressions)
 )
 
-SELECT *
+SELECT
+  ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+  final.*
 FROM final
-ORDER BY search_frequency_rank ASC
+ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
 LIMIT {{limit_top_n}};
