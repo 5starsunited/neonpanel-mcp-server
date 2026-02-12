@@ -198,7 +198,7 @@
             "minimum": 1,
             "maximum": 500,
             "default": 100,
-            "description": "Max rows to return. Default 100."
+            "description": "Maximum rows to return (default 100, max 500). Only the top N rows by the chosen sort order are returned. Increase to 500 for broader coverage, or use filters to focus on specific segments."
           }
         },
         "required": ["filters"],

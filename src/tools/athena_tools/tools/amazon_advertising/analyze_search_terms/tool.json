@@ -1,6 +1,6 @@
 {
   "name": "advertising_analyze_search_terms",
-  "description": "Analyzes Amazon Sponsored Products Search Term Report data enriched with product attributes via campaign→ASIN mapping.\n\nUse this tool to:\n- Harvest 'Proven Winners': high-converting search terms to promote to exact match or inject into organic SEO (Title/Bullets)\n- Identify 'Bleeders': terms with high spend but no/low sales for Negative Exact targeting\n- Compare match type efficiency (broad vs phrase vs exact)\n- Slice PPC performance by product dimensions: product_family, brand, pareto_abc_class, revenue_abcd_class\n- Find which product families or brands drive the most efficient ad spend\n- Bridge paid and organic strategy by cross-referencing with Brand Analytics tools\n\nData enrichment: Each search term row is joined to its campaign's ASIN via campaign_asin_map, then enriched with ASIN attributes (product_family, brand, pareto_abc_class, revenue_abcd_class, revenue_share) for filtering and grouping.\n\nAttribution: Uses the longest available attribution window (30d → 14d → 7d → 1d) for sales/purchases/units.\n\nIntegration note: Cross-reference results with brand_analytics_get_keyword_funnel_metrics to compare paid efficiency vs organic share, or with brand_analytics_get_search_term_momentum to see organic momentum for the same terms.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-search-term-analysis",
+  "description": "Analyzes Amazon Sponsored Products Search Term Report data enriched with product attributes via campaign→ASIN mapping.\n\nUse this tool to:\n- Harvest 'Proven Winners': high-converting search terms to promote to exact match or inject into organic SEO (Title/Bullets)\n- Identify 'Bleeders': terms with high spend but no/low sales for Negative Exact targeting\n- Compare match type efficiency (broad vs phrase vs exact)\n- Slice PPC performance by product dimensions: product_family, brand, pareto_abc_class, revenue_abcd_class\n- Find which product families or brands drive the most efficient ad spend\n- Bridge paid and organic strategy by cross-referencing with Brand Analytics tools\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When search_terms is omitted, ALL search terms are considered but only the top N by sort order are returned. To explore different keyword groups, either: (1) change sort field/direction to surface different keywords, (2) use search_terms filter with match_type='contains' to drill into a keyword category (e.g., ['ring'] to see all ring-related terms), or (3) use product_families/brands filters to narrow by product line.\n\nData enrichment: Each search term row is joined to its campaign's ASIN via campaign_asin_map, then enriched with ASIN attributes (product_family, brand, pareto_abc_class, revenue_abcd_class, revenue_share) for filtering and grouping.\n\nAttribution: Uses the longest available attribution window (30d → 14d → 7d → 1d) for sales/purchases/units.\n\nIntegration note: Cross-reference results with brand_analytics_get_keyword_funnel_metrics to compare paid efficiency vs organic share, or with brand_analytics_get_search_term_momentum to see organic momentum for the same terms.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-search-term-analysis",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -21,7 +21,7 @@
               "search_terms": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Filter by specific search queries typed by shoppers."
+                "description": "Optional: filter by specific search queries typed by shoppers. When omitted, ALL search terms are included (subject to 'limit'). Use with match_type='contains' to explore keyword themes (e.g., ['ring'] returns all ring-related terms). Combine multiple terms in one call: ['ring', 'bracelet']."
               },
               "match_type": {
                 "type": "string",
@@ -138,7 +138,7 @@
             "minimum": 1,
             "maximum": 500,
             "default": 100,
-            "description": "Maximum rows to return. Default 100."
+            "description": "Maximum rows to return (default 100, max 500). Only the top N rows by the chosen sort order are returned. Increase to 500 for broader coverage, or use filters to focus on specific keyword segments."
           }
         },
         "required": ["filters"],

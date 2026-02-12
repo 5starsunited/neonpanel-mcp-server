@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_search_term_momentum",
-  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
+  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When search_terms is omitted, ALL search terms are considered but only the top N by sort order are returned. A company may have thousands of tracked search terms. To explore different keyword groups: (1) change sort field/direction to surface different terms, (2) use search_terms filter with match_type='contains' to drill into a keyword theme (e.g., ['ring'] returns all ring-related terms), or (3) use brand/product_family/category filters to narrow by product line.\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -22,7 +22,7 @@
                 "type": "array",
                 "items": { "type": "string" },
                 "maxItems": 100,
-                "description": "Optional: filter by specific search terms."
+                "description": "Optional: filter by specific search terms. When omitted, ALL search terms are included (subject to 'limit'). Use with match_type='contains' to explore keyword themes (e.g., ['ring'] returns all ring-related terms). Combine multiple terms: ['ring', 'bracelet']."
               },
               "asins": {
                 "type": "array",
@@ -118,7 +118,8 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 500,
-            "default": 100
+            "default": 100,
+            "description": "Maximum rows to return (default 100, max 500). Only the top N rows by the chosen sort order are returned. Increase to 500 for broader coverage, or use filters to focus on specific keyword segments."
           }
         },
         "required": ["filters"],
