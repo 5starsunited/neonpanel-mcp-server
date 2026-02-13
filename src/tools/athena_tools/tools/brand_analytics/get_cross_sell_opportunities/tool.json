@@ -157,9 +157,49 @@
               "type": "string",
               "description": "The seller's own ASIN."
             },
+            "primary_product_family": {
+              "type": "string",
+              "description": "Product family of the primary ASIN (e.g., 'Widgets 3-Pack'). 'unknown' if not mapped."
+            },
+            "primary_brand": {
+              "type": "string",
+              "description": "Brand name of the primary ASIN. 'unknown' if not mapped."
+            },
+            "primary_pareto_abc_class": {
+              "type": "string",
+              "description": "Pareto ABC class of the primary ASIN (A/B/C). 'unknown' if not mapped."
+            },
+            "primary_revenue_abcd_class": {
+              "type": "string",
+              "description": "Revenue ABCD class of the primary ASIN (A/B/C/D). 'unknown' if not mapped."
+            },
+            "primary_revenue_share": {
+              "type": "number",
+              "description": "Revenue share of the primary ASIN within the company's portfolio (0-1 scale). null if not mapped."
+            },
             "co_purchased_asin": {
               "type": "string",
               "description": "ASIN frequently bought together with primary_asin."
+            },
+            "co_purchased_product_family": {
+              "type": "string",
+              "description": "Product family of the co-purchased ASIN. 'unknown' if not mapped (often for competitor ASINs)."
+            },
+            "co_purchased_brand": {
+              "type": "string",
+              "description": "Brand name of the co-purchased ASIN. 'unknown' if not mapped."
+            },
+            "co_purchased_pareto_abc_class": {
+              "type": "string",
+              "description": "Pareto ABC class of the co-purchased ASIN. 'unknown' if not mapped."
+            },
+            "co_purchased_revenue_abcd_class": {
+              "type": "string",
+              "description": "Revenue ABCD class of the co-purchased ASIN. 'unknown' if not mapped."
+            },
+            "co_purchased_revenue_share": {
+              "type": "number",
+              "description": "Revenue share of the co-purchased ASIN. null if not mapped."
             },
             "marketplace": {
               "type": "string",

@@ -65,14 +65,16 @@ marketplaces_dim AS (
     lower(country)    AS country,
     lower(code)       AS country_code,
     lower(name)       AS marketplace_name,
-    lower(domain)     AS domain
+    lower(domain)     AS domain,
+    CAST(id AS BIGINT) AS marketplace_numeric_id
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
 ),
 
 with_marketplace AS (
   SELECT
     r.*,
-    COALESCE(upper(m.country_code), r.marketplace_ids[1]) AS marketplace
+    COALESCE(upper(m.country_code), r.marketplace_ids[1]) AS marketplace,
+    m.marketplace_numeric_id
   FROM raw r
   CROSS JOIN UNNEST(r.marketplace_ids) AS t(marketplace_id)
   LEFT JOIN marketplaces_dim m
@@ -120,6 +122,8 @@ aggregated AS (
     w.primary_asin,
     w.co_purchased_asin,
     w.marketplace,
+    w.company_id,
+    MAX(w.marketplace_numeric_id) AS marketplace_numeric_id,
     MIN(w.co_purchase_rank) AS best_rank,
     ROUND(AVG(w.combination_pct), 4) AS avg_combination_pct,
     ROUND(MAX(w.combination_pct), 4) AS max_combination_pct,
@@ -128,7 +132,7 @@ aggregated AS (
     MIN(w.week_start) AS first_seen,
     MAX(w.week_start) AS last_seen
   FROM windowed w
-  GROUP BY w.primary_asin, w.co_purchased_asin, w.marketplace
+  GROUP BY w.primary_asin, w.co_purchased_asin, w.marketplace, w.company_id
 ),
 
 -- ─── 5. Date range context ─────────────────────────────────────────────────
@@ -172,7 +176,17 @@ with_consistency AS (
 SELECT
   ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
   c.primary_asin,
+  COALESCE(pa.product_family, 'unknown')     AS primary_product_family,
+  COALESCE(pa.brand, 'unknown')              AS primary_brand,
+  COALESCE(pa.pareto_abc_class, 'unknown')   AS primary_pareto_abc_class,
+  COALESCE(pa.revenue_abcd_class, 'unknown') AS primary_revenue_abcd_class,
+  pa.revenue_share                           AS primary_revenue_share,
   c.co_purchased_asin,
+  COALESCE(ca.product_family, 'unknown')     AS co_purchased_product_family,
+  COALESCE(ca.brand, 'unknown')              AS co_purchased_brand,
+  COALESCE(ca.pareto_abc_class, 'unknown')   AS co_purchased_pareto_abc_class,
+  COALESCE(ca.revenue_abcd_class, 'unknown') AS co_purchased_revenue_abcd_class,
+  ca.revenue_share                           AS co_purchased_revenue_share,
   c.marketplace,
   c.best_rank,
   c.avg_combination_pct,
@@ -187,5 +201,15 @@ SELECT
   CAST(c.window_start AS DATE) AS window_start,
   CAST(c.window_end   AS DATE) AS window_end
 FROM with_consistency c
+-- ASIN attributes for primary ASIN
+LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."asin_attributes" pa
+  ON pa.asin = c.primary_asin
+  AND pa.company_id = c.company_id
+  AND pa.marketplace_id = c.marketplace_numeric_id
+-- ASIN attributes for co-purchased ASIN
+LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."asin_attributes" ca
+  ON ca.asin = c.co_purchased_asin
+  AND ca.company_id = c.company_id
+  AND ca.marketplace_id = c.marketplace_numeric_id
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
 LIMIT {{limit_top_n}};

@@ -157,6 +157,26 @@
               "type": "string",
               "description": "Amazon ASIN."
             },
+            "product_family": {
+              "type": "string",
+              "description": "Product family the ASIN belongs to (e.g., 'Widgets 3-Pack'). 'unknown' if not mapped."
+            },
+            "asin_brand": {
+              "type": "string",
+              "description": "Brand name of the ASIN. 'unknown' if not mapped."
+            },
+            "pareto_abc_class": {
+              "type": "string",
+              "description": "Pareto ABC class (A/B/C) based on volume contribution. 'unknown' if not mapped."
+            },
+            "revenue_abcd_class": {
+              "type": "string",
+              "description": "Revenue ABCD class (A/B/C/D) based on revenue contribution. 'unknown' if not mapped."
+            },
+            "revenue_share": {
+              "type": "number",
+              "description": "Revenue share of the ASIN within the company's portfolio (0-1 scale). null if not mapped."
+            },
             "marketplace": {
               "type": "string",
               "description": "Marketplace country code (e.g., US, DE)."

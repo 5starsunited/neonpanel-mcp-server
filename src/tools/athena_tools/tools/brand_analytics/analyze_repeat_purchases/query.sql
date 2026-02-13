@@ -60,14 +60,16 @@ marketplaces_dim AS (
     lower(country)    AS country,
     lower(code)       AS country_code,
     lower(name)       AS marketplace_name,
-    lower(domain)     AS domain
+    lower(domain)     AS domain,
+    CAST(id AS BIGINT) AS marketplace_numeric_id
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
 ),
 
 with_marketplace AS (
   SELECT
     r.*,
-    COALESCE(upper(m.country_code), r.marketplace_ids[1]) AS marketplace
+    COALESCE(upper(m.country_code), r.marketplace_ids[1]) AS marketplace,
+    m.marketplace_numeric_id
   FROM raw r
   CROSS JOIN UNNEST(r.marketplace_ids) AS t(marketplace_id)
   LEFT JOIN marketplaces_dim m
@@ -113,6 +115,8 @@ aggregated AS (
   SELECT
     w.asin,
     w.marketplace,
+    w.company_id,
+    MAX(w.marketplace_numeric_id) AS marketplace_numeric_id,
     MAX(w.currency)                                   AS currency,
 
     -- Totals
@@ -136,7 +140,7 @@ aggregated AS (
     MIN(w.week_start)                                 AS first_seen,
     MAX(w.week_start)                                 AS last_seen
   FROM windowed w
-  GROUP BY w.asin, w.marketplace
+  GROUP BY w.asin, w.marketplace, w.company_id
 ),
 
 -- ─── 5. Latest-week snapshot for WoW trend ─────────────────────────────────
@@ -223,6 +227,11 @@ combined AS (
 SELECT
   ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
   c.asin,
+  COALESCE(aa.product_family, 'unknown')     AS product_family,
+  COALESCE(aa.brand, 'unknown')              AS asin_brand,
+  COALESCE(aa.pareto_abc_class, 'unknown')   AS pareto_abc_class,
+  COALESCE(aa.revenue_abcd_class, 'unknown') AS revenue_abcd_class,
+  aa.revenue_share,
   c.marketplace,
   c.currency,
   c.total_orders,
@@ -250,5 +259,9 @@ SELECT
   CAST(c.window_start   AS DATE) AS window_start,
   CAST(c.window_end     AS DATE) AS window_end
 FROM combined c
+LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."asin_attributes" aa
+  ON aa.asin = c.asin
+  AND aa.company_id = c.company_id
+  AND aa.marketplace_id = c.marketplace_numeric_id
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
 LIMIT {{limit_top_n}};
