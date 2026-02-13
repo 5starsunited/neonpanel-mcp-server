@@ -1,0 +1,252 @@
+{
+  "name": "financials_list_account_transactions",
+  "description": "Lists individual journal entry lines for specific accounts – the detailed account ledger / account analysis view. Returns every transaction with JE name, ref number (doc_number), date, debit, credit, line description, and a running balance per account.\n\nUse this tool to:\n- View all transactions posted to a specific account (by number or name)\n- See JE names (e.g., 'Amazon.com', 'Amazon.ca') and ref numbers (doc_number) for each transaction\n- Get a running balance for an account over a date range\n- Search across line descriptions (e.g., find all lines mentioning a specific invoice number)\n- Look up a specific journal entry by doc_number\n- Drill down from financials_analyze_general_ledger results to see the individual transactions behind an aggregate\n\nIMPORTANT: Use at least one account filter (account_numbers, account_names, account_types, or classifications) to get targeted results. Without any account filter, ALL accounts are included and the 200-row limit may truncate results. For a single account analysis, use account_numbers with the exact account number.\n\nDefault time range: Last complete calendar month. Use start_date/end_date for custom ranges.\n\nCurrency: All amounts are in the company's main currency.\n\nDig deeper: For the full interactive account ledger with attachments and drill-down, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/general-ledger\n\nKnowledge base: https://help.neonpanel.com/en/articles/general-ledger-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for account transaction listing.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for account transactions. company_id is required. Use at least one account filter for targeted results.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "account_numbers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by account number (exact match). E.g., ['51030', '60031']. Best for single-account analysis."
+              },
+              "account_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by account name. Use account_name_match_type to control matching."
+              },
+              "account_name_match_type": {
+                "type": "string",
+                "enum": ["exact", "contains", "starts_with"],
+                "default": "contains",
+                "description": "How to match account_names: 'exact', 'contains' (default), 'starts_with'."
+              },
+              "account_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by account type. Common values: 'Bank', 'Expense', 'Income', 'Cost of Goods Sold', 'Other Income', 'Accounts Receivable', 'Accounts Payable'. Case-insensitive."
+              },
+              "classifications": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["Asset", "Liability", "Equity", "Revenue", "Expense"]
+                },
+                "description": "Filter by classification: Asset, Liability, Equity, Revenue, Expense."
+              },
+              "statements": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["PL", "BS"] },
+                "description": "Filter by financial statement: 'PL' or 'BS'."
+              },
+              "report_charts": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by report chart category (e.g., 'Legal & Professional Fees', 'Interest')."
+              },
+              "je_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by journal entry name (exact match). E.g., ['Amazon.com', 'Amazon.ca'] to see only Amazon-sourced entries."
+              },
+              "doc_numbers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by document/ref number (exact match). E.g., ['13904042611-01-AMX'] to look up a specific journal entry."
+              },
+              "document_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by source document type (e.g., 'Invoice', 'Journal Entry', 'Bill')."
+              },
+              "descriptions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Search in line-level descriptions (substring match). E.g., ['16451893701'] to find all lines referencing a specific invoice."
+              },
+              "sde": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by SDE flag: 1 = SDE accounts only, 0 = non-SDE. Omit for no filter."
+              },
+              "ebitda": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by EBITDA flag: 1 = EBITDA-relevant only. Omit for no filter."
+              },
+              "pnl": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by P&L flag. Omit for no filter."
+              },
+              "active": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by active status: 1 = active accounts only. Omit for no filter."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range. Defaults to last complete calendar month if omitted.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Start of date range (YYYY-MM-DD). Defaults to first day of last calendar month."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "End of date range (YYYY-MM-DD). Defaults to last day of last calendar month."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "default": "asc",
+            "description": "Sort by transaction_date: 'asc' = oldest first (chronological, default), 'desc' = newest first."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 200,
+            "description": "Maximum rows to return (default 200, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "row_num": { "type": "integer", "description": "Sequential row number." },
+            "transaction_date": { "type": "string", "description": "Transaction date (YYYY-MM-DD)." },
+            "doc_number": { "type": ["string", "null"], "description": "Journal entry reference/document number." },
+            "je_name": { "type": ["string", "null"], "description": "Journal entry name (e.g., 'Amazon.com', 'Amazon.ca')." },
+            "source_doc_type": { "type": ["string", "null"], "description": "Source document type (e.g., 'Invoice', 'Journal Entry')." },
+            "account_number": { "type": "string", "description": "Account number." },
+            "account_name": { "type": "string", "description": "Account name." },
+            "account_full_name": { "type": "string", "description": "Full account name with number prefix." },
+            "account_type": { "type": "string", "description": "Account type (e.g., 'Expense', 'Income')." },
+            "classification": { "type": "string", "description": "Classification: Asset, Liability, Equity, Revenue, Expense." },
+            "statement": { "type": "string", "description": "Financial statement: PL or BS." },
+            "debit": { "type": "number", "description": "Debit amount in main currency." },
+            "credit": { "type": "number", "description": "Credit amount in main currency." },
+            "net": { "type": "number", "description": "Net = debit − credit for this line." },
+            "running_balance": { "type": "number", "description": "Cumulative net (debit − credit) for this account from start_date, ordered by transaction_date. Shows how the account balance builds over the period." },
+            "line_description": { "type": ["string", "null"], "description": "Line-level description from the journal entry detail (e.g., 'inv 16451893701-09-AUS')." },
+            "company_name": { "type": "string", "description": "Company name." },
+            "main_currency": { "type": "string", "description": "Company's main currency code (e.g., 'USD')." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Single account ledger",
+      "description": "Show all transactions for account 60031 (Amazon Sponsored Advertising) last month.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_numbers": ["60031"], "active": 1 },
+          "sort_direction": "asc"
+        }
+      }
+    },
+    {
+      "title": "Search accounts by name",
+      "description": "Show transactions for all FBA fee accounts.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_names": ["FBA"], "account_name_match_type": "contains", "active": 1 },
+          "sort_direction": "asc",
+          "limit": 300
+        }
+      }
+    },
+    {
+      "title": "Look up a specific journal entry by ref number",
+      "description": "Find all lines for journal entry 13904042611-01-AMX.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "doc_numbers": ["13904042611-01-AMX"] },
+          "time": { "start_date": "2020-01-01", "end_date": "2026-12-31" }
+        }
+      }
+    },
+    {
+      "title": "All Amazon.com transactions in January 2025",
+      "description": "Show all journal entry lines where the JE name is 'Amazon.com'.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "je_names": ["Amazon.com"], "active": 1 },
+          "time": { "start_date": "2025-01-01", "end_date": "2025-01-31" },
+          "sort_direction": "asc",
+          "limit": 500
+        }
+      }
+    },
+    {
+      "title": "COGS transactions detail",
+      "description": "Show individual Cost of Goods Sold entries to understand landed cost components.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_types": ["Cost of Goods Sold"], "active": 1 },
+          "sort_direction": "desc",
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "Search by invoice number in descriptions",
+      "description": "Find all journal entry lines that reference invoice 16451893701.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "descriptions": ["16451893701"] },
+          "time": { "start_date": "2023-01-01", "end_date": "2025-12-31" }
+        }
+      }
+    },
+    {
+      "title": "Bank account activity (most recent first)",
+      "description": "Show latest bank transactions.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_types": ["Bank"], "active": 1 },
+          "sort_direction": "desc",
+          "limit": 50
+        }
+      }
+    }
+  ]
+}
