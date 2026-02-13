@@ -15,6 +15,8 @@ import { registerBrandAnalyticsGetKeywordFunnelMetricsTool } from './tools/brand
 import { registerBrandAnalyticsGetSearchTermMomentumTool } from './tools/brand_analytics/get_search_term_momentum/register';
 import { registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool } from './tools/brand_analytics/analyze_search_query_performance/register';
 import { registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool } from './tools/brand_analytics/analyze_search_catalog_performance/register';
+import { registerBrandAnalyticsGetCrossSellOpportunitiesTool } from './tools/brand_analytics/get_cross_sell_opportunities/register';
+import { registerBrandAnalyticsAnalyzeRepeatPurchasesTool } from './tools/brand_analytics/analyze_repeat_purchases/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
@@ -46,6 +48,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsGetSearchTermMomentumTool(registry);
   registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry);
   registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(registry);
+  registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry);
+  registerBrandAnalyticsAnalyzeRepeatPurchasesTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsExportUnitCostsTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);

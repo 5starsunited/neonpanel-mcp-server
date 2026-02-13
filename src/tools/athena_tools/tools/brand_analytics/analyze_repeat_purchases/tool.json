@@ -1,0 +1,413 @@
+{
+  "name": "brand_analytics_analyze_repeat_purchases",
+  "description": "Analyzes repeat purchase behaviour per ASIN from Amazon Brand Analytics Repeat Purchase Report.\n\nUse this tool to:\n- Identify ASINs with the highest repeat customer rates (loyalty signals)\n- Find products driving recurring revenue (Subscribe & Save candidates)\n- Compare repeat purchase rates across the portfolio to spot consumables vs one-time buys\n- Track week-over-week trends in repeat purchase metrics\n- Detect ASINs with declining repeat rates (quality/satisfaction issues)\n\nKey metrics:\n- repeat_customers_pct: Fraction of customers who purchased the ASIN more than once (0-1 scale). Higher values indicate strong product loyalty or consumable nature.\n- repeat_revenue_pct: Fraction of total ASIN revenue from repeat buyers (0-1 scale). High repeat_revenue_pct with low repeat_customers_pct suggests a few heavy buyers.\n- orders vs unique_customers: When orders >> unique_customers, customers are re-ordering.\n\nWoW trends: The latest-week snapshot includes week-over-week deltas for repeat_customers_pct, repeat_revenue_pct, and orders. Positive repeat_customers_pct_wow = growing loyalty.\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 50). When 'asin' filter is omitted, ALL ASINs are considered but only the top N by sort order are returned. A seller may have hundreds of ASINs. To explore different segments: (1) filter by specific ASINs, (2) adjust sort field, or (3) increase limit up to 500.\n\nDefault time window: Last 4 complete weeks. Use periods_back or explicit start_date/end_date for custom ranges.\n\nTip: Sort by avg_repeat_customers_pct DESC to find the most loyal products. Use min_orders to filter out low-volume ASINs with noisy percentages.\n\nIntegration note: Cross-reference with brand_analytics_get_cross_sell_opportunities to find bundle candidates among high-repeat ASINs. Use brand_analytics_get_keyword_funnel_metrics to understand acquisition funnels for top repeaters.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-repeat-purchase",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for repeat purchase analysis.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for repeat purchase analysis. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "asin": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "description": "ASINs to analyze. Omit to return all ASINs."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 1,
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Omit for all marketplaces."
+              }
+            },
+            "required": [
+              "company_id"
+            ],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "start_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Start of analysis window (inclusive), format YYYY-MM-DD. If omitted, derived from periods_back."
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "End of analysis window (inclusive), format YYYY-MM-DD. If omitted, uses latest available data."
+                  },
+                  "periods_back": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 52,
+                    "default": 4,
+                    "description": "Number of weeks to look back from latest data (default 4)."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ranking and ordering of results. Rows are returned with a 'rank' column (1 = best).",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "total_orders",
+                  "total_unique_customers",
+                  "total_repeat_revenue",
+                  "avg_repeat_customers_pct",
+                  "avg_repeat_revenue_pct",
+                  "max_repeat_customers_pct",
+                  "max_repeat_revenue_pct",
+                  "latest_week_orders",
+                  "latest_week_repeat_customers_pct",
+                  "latest_week_repeat_revenue_pct",
+                  "repeat_customers_pct_wow",
+                  "repeat_revenue_pct_wow",
+                  "orders_wow",
+                  "weeks_with_data",
+                  "asin",
+                  "last_seen"
+                ],
+                "default": "total_orders",
+                "description": "Column to sort and rank by. Default: total_orders DESC (highest volume first). Use avg_repeat_customers_pct DESC for most loyal products. Use repeat_customers_pct_wow DESC to find ASINs with improving loyalty. Use orders_wow DESC/ASC to spot growing or declining products."
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
+                "default": "desc",
+                "description": "Sort direction. DESC for highest-first (top volume, most loyal). ASC for lowest-first (declining WoW, weakest retention)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50,
+            "description": "Maximum rows to return (default 50, max 500). Only the top N ASINs by the chosen sort order are returned."
+          }
+        },
+        "required": [
+          "filters"
+        ],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "description": "Repeat purchase analysis thresholds.",
+        "properties": {
+          "min_orders": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "Minimum total orders across the window to include an ASIN. Use to filter out low-volume noise."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rank": {
+              "type": "integer",
+              "description": "1-based position according to sort field and direction."
+            },
+            "asin": {
+              "type": "string",
+              "description": "Amazon ASIN."
+            },
+            "marketplace": {
+              "type": "string",
+              "description": "Marketplace country code (e.g., US, DE)."
+            },
+            "currency": {
+              "type": "string",
+              "description": "Revenue currency code (e.g., USD)."
+            },
+            "total_orders": {
+              "type": "number",
+              "description": "Total orders across all weeks in the window."
+            },
+            "total_unique_customers": {
+              "type": "number",
+              "description": "Total unique customers across all weeks."
+            },
+            "total_repeat_revenue": {
+              "type": "number",
+              "description": "Total repeat purchase revenue across all weeks."
+            },
+            "avg_weekly_orders": {
+              "type": "number",
+              "description": "Average orders per week."
+            },
+            "avg_weekly_unique_customers": {
+              "type": "number",
+              "description": "Average unique customers per week."
+            },
+            "avg_repeat_customers_pct": {
+              "type": "number",
+              "description": "Average repeat customer % across weeks (0-1 scale). Higher = more loyal."
+            },
+            "avg_weekly_repeat_revenue": {
+              "type": "number",
+              "description": "Average weekly repeat revenue."
+            },
+            "avg_repeat_revenue_pct": {
+              "type": "number",
+              "description": "Average repeat revenue % across weeks (0-1 scale)."
+            },
+            "max_repeat_customers_pct": {
+              "type": "number",
+              "description": "Highest repeat customer % in any single week (peak loyalty)."
+            },
+            "max_repeat_revenue_pct": {
+              "type": "number",
+              "description": "Highest repeat revenue % in any single week."
+            },
+            "weeks_with_data": {
+              "type": "integer",
+              "description": "Number of weeks this ASIN had data."
+            },
+            "total_weeks": {
+              "type": "integer",
+              "description": "Total weeks in the analysis window."
+            },
+            "latest_week_orders": {
+              "type": "number",
+              "description": "Orders in the most recent week."
+            },
+            "latest_week_unique_customers": {
+              "type": "number",
+              "description": "Unique customers in the most recent week."
+            },
+            "latest_week_repeat_customers_pct": {
+              "type": "number",
+              "description": "Repeat customer % in the most recent week."
+            },
+            "latest_week_repeat_revenue": {
+              "type": "number",
+              "description": "Repeat revenue in the most recent week."
+            },
+            "latest_week_repeat_revenue_pct": {
+              "type": "number",
+              "description": "Repeat revenue % in the most recent week."
+            },
+            "repeat_customers_pct_wow": {
+              "type": "number",
+              "description": "Week-over-week change in repeat customer % (positive = improving loyalty)."
+            },
+            "repeat_revenue_pct_wow": {
+              "type": "number",
+              "description": "Week-over-week change in repeat revenue %."
+            },
+            "orders_wow": {
+              "type": "number",
+              "description": "Week-over-week change in orders (positive = growing)."
+            },
+            "first_seen": {
+              "type": "string",
+              "format": "date",
+              "description": "First week this ASIN appeared."
+            },
+            "last_seen": {
+              "type": "string",
+              "format": "date",
+              "description": "Last week this ASIN appeared."
+            },
+            "window_start": {
+              "type": "string",
+              "format": "date",
+              "description": "Start of the analysis window."
+            },
+            "window_end": {
+              "type": "string",
+              "format": "date",
+              "description": "End of the analysis window."
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": [
+      "items"
+    ]
+  },
+  "examples": [
+    {
+      "title": "Top products by total orders",
+      "description": "Which ASINs have the most orders in the last 4 weeks?",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": [
+              "US"
+            ]
+          },
+          "sort": {
+            "field": "total_orders",
+            "direction": "desc"
+          },
+          "limit": 30
+        }
+      }
+    },
+    {
+      "title": "Most loyal products (highest repeat customer rate)",
+      "description": "Find ASINs with the highest fraction of repeat buyers \u2014 candidates for Subscribe & Save.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": [
+              "US"
+            ]
+          },
+          "sort": {
+            "field": "avg_repeat_customers_pct",
+            "direction": "desc"
+          },
+          "limit": 20
+        },
+        "tool_specific": {
+          "min_orders": 50
+        }
+      }
+    },
+    {
+      "title": "Products with improving loyalty (WoW trend)",
+      "description": "ASINs where repeat customer % is growing week-over-week.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": [
+              "US"
+            ]
+          },
+          "sort": {
+            "field": "repeat_customers_pct_wow",
+            "direction": "desc"
+          },
+          "limit": 20
+        },
+        "tool_specific": {
+          "min_orders": 20
+        }
+      }
+    },
+    {
+      "title": "Products with declining repeat rates (churn alert)",
+      "description": "ASINs where repeat customer % is dropping \u2014 possible quality/satisfaction issues.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": [
+              "US"
+            ]
+          },
+          "sort": {
+            "field": "repeat_customers_pct_wow",
+            "direction": "asc"
+          },
+          "limit": 20
+        },
+        "tool_specific": {
+          "min_orders": 20
+        }
+      }
+    },
+    {
+      "title": "Repeat purchase analysis for specific ASINs over 12 weeks",
+      "description": "Deep dive on specific ASINs with a longer lookback window.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "asin": [
+              "B0ABC12345",
+              "B0DEF67890"
+            ],
+            "marketplace": [
+              "US"
+            ]
+          },
+          "aggregation": {
+            "time": {
+              "periods_back": 12
+            }
+          },
+          "sort": {
+            "field": "avg_repeat_customers_pct",
+            "direction": "desc"
+          }
+        }
+      }
+    },
+    {
+      "title": "High repeat revenue products (filter out low volume)",
+      "description": "Products with the most repeat purchase revenue, excluding low-volume ASINs.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 42,
+            "marketplace": [
+              "US"
+            ]
+          },
+          "sort": {
+            "field": "total_repeat_revenue",
+            "direction": "desc"
+          },
+          "limit": 20
+        },
+        "tool_specific": {
+          "min_orders": 100
+        }
+      }
+    }
+  ]
+}

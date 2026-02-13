@@ -1,0 +1,23 @@
+CREATE TABLE sp_api_iceberg.brand_analytics_repeat_purchase_report (
+  date timestamp,
+  rspec_marketplaceids array<string>,
+  asin string,
+  enddate timestamp,
+  orders double,
+  repeatcustomerspcttotal double,
+  repeatpurchaserevenue_amount double,
+  repeatpurchaserevenue_currencycode string,
+  repeatpurchaserevenuepcttotal double,
+  startdate timestamp,
+  uniquecustomers double,
+  ingest_source_s3_uri string,
+  ingest_ts_utc timestamp,
+  ingest_company_id string,
+  ingest_seller_id string,
+  week_start date,
+  year int)
+PARTITIONED BY (`ingest_company_id`, `year`, `week_start`)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/sp_api_iceberg.db/brand_analytics_repeat_purchase_report'
+TBLPROPERTIES (
+  'table_type'='iceberg'
+);

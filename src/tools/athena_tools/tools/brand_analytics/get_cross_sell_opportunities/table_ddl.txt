@@ -1,0 +1,21 @@
+CREATE TABLE sp_api_iceberg.brand_analytics_market_basket_report (
+  date timestamp,
+  rspec_marketplaceids array<string>,
+  asin string,
+  combinationpct double,
+  enddate timestamp,
+  purchasedwithasin string,
+  purchasedwithrank bigint,
+  startdate timestamp,
+  ingest_source_s3_uri string,
+  ingest_ts_utc timestamp,
+  ingest_company_id string,
+  ingest_seller_id string,
+  week_start date,
+  year int)
+PARTITIONED BY (`ingest_company_id`, `year`, `week_start`)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/sp_api_iceberg.db/brand_analytics_market_basket_report'
+TBLPROPERTIES (
+  'table_type'='iceberg'
+);
+

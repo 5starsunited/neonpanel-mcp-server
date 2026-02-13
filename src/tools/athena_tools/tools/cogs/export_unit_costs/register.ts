@@ -71,6 +71,8 @@ export function registerCogsExportUnitCostsTool(registry: ToolRegistry) {
       const permissions = [
         'view:quicksight_group.inventory_management_new',
         'view:quicksight_group.finance-new',
+        'view:quicksight_group.bookkeeping',
+        'view:quicksight_group.audit_and_comliance_new',
       ];
 
       const allPermittedCompanyIds = new Set<number>();

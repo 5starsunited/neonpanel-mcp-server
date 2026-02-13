@@ -150,7 +150,7 @@ function toBoolean(value: unknown): boolean {
 }
 
 async function isAuthorizedForCompany(companyId: number, context: ToolExecutionContext): Promise<boolean> {
-  const permission = 'view:quicksight_group.business_planning_new';
+  const permission = 'view:quicksight_group.sales_and_marketing_new';
   const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
     token: context.userToken,
     path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,

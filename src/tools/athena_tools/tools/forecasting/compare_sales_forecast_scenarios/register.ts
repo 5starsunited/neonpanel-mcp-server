@@ -143,7 +143,7 @@ function normalizeCompanyId(filters: any): { companyId?: number; error?: string 
 }
 
 async function getAllowedCompanyIds(requestedCompanyId: number, context: ToolExecutionContext) {
-  const permission = 'view:quicksight_group.business_planning_new';
+  const permission = 'view:quicksight_group.sales_and_marketing_new';
   const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
     token: context.userToken,
     path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,

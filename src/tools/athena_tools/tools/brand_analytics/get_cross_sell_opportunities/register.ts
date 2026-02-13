@@ -43,24 +43,15 @@ function sqlDateExpr(value?: string): string {
   return `DATE ${sqlStringLiteral(trimmed)}`;
 }
 
+// ── Schemas ────────────────────────────────────────────────────────────────────
+
 const querySchema = z
   .object({
     filters: z
       .object({
-        company_id: z.array(z.coerce.number().int().min(1)).min(1),
-        asins: z.array(z.string()).optional(),
-        parent_asins: z.array(z.string()).optional(),
+        company_id: z.coerce.number().int().min(1),
+        asin: z.array(z.string()).max(20).optional(),
         marketplace: z.array(z.string()).min(1).max(1).optional(),
-        row_type: z.array(z.enum(['child', 'parent'])).optional(),
-        revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
-        pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
-        strength_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        weakness_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        opportunity_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        threshold_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        click_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        cart_add_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        purchase_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
       })
       .strict(),
     aggregation: z
@@ -69,7 +60,7 @@ const querySchema = z
           .object({
             start_date: z.string().optional(),
             end_date: z.string().optional(),
-            periods_back: z.coerce.number().int().min(1).max(52).optional(),
+            periods_back: z.coerce.number().int().min(1).max(52).default(4).optional(),
           })
           .optional(),
       })
@@ -80,19 +71,31 @@ const querySchema = z
         direction: z.enum(['asc', 'desc']).optional(),
       })
       .optional(),
-    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
   })
   .strict();
 
 type QueryInput = z.infer<typeof querySchema>;
 
-const inputSchema = z
+const toolSpecificSchema = z
   .object({
-    query: querySchema,
+    min_combination_pct: z.coerce.number().min(0).max(100).default(0).optional(),
+    max_rank: z.coerce.number().int().min(1).max(3).default(3).optional(),
   })
   .strict();
 
-export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(registry: ToolRegistry) {
+type ToolSpecific = z.infer<typeof toolSpecificSchema>;
+
+const inputSchema = z
+  .object({
+    query: querySchema,
+    tool_specific: toolSpecificSchema.optional(),
+  })
+  .strict();
+
+// ── Registration ───────────────────────────────────────────────────────────────
+
+export function registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -106,10 +109,9 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
   }
 
   registry.register({
-    name: specJson?.name ?? 'brand_analytics_analyze_search_catalog_performance',
+    name: 'brand_analytics_get_cross_sell_opportunities',
     description:
-      specJson?.description ??
-      'Analyzes Search Catalog Performance snapshot with KPI metrics, deltas, and RYG signals.',
+      'Products frequently purchased together from Amazon Market Basket Analysis report. Identifies cross-sell, bundling, and product-targeting ad opportunities.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -117,8 +119,9 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
       const query = parsed.query as QueryInput;
+      const toolSpecific = parsed.tool_specific as ToolSpecific | undefined;
 
-      // Permission check – user needs at least ONE of these permissions
+      // ── Permission check – user needs at least ONE of these permissions ──
       const permissions = [
         'view:quicksight_group.sales_and_marketing_new',
         'view:quicksight_group.marketing',
@@ -133,7 +136,8 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
           });
 
           const permittedCompanies = (permissionResponse.companies ?? []).filter(
-            (c): c is { company_id?: number; companyId?: number; id?: number } => c !== null && typeof c === 'object',
+            (c): c is { company_id?: number; companyId?: number; id?: number } =>
+              c !== null && typeof c === 'object',
           );
 
           permittedCompanies.forEach((c) => {
@@ -149,34 +153,42 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
 
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
 
-      const requestedCompanyIds = query.filters.company_id ?? [];
+      const requestedCompanyIds = [query.filters.company_id];
       const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
         return { items: [] };
       }
 
+      // ── Extract filter values ─────────────────────────────────────────────
       const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
 
+      const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplace ?? []).map((m) => m.trim()).filter(Boolean);
-      const parentAsins = (query.filters.parent_asins ?? []).map((a) => a.trim()).filter(Boolean);
-      const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
-      const rowTypes = (query.filters.row_type ?? []).map((r) => r.trim()).filter(Boolean);
-      const revenueClass = (query.filters.revenue_abcd_class ?? []).map((c) => c.trim()).filter(Boolean);
-      const paretoClass = (query.filters.pareto_abc_class ?? []).map((c) => c.trim()).filter(Boolean);
-      const strengthColors = (query.filters.strength_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const weaknessColors = (query.filters.weakness_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const opportunityColors = (query.filters.opportunity_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const thresholdColors = (query.filters.threshold_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const clickTrendColors = (query.filters.click_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const cartAddTrendColors = (query.filters.cart_add_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const purchaseTrendColors = (query.filters.purchase_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
+
+      const minCombinationPct = toolSpecific?.min_combination_pct ?? 0;
+      const maxRank = toolSpecific?.max_rank ?? 3;
+
+      const SORTABLE_FIELDS = new Set([
+        'avg_combination_pct',
+        'max_combination_pct',
+        'best_rank',
+        'weeks_appearing',
+        'consistency_score',
+        'primary_asin',
+        'co_purchased_asin',
+        'last_seen',
+      ]);
 
       const time = query.aggregation?.time;
-      const periodsBack = time?.periods_back ?? 12;
-      const limitTopN = query.limit ?? 200;
+      const periodsBack = time?.periods_back ?? 4;
+      const limitTopN = query.limit ?? 50;
+      const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '')
+        ? query.sort!.field!
+        : 'avg_combination_pct';
+      const sortDirection = query.sort?.direction ?? 'desc';
 
+      // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
@@ -185,24 +197,19 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
         end_date_sql: sqlDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
         asins_array: sqlVarcharArrayExpr(asins),
-        row_types_array: sqlVarcharArrayExpr(rowTypes),
-        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
-        strength_colors_array: sqlVarcharArrayExpr(strengthColors),
-        weakness_colors_array: sqlVarcharArrayExpr(weaknessColors),
-        opportunity_colors_array: sqlVarcharArrayExpr(opportunityColors),
-        threshold_colors_array: sqlVarcharArrayExpr(thresholdColors),
-        click_trend_colors_array: sqlVarcharArrayExpr(clickTrendColors),
-        cart_add_trend_colors_array: sqlVarcharArrayExpr(cartAddTrendColors),
-        purchase_trend_colors_array: sqlVarcharArrayExpr(purchaseTrendColors),
+        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+        min_combination_pct: Number(minCombinationPct),
+        max_rank: Number(maxRank),
+
+        // Sort (whitelisted column name, safe for interpolation)
+        sort_column: sortField,
+        sort_direction: sortDirection.toUpperCase(),
       });
 
       const athenaResult = await runAthenaQuery({
         query: rendered,
-        database,
+        database: 'sp_api_iceberg',
         workGroup: config.athena.workgroup,
         outputLocation: config.athena.outputLocation,
         maxRows: limitTopN,

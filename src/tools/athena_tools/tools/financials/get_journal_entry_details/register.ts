@@ -88,21 +88,38 @@ export function registerFinancialsGetJournalEntryDetailsTool(registry: ToolRegis
       const parsed = inputSchema.parse(args);
       const query = parsed.query as QueryInput;
 
-      // ── Permission check ──────────────────────────────────────────────────
-      const permission = 'view:quicksight_group.business_planning_new';
-      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
+      // ── Permission check – user needs at least ONE of these permissions ──
+      const permissions = [
+        'view:quicksight_group.bookkeeping',
+        'view:quicksight_group.audit_and_comliance_new',
+        'view:quicksight_group.finance-new',
+      ];
 
-      const permittedCompanies = (permissionResponse.companies ?? []).filter(
-        (c): c is { company_id?: number; companyId?: number; id?: number } =>
-          c !== null && typeof c === 'object',
-      );
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
 
-      const permittedCompanyIds = permittedCompanies
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+          const permittedCompanies = (permissionResponse.companies ?? []).filter(
+            (c): c is { company_id?: number; companyId?: number; id?: number } =>
+              c !== null && typeof c === 'object',
+          );
+
+          permittedCompanies.forEach((c) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch {
+          // Continue if one permission check fails
+        }
+      }
+
+      const permittedCompanyIds = Array.from(allPermittedCompanyIds);
 
       const requestedCompanyIds = [query.filters.company_id];
       const allowedCompanyIds = requestedCompanyIds.filter((id) =>
