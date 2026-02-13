@@ -106,12 +106,12 @@ enriched AS (
     st.salesothersku7d                         AS sales_other_sku,
     st.unitssoldothersku7d                     AS units_other_sku,
 
-    -- USD-normalised amounts (divide by rate; USD has no rate → 1.0)
-    st.cost / COALESCE(cr.rate, 1.0)           AS cost_usd,
-    COALESCE(st.sales30d, st.sales14d, st.sales7d, st.sales1d) / COALESCE(cr.rate, 1.0) AS sales_usd,
+    -- USD-normalised amounts (multiply by rate; USD has no rate → 1.0)
+    st.cost * COALESCE(cr.rate, 1.0)           AS cost_usd,
+    COALESCE(st.sales30d, st.sales14d, st.sales7d, st.sales1d) * COALESCE(cr.rate, 1.0) AS sales_usd,
     COALESCE(st.attributedsalessamesku30d, st.attributedsalessamesku14d,
-             st.attributedsalessamesku7d, st.attributedsalessamesku1d) / COALESCE(cr.rate, 1.0) AS sales_same_sku_usd,
-    st.salesothersku7d / COALESCE(cr.rate, 1.0) AS sales_other_sku_usd,
+             st.attributedsalessamesku7d, st.attributedsalessamesku1d) * COALESCE(cr.rate, 1.0) AS sales_same_sku_usd,
+    st.salesothersku7d * COALESCE(cr.rate, 1.0) AS sales_other_sku_usd,
 
     -- ROAS / ACOS from report (fallback compute later)
     st.roasclicks14d                           AS roas_report,

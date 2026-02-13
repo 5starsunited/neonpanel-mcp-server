@@ -100,9 +100,9 @@ enriched AS (
     ms.conversions,
     ms."attributed units ordered"                AS attributed_units_ordered,
 
-    -- USD-normalised amounts (USD base: divide by rate; USD has no rate → 1.0)
-    ms.cost / COALESCE(cr.rate, 1.0)             AS cost_usd,
-    ms."attributed sales" / COALESCE(cr.rate, 1.0) AS attributed_sales_usd,
+    -- USD-normalised amounts (multiply by rate; USD has no rate → 1.0)
+    ms.cost * COALESCE(cr.rate, 1.0)             AS cost_usd,
+    ms."attributed sales" * COALESCE(cr.rate, 1.0) AS attributed_sales_usd,
 
     -- ASIN dimension columns (fallback to 'undefined' when no match)
     COALESCE(ms."purchased asin", ms."advertised asin", 'undefined') AS enrichment_asin,
