@@ -65,15 +65,16 @@ marketplaces_dim AS (
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
 ),
 
+-- ─── Currency rates (USD is base; no row for USD → COALESCE to 1.0) ─────────
+currency_rates AS (
+  SELECT currency, date, rate
+  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rate"
+),
+
 -- ─── Enrich with marketplace + ASIN attributes ─────────────────────────────
 enriched AS (
   SELECT
     ms.time_window_start                         AS report_date,
-    ms.ad_date_string,
-    ms.period,
-    ms.year,
-    ms.month,
-    ms.day,
     ms.dataset                                   AS dataset,
     ms."campaign name"                           AS campaign_name,
     ms.campaign_id,
@@ -91,13 +92,17 @@ enriched AS (
     ms."advertised sku"                          AS advertised_sku,
     ms."purchased asin"                          AS purchased_asin,
 
-    -- Core metrics
+    -- Core metrics (original currency)
     ms.impressions,
     ms.clicks,
     ms.cost,
     ms."attributed sales"                        AS attributed_sales,
     ms.conversions,
     ms."attributed units ordered"                AS attributed_units_ordered,
+
+    -- USD-normalised amounts (USD base: divide by rate; USD has no rate → 1.0)
+    ms.cost / COALESCE(cr.rate, 1.0)             AS cost_usd,
+    ms."attributed sales" / COALESCE(cr.rate, 1.0) AS attributed_sales_usd,
 
     -- ASIN dimension columns (fallback to 'undefined' when no match)
     COALESCE(ms."purchased asin", ms."advertised asin", 'undefined') AS enrichment_asin,
@@ -118,6 +123,11 @@ enriched AS (
   INNER JOIN marketplaces_dim m
     ON m.amazon_marketplace_id = ms.marketplace_id
 
+  -- MS → Currency rate for USD conversion
+  LEFT JOIN currency_rates cr
+    ON lower(cr.currency) = lower(ms.currency)
+    AND cr.date = CAST(ms.time_window_start AS DATE)
+
   -- MS → ASIN attributes (via purchased or advertised ASIN)
   LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."asin_attributes" aa
     ON aa.asin = COALESCE(ms."purchased asin", ms."advertised asin")
@@ -129,6 +139,18 @@ enriched AS (
   WHERE
     -- Authorization: company_id filter
     contains(p.company_ids, ms.company_id)
+
+    -- Partition pruning: ad_date is the partition key.
+    -- Corrections arrive up to 14 days after time_window_start,
+    -- so we scan partitions from start_date to end_date + 14 days.
+    AND ms.ad_date >= COALESCE(p.start_date,
+                               date_add('week', -1 * (p.periods_back + 2), CURRENT_DATE))
+    AND ms.ad_date <= date_add('day', 14,
+                               COALESCE(p.end_date, CURRENT_DATE))
+
+    -- Business-date filter on time_window_start
+    AND ms.time_window_start >= COALESCE(p.start_date,
+                                          date_add('week', -1 * (p.periods_back + 2), CURRENT_DATE))
 
     -- Optional campaign type filter (dataset: sponsored_products / sponsored_brands / sponsored_display)
     AND (
@@ -212,11 +234,11 @@ windowed AS (
 -- ─── Aggregate by dynamic group-by ──────────────────────────────────────────
 aggregated AS (
   SELECT
-    -- Periodicity key
+    -- Periodicity key (derived from time_window_start = business date)
     CASE p.periodicity
-      WHEN 'day'   THEN w.ad_date_string
-      WHEN 'month' THEN w.period
-      WHEN 'year'  THEN CAST(w.year AS VARCHAR)
+      WHEN 'day'   THEN CAST(CAST(w.report_date AS DATE) AS VARCHAR)
+      WHEN 'month' THEN DATE_FORMAT(CAST(w.report_date AS DATE), '%Y-%m')
+      WHEN 'year'  THEN CAST(YEAR(CAST(w.report_date AS DATE)) AS VARCHAR)
       ELSE NULL
     END                                                                          AS time_period,
 
@@ -237,11 +259,11 @@ aggregated AS (
     CASE WHEN p.group_by_marketplace = 1 THEN w.marketplace_country_code ELSE NULL END AS marketplace_country_code,
     CASE WHEN p.group_by_marketplace = 1 THEN w.currency ELSE NULL END            AS currency,
 
-    -- Metrics
+    -- Metrics (USD-normalised for cross-marketplace correctness)
     SUM(w.impressions)                 AS impressions,
     SUM(w.clicks)                      AS clicks,
-    SUM(w.cost)                        AS cost,
-    SUM(w.attributed_sales)            AS attributed_sales,
+    SUM(w.cost_usd)                    AS cost_usd,
+    SUM(w.attributed_sales_usd)        AS attributed_sales_usd,
     SUM(w.conversions)                 AS conversions,
     SUM(w.attributed_units_ordered)    AS attributed_units_ordered,
 
@@ -256,9 +278,9 @@ aggregated AS (
   CROSS JOIN params p
   GROUP BY
     CASE p.periodicity
-      WHEN 'day'   THEN w.ad_date_string
-      WHEN 'month' THEN w.period
-      WHEN 'year'  THEN CAST(w.year AS VARCHAR)
+      WHEN 'day'   THEN CAST(CAST(w.report_date AS DATE) AS VARCHAR)
+      WHEN 'month' THEN DATE_FORMAT(CAST(w.report_date AS DATE), '%Y-%m')
+      WHEN 'year'  THEN CAST(YEAR(CAST(w.report_date AS DATE)) AS VARCHAR)
       ELSE NULL
     END,
     CASE WHEN p.group_by_campaign_name = 1 THEN w.campaign_name ELSE NULL END,
@@ -300,17 +322,17 @@ with_kpis AS (
 
     a.impressions,
     a.clicks,
-    ROUND(a.cost, 2)                                                              AS cost,
-    ROUND(a.attributed_sales, 2)                                                  AS attributed_sales,
+    ROUND(a.cost_usd, 2)                                                          AS cost_usd,
+    ROUND(a.attributed_sales_usd, 2)                                              AS attributed_sales_usd,
     a.conversions,
     a.attributed_units_ordered,
 
-    -- Efficiency KPIs
-    CASE WHEN a.clicks > 0 THEN ROUND(a.cost / a.clicks, 2) ELSE NULL END         AS cpc,
+    -- Efficiency KPIs (all in USD)
+    CASE WHEN a.clicks > 0 THEN ROUND(a.cost_usd / a.clicks, 2) ELSE NULL END     AS cpc_usd,
     CASE WHEN a.impressions > 0 THEN ROUND(100.0 * a.clicks / a.impressions, 2) ELSE NULL END AS ctr_pct,
     CASE WHEN a.clicks > 0 THEN ROUND(100.0 * a.conversions / a.clicks, 2) ELSE NULL END     AS cvr_pct,
-    CASE WHEN a.attributed_sales > 0 THEN ROUND(100.0 * a.cost / a.attributed_sales, 2) ELSE NULL END AS acos_pct,
-    CASE WHEN a.cost > 0 THEN ROUND(a.attributed_sales / a.cost, 2) ELSE NULL END             AS roas,
+    CASE WHEN a.attributed_sales_usd > 0 THEN ROUND(100.0 * a.cost_usd / a.attributed_sales_usd, 2) ELSE NULL END AS acos_pct,
+    CASE WHEN a.cost_usd > 0 THEN ROUND(a.attributed_sales_usd / a.cost_usd, 2) ELSE NULL END             AS roas,
 
     -- Context
     a.days_active,

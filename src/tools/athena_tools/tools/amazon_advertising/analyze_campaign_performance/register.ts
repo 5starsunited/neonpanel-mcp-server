@@ -64,11 +64,11 @@ const GROUP_BY_OPTIONS = [
 const SORTABLE_FIELDS = [
   'impressions',
   'clicks',
-  'cost',
-  'attributed_sales',
+  'cost_usd',
+  'attributed_sales_usd',
   'conversions',
   'attributed_units_ordered',
-  'cpc',
+  'cpc_usd',
   'ctr_pct',
   'cvr_pct',
   'acos_pct',
@@ -131,7 +131,7 @@ const querySchema = z
       .optional(),
     sort: z
       .object({
-        field: z.enum(SORTABLE_FIELDS).default('cost').optional(),
+        field: z.enum(SORTABLE_FIELDS).default('cost_usd').optional(),
         direction: z.enum(['asc', 'desc']).default('desc').optional(),
       })
       .optional(),
@@ -239,7 +239,7 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
 
       const groupBy = query.aggregation?.group_by ?? ['campaign_name'];
       const periodicity = query.aggregation?.periodicity ?? 'total';
-      const sortField = query.sort?.field ?? 'cost';
+      const sortField = query.sort?.field ?? 'cost_usd';
       const sortDirection = query.sort?.direction ?? 'desc';
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;

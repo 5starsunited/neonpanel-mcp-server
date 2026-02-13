@@ -169,11 +169,11 @@
                 "enum": [
                   "impressions",
                   "clicks",
-                  "cost",
-                  "attributed_sales",
+                  "cost_usd",
+                  "attributed_sales_usd",
                   "conversions",
                   "attributed_units_ordered",
-                  "cpc",
+                  "cpc_usd",
                   "ctr_pct",
                   "cvr_pct",
                   "acos_pct",
@@ -181,8 +181,8 @@
                   "days_active",
                   "asin_count"
                 ],
-                "default": "cost",
-                "description": "Metric column to sort and rank by. Default: cost."
+                "default": "cost_usd",
+                "description": "Metric column to sort and rank by. Default: cost_usd."
               },
               "direction": {
                 "type": "string",
@@ -232,18 +232,18 @@
             "company_id": { "type": ["integer", "null"], "description": "Company identifier. Null when not in group_by." },
             "marketplace": { "type": ["string", "null"], "description": "Marketplace name (e.g., 'Amazon.com'). Null when marketplace not in group_by." },
             "marketplace_country_code": { "type": ["string", "null"], "description": "Marketplace country code (e.g., 'us', 'de'). Null when marketplace not in group_by." },
-            "currency": { "type": ["string", "null"], "description": "Currency code (e.g., 'USD', 'EUR'). Null when marketplace not in group_by." },
+            "currency": { "type": ["string", "null"], "description": "Original marketplace currency code (e.g., 'USD', 'EUR'). Null when marketplace not in group_by. All monetary amounts are converted to USD." },
             "impressions": { "type": "integer", "description": "Total ad impressions in the date range." },
             "clicks": { "type": "integer", "description": "Total ad clicks in the date range." },
-            "cost": { "type": "number", "description": "Total ad spend in marketplace currency." },
-            "attributed_sales": { "type": "number", "description": "Total attributed sales from Marketing Stream." },
+            "cost_usd": { "type": "number", "description": "Total ad spend normalised to USD. Safe to aggregate across marketplaces." },
+            "attributed_sales_usd": { "type": "number", "description": "Total attributed sales normalised to USD." },
             "conversions": { "type": "integer", "description": "Total attributed conversions (orders)." },
             "attributed_units_ordered": { "type": "integer", "description": "Total attributed units ordered." },
-            "cpc": { "type": ["number", "null"], "description": "Cost per click = cost / clicks. Null if 0 clicks." },
+            "cpc_usd": { "type": ["number", "null"], "description": "Cost per click in USD = cost_usd / clicks. Null if 0 clicks." },
             "ctr_pct": { "type": ["number", "null"], "description": "Click-through rate as percentage (0-100). Null if 0 impressions." },
             "cvr_pct": { "type": ["number", "null"], "description": "Conversion rate as percentage (0-100) = conversions / clicks. Null if 0 clicks." },
-            "acos_pct": { "type": ["number", "null"], "description": "ACoS as percentage (0-100) = cost / attributed_sales × 100. Lower is better. Null if 0 sales." },
-            "roas": { "type": ["number", "null"], "description": "Return on ad spend = attributed_sales / cost. Higher is better. Null if 0 cost." },
+            "acos_pct": { "type": ["number", "null"], "description": "ACoS as percentage (0-100) = cost_usd / attributed_sales_usd × 100. Lower is better. Null if 0 sales." },
+            "roas": { "type": ["number", "null"], "description": "Return on ad spend = attributed_sales_usd / cost_usd. Higher is better. Null if 0 cost." },
             "days_active": { "type": "integer", "description": "Number of distinct reporting days in the date range." },
             "asin_count": { "type": "integer", "description": "Number of distinct advertised ASINs in the aggregated rows." },
             "avg_revenue_share": { "type": ["number", "null"], "description": "Average revenue share from ASIN attributes (0-1 scale). Null when ASIN has no attributes." }
@@ -262,7 +262,7 @@
         "query": {
           "filters": { "company_id": 81, "marketplace": ["US"] },
           "aggregation": { "group_by": ["campaign_name"] },
-          "sort": { "field": "cost", "direction": "desc" },
+          "sort": { "field": "cost_usd", "direction": "desc" },
           "limit": 20
         }
       }
@@ -292,7 +292,7 @@
             "periodicity": "month",
             "group_by": ["campaign_name"]
           },
-          "sort": { "field": "cost", "direction": "desc" },
+          "sort": { "field": "cost_usd", "direction": "desc" },
           "limit": 200
         }
       }
@@ -323,7 +323,7 @@
             "placements": ["Top of Search on-Amazon"]
           },
           "aggregation": { "group_by": ["product_family"] },
-          "sort": { "field": "attributed_sales", "direction": "desc" }
+          "sort": { "field": "attributed_sales_usd", "direction": "desc" }
         }
       }
     },
@@ -346,7 +346,7 @@
         "query": {
           "filters": { "company_id": 81, "marketplace": ["US"] },
           "aggregation": { "group_by": ["brand"] },
-          "sort": { "field": "cost", "direction": "desc" }
+          "sort": { "field": "cost_usd", "direction": "desc" }
         }
       }
     },
@@ -364,7 +364,7 @@
             "periodicity": "day",
             "group_by": ["campaign_name"]
           },
-          "sort": { "field": "cost", "direction": "desc" },
+          "sort": { "field": "cost_usd", "direction": "desc" },
           "limit": 30
         }
       }

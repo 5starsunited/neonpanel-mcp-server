@@ -1,12 +1,9 @@
 CREATE TABLE brand_analytics_iceberg.marketing_stream_snapshot (
+  ad_date date,
   marketplace_id string,
+  company_id bigint,
   dataset string,
   time_window_start date,
-  ad_date_string string,
-  period string,
-  year bigint,
-  month bigint,
-  day bigint,
   campaign_id string,
   adgroup_id string,
   ad_id string,
@@ -21,18 +18,13 @@ CREATE TABLE brand_analytics_iceberg.marketing_stream_snapshot (
   attributed sales double,
   conversions bigint,
   attributed units ordered bigint,
-  updated_at date,
-  company_id bigint,
   advertised sku string,
   advertised asin string,
   purchased asin string,
   campaign name string,
   ad group name string,
-  total sales double,
-  total conversions bigint,
-  total units ordered bigint,
   ads sku key string)
-PARTITIONED BY (`company_id`, `marketplace_id`, `year`, `month`, `day`)
+PARTITIONED BY (`company_id`, `marketplace_id`, `ad_date`)
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/marketing_stream_snapshot'
 TBLPROPERTIES (
   'table_type'='iceberg',
