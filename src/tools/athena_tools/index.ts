@@ -21,6 +21,7 @@ import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inv
 import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
 import { registerAdvertisingAnalyzeSearchTermsTool } from './tools/amazon_advertising/analyze_search_terms/register';
 import { registerAdvertisingAnalyzeCampaignPerformanceTool } from './tools/amazon_advertising/analyze_campaign_performance/register';
+import { registerFinancialsAnalyzeGeneralLedgerTool } from './tools/financials/analyze_general_ledger/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -45,5 +46,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
   registerAdvertisingAnalyzeSearchTermsTool(registry);
   registerAdvertisingAnalyzeCampaignPerformanceTool(registry);
+  registerFinancialsAnalyzeGeneralLedgerTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }

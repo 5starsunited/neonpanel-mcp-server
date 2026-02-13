@@ -1,0 +1,11 @@
+#	id	bk_service_id	name	description	classification	created_at	updated_at	partition_name
+1	1	1	Bank		Asset		2024-11-08 12:39:16.000000	*
+2	4	1	Other Asset		Asset		2024-11-08 12:39:16.000000	*
+3	5	1	Accounts Receivable		Asset		2024-11-08 12:39:16.000000	*
+4	6	1	Equity		Equity		2024-11-08 12:39:16.000000	*
+5	7	1	Expense		Expense		2024-11-08 12:39:16.000000	*
+6	2	1	Other Current Asset		Asset		2024-11-08 12:39:16.000000	*
+7	3	1	Fixed Asset		Asset		2024-11-08 12:39:16.000000	*
+8	8	1	Other Expense		Expense		2024-11-08 12:39:16.000000	*
+9	9	1	Cost of Goods Sold		Expense		2024-11-08 12:39:16.000000	*
+10	10	1	Accounts Payable		Liability		2024-11-08 12:39:16.000000	*

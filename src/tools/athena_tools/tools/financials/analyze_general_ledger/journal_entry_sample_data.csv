@@ -1,0 +1,11 @@
+#	id	company_id	type	doc_number	bk_transaction_map_id	transaction_date	currency	amount	main_amount	main_currency	name	message	document_type	document_id	source_doc_type	target_doc_type	marketplace_id	vendor_id	customer_id	created_at	updated_at	partition_name
+1	1393	77	2	13904042611-01-AMX	253	2023-01-31	MXN	0.000	0.000	USD	Amazon.com.mx		App\Models\Amazon\Invoice	21685	Invoice	Journal Entry	6			2024-01-07 01:52:54.000000	2025-02-12 16:17:38.000000	*
+2	1394	77	2	13904042611-02-AMX	253	2022-02-28	MXN	0.000	0.000	USD	Amazon.com.mx		App\Models\Amazon\Invoice	21686	Invoice	Journal Entry	6			2024-01-07 01:52:54.000000	2025-02-12 16:17:38.000000	*
+3	1395	77	2	17789772261-04-AUS	83	2023-04-30	USD	0.000	0.000	USD	Amazon.com		App\Models\Amazon\Invoice	21687	Invoice	Journal Entry	2			2024-01-07 01:52:58.000000	2025-02-12 16:17:38.000000	*
+4	1396	77	2	17733987681-04-ACA	252	2023-04-20	CAD	0.000	0.000	USD	Amazon.ca		App\Models\Amazon\Invoice	21688	Invoice	Journal Entry	4			2024-01-07 01:52:58.000000	2025-02-12 16:17:38.000000	*
+5	1397	77	2	17706599741-04-AUS	83	2023-04-16	USD	0.000	0.000	USD	Amazon.com		App\Models\Amazon\Invoice	21689	Invoice	Journal Entry	2			2024-01-07 01:53:02.000000	2025-02-12 16:17:38.000000	*
+6	1398	77	2	17645200551-04-ACA	252	2023-04-06	CAD	0.000	0.000	USD	Amazon.ca		App\Models\Amazon\Invoice	21690	Invoice	Journal Entry	4			2024-01-07 01:53:03.000000	2025-02-12 16:17:38.000000	*
+7	1399	77	2	17645200551-03-ACA	252	2023-03-31	CAD	0.000	0.000	USD	Amazon.ca		App\Models\Amazon\Invoice	21691	Invoice	Journal Entry	4			2024-01-07 01:53:03.000000	2025-02-12 16:17:38.000000	*
+8	1400	77	2	17618543601-03-AUS	83	2023-03-31	USD	0.000	0.000	USD	Amazon.com		App\Models\Amazon\Invoice	21692	Invoice	Journal Entry	2			2024-01-07 01:53:06.000000	2025-02-12 16:17:38.000000	*
+9	1401	77	2	17618543601-04-AUS	83	2023-04-02	USD	0.000	0.000	USD	Amazon.com		App\Models\Amazon\Invoice	21693	Invoice	Journal Entry	2			2024-01-07 01:53:07.000000	2025-02-12 16:17:38.000000	*
+10	1402	77	2	17479683961-03-ACA	252	2023-03-23	CAD	0.000	0.000	USD	Amazon.ca		App\Models\Amazon\Invoice	21694	Invoice	Journal Entry	4			2024-01-07 01:53:07.000000	2025-02-12 16:17:38.000000	*

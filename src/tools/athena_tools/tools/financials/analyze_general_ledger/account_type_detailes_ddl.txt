@@ -1,0 +1,15 @@
+CREATE TABLE neonpanel_iceberg.account_type_details (
+  id bigint,
+  name string,
+  default int,
+  account_type_id int,
+  created_at timestamp,
+  updated_at timestamp,
+  partition_name string)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/account_type_details'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);

@@ -1,0 +1,25 @@
+CREATE TABLE neonpanel_iceberg.journal_entry_details (
+  id bigint,
+  journal_entry_id bigint,
+  line_number int,
+  account_number string,
+  amount decimal(15, 3),
+  main_amount decimal(15, 3),
+  debit decimal(15, 3),
+  credit decimal(15, 3),
+  description string,
+  account_id bigint,
+  name string,
+  link boolean,
+  vendor_id bigint,
+  customer_id bigint,
+  created_at timestamp,
+  updated_at timestamp,
+  partition_name string)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/journal_entry_details'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);
