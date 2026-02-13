@@ -26,6 +26,7 @@ import { registerFinancialsListAccountTransactionsTool } from './tools/financial
 import { registerFinancialsListJournalEntriesTool } from './tools/financials/list_journal_entries/register';
 import { registerFinancialsGetJournalEntryDetailsTool } from './tools/financials/get_journal_entry_details/register';
 import { registerFinancialsGetBookkeepingSyncRegisterTool } from './tools/financials/get_bookeeping_sync_register/register';
+import { registerFinancialsAnalyzeProfitAndLossTool } from './tools/financials/analyze_profit_and_loss/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -55,5 +56,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerFinancialsListJournalEntriesTool(registry);
   registerFinancialsGetJournalEntryDetailsTool(registry);
   registerFinancialsGetBookkeepingSyncRegisterTool(registry);
+  registerFinancialsAnalyzeProfitAndLossTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }

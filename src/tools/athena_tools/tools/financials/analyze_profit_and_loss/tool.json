@@ -1,0 +1,138 @@
+{
+  "name": "financials_analyze_profit_and_loss",
+  "description": "Analyzes the Profit & Loss statement by computing the full P&L waterfall from journal entry data.\n\nThe waterfall structure:\n  Gross Revenue = Sales + VAT Collected\n  Revenue = all Income-type accounts (includes Sales, VAT, Reimbursements, Promo Discounts, Refunds, Liquidations, and other income)\n  CM1 = Revenue + Cost of Inventory Sold (product cost margin)\n  CM2 = Revenue − Cost of Goods Sold (includes Amazon Fees)\n  CM3 = CM2 + Amazon Promotion (contribution margin after promos)\n  EBITDA = CM3 + Expenses\n  Margin = EBITDA / Revenue\n\nP&L line item definitions:\n- Sales: Amazon sales (accounts 40011, 40013, 46000)\n- VAT Collected: VAT on sales (account 22021)\n- Reimbursements: Amazon FBA reimbursements (accounts 40015, 40103, 40105)\n- Promo Discounts: Promotional discounts & coupons (accounts 40107, 40108)\n- Refunds: Customer refunds (accounts 40014, 40104, 40106)\n- Liquidations: Inventory liquidations (accounts 40101, 40102)\n- Revenue: Total income (all Income-type accounts)\n- Cost of Inventory Sold: Product cost / COGS at landed cost (parent account = 'Cost of Inventory Sold')\n- Amazon Fees: Platform fees = −COGS − Cost of Inventory Sold (FBA fees, referral fees, etc.)\n- Amazon Promotion: Advertising & promotional spend (parent account = 'Amazon Promotion')\n- Expenses: Operating expenses minus Amazon Promotion\n- Net Income: Revenue − COGS − Expenses (all types)\n\nSign convention: Revenue, Sales, Reimbursements are positive. Refunds, Promo Discounts, Cost of Inventory Sold, Amazon Fees, Expenses are negative. CM1/CM2/CM3/EBITDA are net results.\n\nMargin percentages (cm1_pct, cm2_pct, cm3_pct, margin) are ratios to Revenue. NULL when Revenue = 0.\n\nCurrency: All amounts are in the company's main currency.\n\nPeriodicity: Supports month (default), quarter, year, or total (no time breakdown). Monthly is most common for P&L analysis.\n\nDefault time range: Last complete calendar month when no dates provided.\n\nNOTE: This tool uses NeonPanel's template Chart of Accounts. Results are accurate for companies using the standard CoA with the account number prefix convention above. For companies with custom CoA structures, use financials_analyze_general_ledger instead.\n\nDrill-down: Use financials_analyze_general_ledger to explore individual accounts contributing to any P&L line. For example, to see all COGS accounts, filter by account_types=['Cost of Goods Sold']. Use financials_list_account_transactions for transaction-level detail.\n\nDig deeper: For a full interactive P&L report, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/profit-and-loss\n\nKnowledge base: https://help.neonpanel.com/en/articles/profit-and-loss-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for P&L analysis.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Required filters. company_id is mandatory.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range. Defaults to last complete calendar month if omitted.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "description": "Start date (inclusive) in YYYY-MM-DD format. Example: '2025-01-01'."
+              },
+              "end_date": {
+                "type": "string",
+                "description": "End date (inclusive) in YYYY-MM-DD format. Example: '2025-12-31'."
+              }
+            },
+            "additionalProperties": false
+          },
+          "periodicity": {
+            "type": "string",
+            "enum": ["month", "quarter", "year", "total"],
+            "default": "month",
+            "description": "Time granularity for aggregation. 'month' (default) returns one row per month, 'quarter' per quarter (2025-Q1), 'year' per year, 'total' aggregates everything into one row."
+          },
+          "group_by_company": {
+            "type": "integer",
+            "enum": [0, 1],
+            "default": 0,
+            "description": "Set to 1 to add company_id / company_name / main_currency columns (useful when comparing multiple companies, though only one company_id can be passed per request)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "time_period": { "type": ["string", "null"], "description": "Period label: '2025-01' (month), '2025-Q1' (quarter), '2025' (year), 'total'." },
+            "company_id": { "type": ["integer", "null"], "description": "Company ID (only when group_by_company=1)." },
+            "company_name": { "type": ["string", "null"], "description": "Company name (only when group_by_company=1)." },
+            "main_currency": { "type": ["string", "null"], "description": "Company main currency (only when group_by_company=1)." },
+            "gross_revenue": { "type": "number", "description": "Gross Revenue = Sales + VAT Collected." },
+            "vat_collected": { "type": "number", "description": "VAT collected on sales." },
+            "sales": { "type": "number", "description": "Amazon product sales." },
+            "reimbursements": { "type": "number", "description": "Amazon FBA reimbursements." },
+            "promo_discounts": { "type": "number", "description": "Promotional discounts & coupons (negative)." },
+            "refunds": { "type": "number", "description": "Customer refunds (negative)." },
+            "liquidations": { "type": "number", "description": "Inventory liquidation proceeds." },
+            "revenue": { "type": "number", "description": "Total revenue (all Income-type accounts)." },
+            "cost_of_inventory_sold": { "type": "number", "description": "Product cost at landed cost (negative)." },
+            "cm1": { "type": "number", "description": "Contribution Margin 1 = Revenue + Cost of Inventory Sold." },
+            "cm1_pct": { "type": ["number", "null"], "description": "CM1 / Revenue ratio (0.78 = 78%)." },
+            "amazon_fees": { "type": "number", "description": "Amazon platform fees = −COGS − Cost of Inventory Sold (negative)." },
+            "cm2": { "type": "number", "description": "Contribution Margin 2 = Revenue − Cost of Goods Sold." },
+            "cm2_pct": { "type": ["number", "null"], "description": "CM2 / Revenue ratio." },
+            "amazon_promotion": { "type": "number", "description": "Amazon advertising & promotional spend (negative)." },
+            "cm3": { "type": "number", "description": "Contribution Margin 3 = CM2 + Amazon Promotion." },
+            "cm3_pct": { "type": ["number", "null"], "description": "CM3 / Revenue ratio." },
+            "expenses": { "type": "number", "description": "Operating expenses excluding Amazon Promotion (negative)." },
+            "ebitda": { "type": "number", "description": "EBITDA = CM3 + Expenses." },
+            "margin": { "type": ["number", "null"], "description": "EBITDA Margin = EBITDA / Revenue." },
+            "net_income": { "type": "number", "description": "Net Income = Revenue − COGS − all Expenses." }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "description": "Monthly P&L for 2025",
+      "input": {
+        "query": {
+          "filters": { "company_id": 42 },
+          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "periodicity": "month"
+        }
+      }
+    },
+    {
+      "description": "Quarterly P&L for last year",
+      "input": {
+        "query": {
+          "filters": { "company_id": 42 },
+          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "periodicity": "quarter"
+        }
+      }
+    },
+    {
+      "description": "Annual total P&L",
+      "input": {
+        "query": {
+          "filters": { "company_id": 42 },
+          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "periodicity": "total"
+        }
+      }
+    },
+    {
+      "description": "Last month P&L (default)",
+      "input": {
+        "query": {
+          "filters": { "company_id": 42 }
+        }
+      }
+    }
+  ]
+}
