@@ -1,0 +1,170 @@
+{
+  "name": "financials_get_bookkeeping_sync_register",
+  "description": "Shows the bookkeeping sync register – the status of document synchronisation with QuickBooks Online (QBO) or Xero. Lists each sync entry with its current status, any sync errors, and a direct link to the document in the accounting platform.\n\nUse this tool to:\n- Check which documents have been synced to QBO/Xero and which have failed\n- Find sync errors and troubleshoot failed syncs\n- List all documents pending sync (status 'Ready' or 'Going')\n- Look up a specific document's sync status by doc_number or QBO transaction reference\n- Filter by document type (Invoice, Bill, Expense, Journal Entry, etc.)\n- Get the QBO/Xero link (bk_document_url) to open the document directly in the accounting platform\n\nSync statuses:\n- 'Off' (0): Sync disabled for this document\n- 'Ready' (1): Queued for sync\n- 'Going' (2): Sync in progress\n- 'Synced' (3): Successfully synced to QBO/Xero\n- 'Error' (4): Sync failed — check sync_error for details\n\nNote: The table name 'qbo_register' is a legacy name from when only QuickBooks was supported. It now covers both QBO and Xero.\n\nDefault time range: Last complete calendar month. Use start_date/end_date for custom ranges.\n\nDefault sort: Most recent first (desc).\n\nRelated tools:\n- financials_list_journal_entries: Browse/search journal entry headers\n- financials_get_journal_entry_details: See line-by-line breakdown of specific JEs\n- financials_list_account_transactions: See JE lines posted to a specific account\n\nDig deeper: For the full interactive bookkeeping sync dashboard, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/sync-register\n\nKnowledge base: https://help.neonpanel.com/en/articles/bookkeeping-sync",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for bookkeeping sync register.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for sync register. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "sync_statuses": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["Off", "Ready", "Going", "Synced", "Error"]
+                },
+                "description": "Filter by sync status. E.g., ['Error'] to find failed syncs, ['Ready', 'Going'] for pending, ['Synced'] for completed."
+              },
+              "has_error": {
+                "type": "boolean",
+                "description": "true = only entries with a non-empty sync_error. false = only entries without errors. Omit to include all."
+              },
+              "source_doc_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by source document type. Case-insensitive. Common values: 'Invoice', 'Bill', 'Expense', 'Journal Entry', 'Transfer', 'Deposit', 'Payment', 'Credit Memo'."
+              },
+              "target_doc_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by target (bookkeeping) document type. E.g., 'Journal Entry'."
+              },
+              "doc_numbers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by journal entry doc_number (reference number). Exact match."
+              },
+              "qbo_transaction_refs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by QBO transaction reference. Exact match. E.g., ['19180367381-12-ACA']."
+              },
+              "active": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by active flag. 1 = active entries, 0 = inactive/archived."
+              }
+            },
+            "required": ["company_id"]
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range for transaction_date. Defaults to last complete calendar month if omitted.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "description": "Inclusive start date (YYYY-MM-DD)."
+              },
+              "end_date": {
+                "type": "string",
+                "description": "Inclusive end date (YYYY-MM-DD)."
+              }
+            }
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort order by transaction_date. 'desc' (default) = most recent first."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100,
+            "description": "Max rows to return. Default 100."
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    "required": ["query"]
+  },
+  "examples": [
+    {
+      "name": "Recent sync entries",
+      "description": "List the most recent sync register entries for company 77 (last month, default).",
+      "input": {
+        "query": {
+          "filters": { "company_id": 77 }
+        }
+      }
+    },
+    {
+      "name": "Failed syncs",
+      "description": "Find all entries that failed to sync to QBO/Xero.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "sync_statuses": ["Error"]
+          },
+          "time": { "start_date": "2025-01-01", "end_date": "2026-01-31" }
+        }
+      }
+    },
+    {
+      "name": "Entries with errors",
+      "description": "Find all entries that have a non-empty sync_error message.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "has_error": true
+          },
+          "time": { "start_date": "2025-01-01", "end_date": "2026-01-31" }
+        }
+      }
+    },
+    {
+      "name": "Pending syncs",
+      "description": "Find entries queued or in progress for sync.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "sync_statuses": ["Ready", "Going"]
+          },
+          "time": { "start_date": "2025-01-01", "end_date": "2026-01-31" }
+        }
+      }
+    },
+    {
+      "name": "Invoices only",
+      "description": "List sync status for all invoice-type documents in Jan 2026.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "source_doc_types": ["Invoice"]
+          },
+          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" }
+        }
+      }
+    },
+    {
+      "name": "Look up specific QBO ref",
+      "description": "Find a specific sync entry by its QBO transaction reference.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "qbo_transaction_refs": ["19180367381-12-ACA"]
+          },
+          "time": { "start_date": "2023-01-01", "end_date": "2026-12-31" }
+        }
+      }
+    }
+  ]
+}

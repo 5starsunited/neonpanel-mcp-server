@@ -1,0 +1,32 @@
+CREATE TABLE neonpanel_iceberg.qbo_register (
+  id bigint,
+  qbo_transaction_ref string,
+  qbo_transaction_map_id bigint,
+  document_type string,
+  document_id bigint,
+  source_doc_type string,
+  target_doc_type string,
+  amount decimal(15, 3),
+  main_amount decimal(15, 3),
+  currency string,
+  main_currency string,
+  synced_at timestamp,
+  recalculated_at timestamp,
+  active int,
+  qbo_sync_status_id int,
+  qbo_id string,
+  sync_error string,
+  company_id bigint,
+  marketplace_id bigint,
+  transaction_date timestamp,
+  bk_document_url string,
+  updated_at timestamp,
+  created_at timestamp,
+  partition_name string)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/qbo_register'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);
