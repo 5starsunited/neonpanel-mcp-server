@@ -99,7 +99,7 @@ const querySchema = z
           .object({
             start_date: z.string().optional(),
             end_date: z.string().optional(),
-            periods_back: z.coerce.number().int().min(1).max(260).default(13).optional(),
+            periods_back: z.coerce.number().int().min(1).max(260).default(4).optional(),
           })
           .optional(),
         periodicity: z.enum(PERIODICITY_OPTIONS).default('total').optional(),
@@ -201,16 +201,28 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
       const sortField = query.sort?.field ?? 'net';
       const sortDirection = query.sort?.direction ?? 'desc';
       const time = query.aggregation?.time;
-      const periodsBack = time?.periods_back ?? 13;
       const limitTopN = query.limit ?? 100;
+
+      // Default to last calendar month when no time params are provided
+      let startDate = time?.start_date;
+      let endDate = time?.end_date;
+      const periodsBack = time?.periods_back ?? 4;
+
+      if (!startDate && !endDate && !time?.periods_back) {
+        const now = new Date();
+        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // day 0 = last day of prev month
+        startDate = lastMonthStart.toISOString().slice(0, 10);
+        endDate = lastMonthEnd.toISOString().slice(0, 10);
+      }
 
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: sqlDateExpr(startDate),
+        end_date_sql: sqlDateExpr(endDate),
         periods_back: Number(periodsBack),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
 
