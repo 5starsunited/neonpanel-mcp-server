@@ -1,0 +1,182 @@
+[
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(\nifelse(\n${ShowCurrency}='Company Main',  Balance, \n${ShowCurrency}='Bookkeeping Main', Balance / coalesce({Main Currency Rate},1),\nBalance / coalesce({JE Currency Rate},1) \n)\n),[Account ASC],[Account])",
+    "Name": "Account Balance"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "-{Cost of Goods Sold} - {Cost of Inventory Sold}",
+    "Name": "Amazon Fees"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\n{Parent Account} = 'Amazon Promotion',{PnL Balance},\n0\n)",
+    "Name": "Amazon Promotion"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse({Account Classification}='1.Revenue',\ncoalesce({Credit_},0)-coalesce({Debit_},0),\ncoalesce({Debit_},0)-coalesce({Credit_},0)\n)",
+    "Name": "Balance"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "Revenue + {Cost of Inventory Sold}",
+    "Name": "CM1"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(CM1), [{Transaction Date} ASC],[truncDate('MM',{Transaction Date})]) / runSumIncome",
+    "Name": "CM1, %"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "Revenue-{Cost of Goods Sold}",
+    "Name": "CM2"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(CM2), [{Transaction Date} ASC],[truncDate('MM',{Transaction Date})]) / runSumIncome",
+    "Name": "CM2, %"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "CM2 + {Amazon Promotion}",
+    "Name": "CM3"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(CM3), [{Transaction Date} ASC],[truncDate('MM',{Transaction Date})]) / runSumIncome",
+    "Name": "CM3, %"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse({Account Type}='2.Cost of Goods Sold',\n-{PnL Balance}\n,0)",
+    "Name": "Cost of Goods Sold"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\n{Parent Account} = 'Cost of Inventory Sold',{PnL Balance},\n{Parent Account} = 'Cost of Inventory sold',{PnL Balance},\n0)",
+    "Name": "Cost of Inventory Sold"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "\nifelse(\n${ShowCurrency}='Company Main',  Credit ,\n${ShowCurrency}='Bookkeeping Main', Credit  / coalesce({Main Currency Rate},1),\nCredit /  coalesce({JE Currency Rate},1)\n)\n",
+    "Name": "Credit_"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(Balance),[{Transaction Date} ASC],[])",
+    "Name": "Cumulative Balance"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "\nifelse(\n${ShowCurrency}='Company Main',  Debit ,\n${ShowCurrency}='Bookkeeping Main', Debit  / coalesce({Main Currency Rate},1),\nDebit / coalesce({JE Currency Rate},1)\n)\n",
+    "Name": "Debit_"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "CM3+Expenses",
+    "Name": "EBITDA"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse({Account Type}='3.Expense' or {Account Type}='4.Other Expense',\n-{PnL Balance}\n,0)",
+    "Name": "Expense"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\n{Account Type}='3.Expense',{PnL Balance},0\n) \n- {Amazon Promotion}",
+    "Name": "Expenses"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "Sales + {VAT Collected}",
+    "Name": "Gross Revenue"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": " ifelse(\nsubstring(Account,1,5) = '40101', {PnL Balance},\nsubstring(Account,1,5) = '40102', {PnL Balance},\n0\n)",
+    "Name": "Liquidations"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(EBITDA), [{Transaction Date} ASC],[truncDate('MM',{Transaction Date})]) / runSumIncome",
+    "Name": "Margin"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "Revenue-{Cost of Goods Sold}-Expense",
+    "Name": "Net Income"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "Amount",
+    "Name": "Original Amount"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\n${ShowCurrency}='Company Main',  (coalesce(Credit,0.0)-coalesce(Debit,0.0)) ,\n${ShowCurrency}='Bookkeeping Main', (coalesce(Credit,0.0)-coalesce(Debit,0.0)) / coalesce({Main Currency Rate},1),\n(coalesce(Credit,0)-coalesce(Debit,0) )/ coalesce({JE Currency Rate},1)\n)",
+    "Name": "PnL Balance"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\nsubstring(Account,1,5) = '40107', {PnL Balance},\nsubstring(Account,1,5) = '40108', {PnL Balance},\n0\n)",
+    "Name": "Promo Discounts"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\nsubstring(Account,1,5) = '40014', {PnL Balance},\nsubstring(Account,1,5) = '40104', {PnL Balance},\nsubstring(Account,1,5) = '40106', {PnL Balance},\n0\n)",
+    "Name": "Refunds"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\nsubstring(Account,1,5) = '40015', {PnL Balance},\nsubstring(Account,1,5) = '40103', {PnL Balance},\nsubstring(Account,1,5) = '40105', {PnL Balance},\n0\n)",
+    "Name": "Reimbursments "
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse({Account Type}='1.Income',\n{PnL Balance}\n,0)",
+    "Name": "Revenue"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(substring(Account,1,1) = '1',{Main Amount},0)",
+    "Name": "Revenue."
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\nsubstring(Account,1,5) = '40011', {PnL Balance},\nsubstring(Account,1,5) = '40013', {PnL Balance},\nsubstring(Account,1,5) = '46000', {PnL Balance},\n0\n)",
+    "Name": "Sales"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "{Sync Status}",
+    "Name": "Status"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\nisNull({Synced At}),-1,\n{Recalculated At} > {Synced At}, 0,\nisNotNull({Synced At}),1,\n-1)\n",
+    "Name": "Sync"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\nsubstring(Account,1,5) = '22021', {PnL Balance},0)",
+    "Name": "VAT Collected"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\n${ShowCurrency}='Company Main',Currency ,\n${ShowCurrency}='Bookkeeping Main',{Main Currency} ,\n{Original Currency}\n)",
+    "Name": "currency"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "ifelse(\n{Document Type}='Bill',concat('app.qbo.intuit.com/app/bill?txnId=',toString({QBO ID})),\n{Document Type}='Invoice',concat('app.qbo.intuit.com/app/journal?txnId=',toString({QBO ID})),\n{Document Type}='Entry',concat('app.qbo.intuit.com/app/journal?txnId=',toString({QBO ID})),\n{Document Type}='CreditMemo',concat('app.qbo.intuit.com/app/journal?txnId=',toString({QBO ID})),\n{Document Type}='InventoryOrder',concat('app.qbo.intuit.com/app/jornal?txnId=',toString({QBO ID})),\n''\n)",
+    "Name": "qbo_link"
+  },
+  {
+    "DataSetIdentifier": "30.0 RLS Journal Entry List",
+    "Expression": "runningSum(sum(Revenue), [{Transaction Date} ASC],[truncDate('MM',{Transaction Date})])",
+    "Name": "runSumIncome"
+  }
+]
