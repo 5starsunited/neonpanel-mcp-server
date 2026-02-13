@@ -1,0 +1,169 @@
+{
+  "name": "financials_list_journal_entries",
+  "description": "Lists journal entry headers with summary statistics – total debit, total credit, net, line count, and attachment count per journal entry.\n\nUse this tool to:\n- Browse journal entries for a company in a date range\n- Search for journal entries by name (e.g., 'Amazon.com', 'FBA', 'Advertising')\n- Look up specific journal entries by doc_number (reference number)\n- Filter by document type (Invoice, Bill, Expense, Manual Journal Entry, etc.)\n- Find large or unusual journal entries by filtering on amount range\n- See how many line items and attachments each JE has\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). For broad searches, use filters to narrow scope.\n\nDefault sort: Most recent first (desc). Change to 'asc' for chronological order.\n\nDefault time range: When no time parameters are provided, returns data for the last complete calendar month.\n\nAmount: The 'amount' and 'main_amount' fields come from the journal_entries header. Use total_debit / total_credit / total_net for the sum of all JED lines.\n\nCommon source_doc_type values: 'Invoice', 'Bill', 'Expense', 'Journal Entry', 'Transfer', 'Deposit', 'Payment', 'Credit Memo', 'Vendor Credit', 'Sales Receipt'.\n\nDrill-down: Use financials_get_journal_entry_details with doc_numbers from this tool's output to see the full line-by-line breakdown with account information.\n\nAggregation: Use financials_analyze_general_ledger for aggregated analysis by account, account type, classification, or time period.\n\nAccount ledger: Use financials_list_account_transactions to see all JE lines posted to a specific account with running balance.\n\nDig deeper: For a full interactive General Ledger report with drill-down, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/general-ledger\n\nKnowledge base: https://help.neonpanel.com/en/articles/general-ledger-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for listing journal entries.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for journal entries. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "je_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by journal entry name. Uses je_name_match_type for matching. E.g., ['Amazon.com'] with match_type 'contains' finds all Amazon-related JEs."
+              },
+              "je_name_match_type": {
+                "type": "string",
+                "enum": ["exact", "contains", "starts_with"],
+                "default": "contains",
+                "description": "How to match je_names. 'contains' (default) = substring match, 'exact' = exact match, 'starts_with' = prefix match."
+              },
+              "doc_numbers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by document/reference numbers. Exact match. E.g., ['13904042611-01-AMX']."
+              },
+              "source_doc_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by source document type. Case-insensitive. Common values: 'Invoice', 'Bill', 'Expense', 'Journal Entry', 'Transfer', 'Deposit', 'Payment', 'Credit Memo', 'Vendor Credit', 'Sales Receipt'."
+              },
+              "target_doc_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by target document type. Case-insensitive. E.g., 'Journal Entry'."
+              },
+              "min_amount": {
+                "type": "number",
+                "description": "Minimum main_amount (in main currency) to include. Useful for finding large JEs."
+              },
+              "max_amount": {
+                "type": "number",
+                "description": "Maximum main_amount (in main currency) to include."
+              }
+            },
+            "required": ["company_id"]
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range for transaction_date. Defaults to last complete calendar month if omitted.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "description": "Inclusive start date (YYYY-MM-DD)."
+              },
+              "end_date": {
+                "type": "string",
+                "description": "Inclusive end date (YYYY-MM-DD)."
+              }
+            }
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort order by transaction_date. 'desc' (default) = most recent first."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100,
+            "description": "Max rows to return. Default 100."
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    "required": ["query"]
+  },
+  "examples": [
+    {
+      "name": "Recent journal entries",
+      "description": "List the most recent journal entries for company 77 (last month, default).",
+      "input": {
+        "query": {
+          "filters": { "company_id": 77 }
+        }
+      }
+    },
+    {
+      "name": "Search by JE name",
+      "description": "Find all JEs with 'Amazon' in the name for Jan 2026.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "je_names": ["Amazon"]
+          },
+          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" }
+        }
+      }
+    },
+    {
+      "name": "Invoices only",
+      "description": "List all invoice-type journal entries for Q4 2025.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "source_doc_types": ["Invoice"]
+          },
+          "time": { "start_date": "2025-10-01", "end_date": "2025-12-31" },
+          "sort_direction": "asc"
+        }
+      }
+    },
+    {
+      "name": "Look up specific doc numbers",
+      "description": "Look up two specific JEs by their reference numbers.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "doc_numbers": ["13904042611-01-AMX", "17789772261-04-AUS"]
+          },
+          "time": { "start_date": "2022-01-01", "end_date": "2026-12-31" }
+        }
+      }
+    },
+    {
+      "name": "Large journal entries",
+      "description": "Find JEs with main_amount >= 5000 in Jan 2026.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "min_amount": 5000
+          },
+          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
+          "sort_direction": "desc",
+          "limit": 50
+        }
+      }
+    },
+    {
+      "name": "Manual journal entries",
+      "description": "Find all manual journal entries (target_doc_type = 'Journal Entry') last month.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "target_doc_types": ["Journal Entry"]
+          }
+        }
+      }
+    }
+  ]
+}

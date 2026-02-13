@@ -23,6 +23,8 @@ import { registerAdvertisingAnalyzeSearchTermsTool } from './tools/amazon_advert
 import { registerAdvertisingAnalyzeCampaignPerformanceTool } from './tools/amazon_advertising/analyze_campaign_performance/register';
 import { registerFinancialsAnalyzeGeneralLedgerTool } from './tools/financials/analyze_general_ledger/register';
 import { registerFinancialsListAccountTransactionsTool } from './tools/financials/list_account_transactions/register';
+import { registerFinancialsListJournalEntriesTool } from './tools/financials/list_journal_entries/register';
+import { registerFinancialsGetJournalEntryDetailsTool } from './tools/financials/get_journal_entry_details/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -49,5 +51,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerAdvertisingAnalyzeCampaignPerformanceTool(registry);
   registerFinancialsAnalyzeGeneralLedgerTool(registry);
   registerFinancialsListAccountTransactionsTool(registry);
+  registerFinancialsListJournalEntriesTool(registry);
+  registerFinancialsGetJournalEntryDetailsTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }

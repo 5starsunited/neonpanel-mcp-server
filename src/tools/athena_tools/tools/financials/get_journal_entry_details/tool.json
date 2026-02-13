@@ -1,0 +1,75 @@
+{
+  "name": "financials_get_journal_entry_details",
+  "description": "Gets the full line-by-line breakdown of specific journal entries identified by doc_number (reference number). Returns every account line with debit, credit, net, account info (type, classification, statement, report_chart), line description, and attachment filenames.\n\nUse this tool to:\n- Drill into a specific journal entry to see all debit/credit lines and which accounts are affected\n- Verify that a JE is balanced (total debit == total credit)\n- See attached documents (original filenames) for a JE\n- Inspect the account breakdown of an Amazon invoice, bill, expense, or manual JE\n- Follow up from financials_list_journal_entries by passing doc_numbers from that tool's output\n\nInput: Provide 1–20 doc_numbers. No date range needed — the tool finds JEs by doc_number directly.\n\nOutput: One row per JED line, grouped by doc_number and ordered by line_number. JE header fields (je_name, je_message, je_amount, je_currency, source/target_doc_type) are repeated on each line for convenience.\n\nWorkflow: Use financials_list_journal_entries to find JEs → take doc_numbers → pass them here to see full details.\n\nAggregation: Use financials_analyze_general_ledger for aggregated analysis by account or time period.\n\nAccount ledger: Use financials_list_account_transactions to see all JE lines posted to a specific account with running balance.\n\nDig deeper: For a full interactive General Ledger report with drill-down, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/general-ledger\n\nKnowledge base: https://help.neonpanel.com/en/articles/general-ledger-analysis",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for journal entry detail lookup.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for JE detail lookup. Both company_id and doc_numbers are required.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "doc_numbers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "maxItems": 20,
+                "description": "List of document/reference numbers to look up. Required. Get these from financials_list_journal_entries output. E.g., ['13904042611-01-AMX']."
+              }
+            },
+            "required": ["company_id", "doc_numbers"]
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    "required": ["query"]
+  },
+  "examples": [
+    {
+      "name": "Single JE lookup",
+      "description": "Get the full line-by-line breakdown of a single Amazon invoice JE.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "doc_numbers": ["13904042611-01-AMX"]
+          }
+        }
+      }
+    },
+    {
+      "name": "Multiple JE comparison",
+      "description": "Compare the line details of two JEs side by side.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "doc_numbers": ["13904042611-01-AMX", "17789772261-04-AUS"]
+          }
+        }
+      }
+    },
+    {
+      "name": "Follow-up from list",
+      "description": "After finding interesting JEs with financials_list_journal_entries, drill into them.",
+      "input": {
+        "query": {
+          "filters": {
+            "company_id": 77,
+            "doc_numbers": ["17733987681-04-ACA", "17706599741-04-AUS", "17645200551-04-ACA"]
+          }
+        }
+      }
+    }
+  ]
+}
