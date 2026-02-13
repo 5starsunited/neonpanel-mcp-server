@@ -63,7 +63,11 @@ sellers_dim AS (
     marketplace_id
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers"
 ),
-
+-- ─── Currency rates (USD is base; no row for USD → COALESCE to 1.0) ─────────
+currency_rates AS (
+  SELECT currency, date, rate
+  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rate"
+),
 -- ─── Join the full chain ────────────────────────────────────────────────────
 enriched AS (
   SELECT
@@ -77,12 +81,13 @@ enriched AS (
     st.targeting                               AS targeting,
     st.ingest_company_id                       AS company_id,
 
-    -- Core metrics
+    -- Core metrics (original currency)
     st.impressions,
     st.clicks,
     st.cost,
     st.costperclick                            AS cpc,
     st.clickthroughrate                        AS ctr,
+    st.campaignbudgetcurrencycode              AS currency,
 
     -- Attribution: prefer 30d → 14d → 7d → 1d
     COALESCE(st.sales30d, st.sales14d, st.sales7d, st.sales1d)                   AS sales,
@@ -100,6 +105,13 @@ enriched AS (
     -- Other-SKU sales
     st.salesothersku7d                         AS sales_other_sku,
     st.unitssoldothersku7d                     AS units_other_sku,
+
+    -- USD-normalised amounts (divide by rate; USD has no rate → 1.0)
+    st.cost / COALESCE(cr.rate, 1.0)           AS cost_usd,
+    COALESCE(st.sales30d, st.sales14d, st.sales7d, st.sales1d) / COALESCE(cr.rate, 1.0) AS sales_usd,
+    COALESCE(st.attributedsalessamesku30d, st.attributedsalessamesku14d,
+             st.attributedsalessamesku7d, st.attributedsalessamesku1d) / COALESCE(cr.rate, 1.0) AS sales_same_sku_usd,
+    st.salesothersku7d / COALESCE(cr.rate, 1.0) AS sales_other_sku_usd,
 
     -- ROAS / ACOS from report (fallback compute later)
     st.roasclicks14d                           AS roas_report,
@@ -137,6 +149,11 @@ enriched AS (
     ON aa.asin = cam.asin
     AND aa.company_id = CAST(st.ingest_company_id AS BIGINT)
     AND aa.marketplace_id = m.id
+
+  -- ST → Currency rate for USD conversion
+  LEFT JOIN currency_rates cr
+    ON lower(cr.currency) = lower(st.campaignbudgetcurrencycode)
+    AND cr.date = CAST(st.date AS DATE)
 
   CROSS JOIN params p
 
@@ -218,17 +235,17 @@ aggregated AS (
 
     w.marketplace,
 
-    -- Metrics
+    -- Metrics (USD-normalised for cross-marketplace correctness)
     SUM(w.impressions)        AS impressions,
     SUM(w.clicks)             AS clicks,
-    SUM(w.cost)               AS cost,
-    SUM(w.sales)              AS sales,
+    SUM(w.cost_usd)           AS cost_usd,
+    SUM(w.sales_usd)          AS sales_usd,
     SUM(w.purchases)          AS purchases,
     SUM(w.units_sold)         AS units_sold,
-    SUM(w.sales_same_sku)     AS sales_same_sku,
+    SUM(w.sales_same_sku_usd) AS sales_same_sku_usd,
     SUM(w.units_sold_same_sku) AS units_sold_same_sku,
     SUM(w.purchases_same_sku) AS purchases_same_sku,
-    SUM(w.sales_other_sku)    AS sales_other_sku,
+    SUM(w.sales_other_sku_usd) AS sales_other_sku_usd,
     SUM(w.units_other_sku)    AS units_other_sku,
 
     -- Count distinct days/ASINs for context
@@ -263,21 +280,21 @@ with_kpis AS (
 
     a.impressions,
     a.clicks,
-    ROUND(a.cost, 2)                                                           AS cost,
-    ROUND(a.sales, 2)                                                          AS sales,
+    ROUND(a.cost_usd, 2)                                                       AS cost_usd,
+    ROUND(a.sales_usd, 2)                                                      AS sales_usd,
     a.purchases,
     a.units_sold,
 
-    -- Efficiency KPIs
-    CASE WHEN a.clicks > 0 THEN ROUND(a.cost / a.clicks, 2) ELSE NULL END      AS cpc,
+    -- Efficiency KPIs (all in USD)
+    CASE WHEN a.clicks > 0 THEN ROUND(a.cost_usd / a.clicks, 2) ELSE NULL END      AS cpc_usd,
     CASE WHEN a.impressions > 0 THEN ROUND(100.0 * a.clicks / a.impressions, 2) ELSE NULL END AS ctr_pct,
     CASE WHEN a.clicks > 0 THEN ROUND(100.0 * a.purchases / a.clicks, 2) ELSE NULL END       AS cvr_pct,
-    CASE WHEN a.sales > 0 THEN ROUND(100.0 * a.cost / a.sales, 2) ELSE NULL END              AS acos_pct,
-    CASE WHEN a.cost > 0 THEN ROUND(a.sales / a.cost, 2) ELSE NULL END                       AS roas,
+    CASE WHEN a.sales_usd > 0 THEN ROUND(100.0 * a.cost_usd / a.sales_usd, 2) ELSE NULL END  AS acos_pct,
+    CASE WHEN a.cost_usd > 0 THEN ROUND(a.sales_usd / a.cost_usd, 2) ELSE NULL END           AS roas,
 
-    -- Same-SKU vs Other-SKU breakdown
-    ROUND(a.sales_same_sku, 2)                                                  AS sales_same_sku,
-    ROUND(a.sales_other_sku, 2)                                                 AS sales_other_sku,
+    -- Same-SKU vs Other-SKU breakdown (USD)
+    ROUND(a.sales_same_sku_usd, 2)                                              AS sales_same_sku_usd,
+    ROUND(a.sales_other_sku_usd, 2)                                             AS sales_other_sku_usd,
     a.units_sold_same_sku,
     a.units_other_sku,
     a.purchases_same_sku,

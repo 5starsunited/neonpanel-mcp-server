@@ -120,9 +120,9 @@
             "properties": {
               "field": {
                 "type": "string",
-                "enum": ["impressions", "clicks", "cost", "sales", "purchases", "units_sold", "cpc", "ctr_pct", "cvr_pct", "acos_pct", "roas", "sales_same_sku", "days_active", "asin_count"],
-                "default": "cost",
-                "description": "Metric column to sort and rank by. Default: cost."
+                "enum": ["impressions", "clicks", "cost_usd", "sales_usd", "purchases", "units_sold", "cpc_usd", "ctr_pct", "cvr_pct", "acos_pct", "roas", "sales_same_sku_usd", "days_active", "asin_count"],
+                "default": "cost_usd",
+                "description": "Metric column to sort and rank by. Default: cost_usd."
               },
               "direction": {
                 "type": "string",
@@ -166,17 +166,17 @@
             "marketplace": { "type": ["string", "null"], "description": "Amazon marketplace country code (e.g., 'us', 'de')." },
             "impressions": { "type": "integer", "description": "Total ad impressions in the date range." },
             "clicks": { "type": "integer", "description": "Total ad clicks in the date range." },
-            "cost": { "type": "number", "description": "Total ad spend in marketplace currency (e.g., USD)." },
-            "sales": { "type": "number", "description": "Attributed sales using longest available window (30d→14d→7d→1d)." },
+            "cost_usd": { "type": "number", "description": "Total ad spend normalised to USD. Safe to aggregate across marketplaces." },
+            "sales_usd": { "type": "number", "description": "Attributed sales normalised to USD (longest available window 30d→14d→7d→1d)." },
             "purchases": { "type": "integer", "description": "Attributed order count (longest window)." },
             "units_sold": { "type": "integer", "description": "Attributed units sold (longest window)." },
-            "cpc": { "type": ["number", "null"], "description": "Cost per click = cost / clicks. Null if 0 clicks." },
+            "cpc_usd": { "type": ["number", "null"], "description": "Cost per click in USD = cost_usd / clicks. Null if 0 clicks." },
             "ctr_pct": { "type": ["number", "null"], "description": "Click-through rate as percentage (0-100). Null if 0 impressions." },
             "cvr_pct": { "type": ["number", "null"], "description": "Conversion rate as percentage (0-100) = purchases / clicks. Null if 0 clicks." },
-            "acos_pct": { "type": ["number", "null"], "description": "ACoS as percentage (0-100) = cost / sales × 100. Lower is better. Null if 0 sales." },
-            "roas": { "type": ["number", "null"], "description": "Return on ad spend = sales / cost. Higher is better. Null if 0 cost." },
-            "sales_same_sku": { "type": ["number", "null"], "description": "Sales attributed to the same SKU that was advertised." },
-            "sales_other_sku": { "type": ["number", "null"], "description": "Sales attributed to other SKUs (halo effect). 7d window only." },
+            "acos_pct": { "type": ["number", "null"], "description": "ACoS as percentage (0-100) = cost_usd / sales_usd × 100. Lower is better. Null if 0 sales." },
+            "roas": { "type": ["number", "null"], "description": "Return on ad spend = sales_usd / cost_usd. Higher is better. Null if 0 cost." },
+            "sales_same_sku_usd": { "type": ["number", "null"], "description": "Sales attributed to the same SKU in USD." },
+            "sales_other_sku_usd": { "type": ["number", "null"], "description": "Sales attributed to other SKUs (halo effect) in USD. 7d window only." },
             "units_sold_same_sku": { "type": ["integer", "null"], "description": "Units sold for the same SKU." },
             "units_other_sku": { "type": ["integer", "null"], "description": "Units sold for other SKUs. 7d window only." },
             "purchases_same_sku": { "type": ["integer", "null"], "description": "Orders for the same SKU." },
@@ -199,7 +199,7 @@
             "company_id": 42,
             "marketplace": ["US"]
           },
-          "sort": { "field": "cost", "direction": "desc" },
+          "sort": { "field": "cost_usd", "direction": "desc" },
           "limit": 10
         }
       }
@@ -292,7 +292,7 @@
           "aggregation": {
             "group_by": ["search_term", "product_family"]
           },
-          "sort": { "field": "sales", "direction": "desc" },
+          "sort": { "field": "sales_usd", "direction": "desc" },
           "limit": 50
         }
       }

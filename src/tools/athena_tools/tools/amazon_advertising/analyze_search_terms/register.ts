@@ -57,16 +57,16 @@ const GROUP_BY_OPTIONS = [
 const SORTABLE_FIELDS = [
   'impressions',
   'clicks',
-  'cost',
-  'sales',
+  'cost_usd',
+  'sales_usd',
   'purchases',
   'units_sold',
-  'cpc',
+  'cpc_usd',
   'ctr_pct',
   'cvr_pct',
   'acos_pct',
   'roas',
-  'sales_same_sku',
+  'sales_same_sku_usd',
   'days_active',
   'asin_count',
 ] as const;
@@ -102,7 +102,7 @@ const querySchema = z
       .optional(),
     sort: z
       .object({
-        field: z.enum(SORTABLE_FIELDS).default('cost').optional(),
+        field: z.enum(SORTABLE_FIELDS).default('cost_usd').optional(),
         direction: z.enum(['asc', 'desc']).default('desc').optional(),
       })
       .optional(),
@@ -184,7 +184,7 @@ export function registerAdvertisingAnalyzeSearchTermsTool(registry: ToolRegistry
       const revenueClasses = (query.filters.revenue_abcd_classes ?? []).map((r) => r.trim()).filter(Boolean);
 
       const groupBy = query.aggregation?.group_by ?? ['search_term'];
-      const sortField = query.sort?.field ?? 'cost';
+      const sortField = query.sort?.field ?? 'cost_usd';
       const sortDirection = query.sort?.direction ?? 'desc';
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;
