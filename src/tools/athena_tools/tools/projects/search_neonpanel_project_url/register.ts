@@ -22,18 +22,19 @@ const inputSchema = z.object({
 
 type Input = z.infer<typeof inputSchema>;
 
-// Load tool specification
-let specJson: any;
-try {
-  specJson = JSON.parse(
-    fs.readFileSync(path.join(__dirname, 'tool.json'), 'utf-8')
-  );
-} catch (error) {
-  console.error('Failed to load tool.json:', error);
-  specJson = {};
-}
-
 export function registerSearchNeonpanelProjectUrl(registry: ToolRegistry) {
+  const toolJsonPath = path.join(__dirname, 'tool.json');
+  const sqlPath = path.join(__dirname, 'query.sql');
+
+  let specJson: any;
+  try {
+    if (fs.existsSync(toolJsonPath)) {
+      specJson = JSON.parse(fs.readFileSync(toolJsonPath, 'utf-8'));
+    }
+  } catch {
+    specJson = undefined;
+  }
+
   registry.register({
     name: 'search_neonpanel_project_url',
     description: 'Search for NeonPanel projects by name, reference number, or project key',
@@ -86,7 +87,7 @@ export function registerSearchNeonpanelProjectUrl(registry: ToolRegistry) {
       };
 
       // Load SQL template
-      const template = await loadTextFile(path.join(__dirname, 'query.sql'));
+      const template = await loadTextFile(sqlPath);
 
       const sql = renderSqlTemplate(template, templateData);
 

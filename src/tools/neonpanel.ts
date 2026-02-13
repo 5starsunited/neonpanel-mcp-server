@@ -2,6 +2,77 @@ import { z } from 'zod';
 import { neonPanelRequest, NeonPanelApiError } from '../clients/neonpanel-api';
 import type { ToolRegistry } from './types';
 
+// ── Company ID → UUID resolver ─────────────────────────────────────────────────
+// Agents already know company_id from Athena tools.  The NeonPanel REST API
+// requires a UUID.  This helper bridges the gap so every NeonPanel tool can
+// accept *either* company_id (number) or companyUuid (string).
+
+interface CompanyEntry {
+  id?: number;
+  company_id?: number;
+  uuid?: string;
+  name?: string;
+}
+
+// Simple per-request cache keyed by bearer token (avoids repeated /api/v1/companies calls).
+const _companyCache = new Map<string, { ts: number; entries: CompanyEntry[] }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
+
+async function fetchCompanyList(token: string): Promise<CompanyEntry[]> {
+  const cached = _companyCache.get(token);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.entries;
+
+  const res = await neonPanelRequest<{ data?: CompanyEntry[] }>({
+    token,
+    path: '/api/v1/companies',
+    query: { per_page: 60 },
+  });
+
+  const entries = Array.isArray(res?.data) ? res.data : [];
+  _companyCache.set(token, { ts: Date.now(), entries });
+  return entries;
+}
+
+/**
+ * Accepts company_id (number) **or** companyUuid (string) and always returns a UUID.
+ * When company_id is provided, calls /api/v1/companies to find the matching UUID.
+ */
+async function resolveCompanyUuid(
+  opts: { company_id?: number; companyUuid?: string },
+  token: string,
+): Promise<string> {
+  if (opts.companyUuid) return opts.companyUuid;
+
+  if (!opts.company_id) {
+    throw new NeonPanelApiError('Either company_id or companyUuid must be provided', {
+      status: 400,
+      code: 'missing_company_identifier',
+    });
+  }
+
+  const companies = await fetchCompanyList(token);
+  const match = companies.find(
+    (c) => (c.id ?? c.company_id) === opts.company_id,
+  );
+
+  if (!match?.uuid) {
+    throw new NeonPanelApiError(
+      `Company with id ${opts.company_id} not found or has no UUID. Available companies: ${companies.map((c) => `${c.id ?? c.company_id}=${c.name ?? '?'}`).join(', ')}`,
+      { status: 404, code: 'company_not_found' },
+    );
+  }
+
+  return match.uuid;
+}
+
+/** Reusable Zod fragment: accept company_id (preferred) or companyUuid. */
+const companyIdentifierSchema = {
+  company_id: z.coerce.number().int().min(1).optional()
+    .describe('Numeric company ID (preferred – same as in Athena-based tools). Provide this OR companyUuid.'),
+  companyUuid: z.string().min(1).optional()
+    .describe('Company UUID string. Use company_id instead when possible.'),
+};
+
 const listCompaniesInputSchema = z.object({
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(10).max(60).optional(),
@@ -43,7 +114,7 @@ const companiesWithPermissionOutputSchema = {
 };
 
 const listInventoryItemsInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(10).max(60).optional(),
   countryCode: z.string().length(2).optional(),
@@ -51,7 +122,7 @@ const listInventoryItemsInputSchema = z.object({
   fnsku: z.string().optional(),
   asin: z.string().optional(),
   sku: z.string().optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const listInventoryItemsOutputSchema = {
   type: 'object',
@@ -70,10 +141,10 @@ const listInventoryItemsOutputSchema = {
 };
 
 const listingDetailsByAsinInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   asin: z.string().min(1, 'asin is required'),
   sync: z.boolean().default(true).optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const listingDetailsByAsinOutputSchema = {
   type: 'object',
@@ -90,11 +161,11 @@ const listingDetailsByAsinOutputSchema = {
 };
 
 const listWarehousesInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(10).max(60).optional(),
   search: z.string().optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const listWarehousesOutputSchema = {
   type: 'object',
@@ -113,7 +184,7 @@ const listWarehousesOutputSchema = {
 };
 
 const warehouseBalancesInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   warehouseUuid: z.string().min(1, 'warehouseUuid is required'),
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(10).max(60).optional(),
@@ -121,7 +192,7 @@ const warehouseBalancesInputSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'balancesDate must be YYYY-MM-DD')
     .optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const warehouseBalancesOutputSchema = {
   type: 'object',
@@ -140,13 +211,13 @@ const warehouseBalancesOutputSchema = {
 };
 
 const inventoryDetailsInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   inventoryId: z.number().int('inventoryId must be an integer'),
   balancesDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'balancesDate must be YYYY-MM-DD')
     .optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const inventoryDetailsOutputSchema = {
   type: 'object',
@@ -154,14 +225,14 @@ const inventoryDetailsOutputSchema = {
 };
 
 const inventoryLandedCostInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   inventoryId: z.number().int('inventoryId must be an integer'),
   warehouseUuid: z.string().min(1, 'warehouseUuid is required'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate must be YYYY-MM-DD'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(10).max(60).optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const inventoryLandedCostOutputSchema = {
   type: 'object',
@@ -169,13 +240,13 @@ const inventoryLandedCostOutputSchema = {
 };
 
 const inventoryCogsInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   inventoryId: z.number().int('inventoryId must be an integer'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate must be YYYY-MM-DD'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.number().int().min(1).optional(),
   perPage: z.number().int().min(10).max(60).optional(),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const inventoryCogsOutputSchema = {
   type: 'object',
@@ -194,10 +265,10 @@ const importInstructionsOutputSchema = {
 };
 
 const createDocumentsInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   type: importTypeEnum,
   data: z.record(z.string(), z.any()).describe('Document payload matching import instructions'),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const createDocumentsOutputSchema = {
   type: 'object',
@@ -205,13 +276,13 @@ const createDocumentsOutputSchema = {
 };
 
 const createDocumentsByPdfInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   type: importTypeEnum,
   file: z.object({
     name: z.string().min(1, 'file.name is required'),
     link: z.string().url('file.link must be a valid URL'),
   }),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const createDocumentsByPdfOutputSchema = {
   type: 'object',
@@ -219,10 +290,10 @@ const createDocumentsByPdfOutputSchema = {
 };
 
 const checkImportStatusInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
+  ...companyIdentifierSchema,
   type: importTypeEnum,
   requestId: z.string().min(1, 'requestId is required'),
-});
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const checkImportStatusOutputSchema = {
   type: 'object',
@@ -266,12 +337,12 @@ const companyForecastingSettingsSchema = z.object({
 });
 
 const getCompanyForecastingSettingsInputSchema = z.object({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
-});
+  ...companyIdentifierSchema,
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const updateCompanyForecastingSettingsInputSchema = companyForecastingSettingsSchema.extend({
-  companyUuid: z.string().min(1, 'companyUuid is required'),
-});
+  ...companyIdentifierSchema,
+}).refine((d) => d.company_id || d.companyUuid, { message: 'Provide company_id or companyUuid' });
 
 const companyForecastingSettingsOutputSchema = {
   type: 'object',
@@ -463,7 +534,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Search by SKU',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             search: 'SKU12345',
             perPage: 20,
           },
@@ -471,9 +542,10 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       ],
       execute: async (args, context) => {
         const parsed = listInventoryItemsInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/inventory-items`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/inventory-items`,
           query: {
             page: parsed.page,
             per_page: parsed.perPage,
@@ -497,14 +569,15 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Fetch listing details by ASIN',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             asin: 'B000123456',
           },
         },
       ],
       execute: async (args, context) => {
         const parsed = listingDetailsByAsinInputSchema.parse(args);
-        const { companyUuid, asin, sync } = parsed;
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
+        const { asin, sync } = parsed;
 
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
@@ -603,15 +676,16 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Get Forecasting Settings',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
           },
         },
       ],
       execute: async (args, context) => {
         const parsed = getCompanyForecastingSettingsInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/settings/forecasts`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/settings/forecasts`,
         });
       },
     })
@@ -625,14 +699,15 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Update Default Lead Time',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             default_lead_time_days: 14,
           },
         },
       ],
       execute: async (args, context) => {
         const parsed = updateCompanyForecastingSettingsInputSchema.parse(args);
-        const { companyUuid, ...settings } = parsed;
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
+        const { company_id: _cid, companyUuid: _cuuid, ...settings } = parsed;
         return neonPanelRequest({
           token: context.userToken,
           path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/settings/forecasts`,
@@ -651,15 +726,16 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'List Warehouses',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
           },
         },
       ],
       execute: async (args, context) => {
         const parsed = listWarehousesInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/warehouses`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/warehouses`,
           query: {
             page: parsed.page,
             per_page: parsed.perPage,
@@ -678,16 +754,17 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Warehouse Balances',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             warehouseUuid: 'warehouse-uuid',
           },
         },
       ],
       execute: async (args, context) => {
         const parsed = warehouseBalancesInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/warehouses/${encodeURIComponent(parsed.warehouseUuid)}/balances`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/warehouses/${encodeURIComponent(parsed.warehouseUuid)}/balances`,
           query: {
             page: parsed.page,
             per_page: parsed.perPage,
@@ -706,16 +783,17 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Inventory Details',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             inventoryId: 123,
           },
         },
       ],
       execute: async (args, context) => {
         const parsed = inventoryDetailsInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/details`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/details`,
           query: {
             balances_date: parsed.balancesDate,
           },
@@ -732,7 +810,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Landed Cost for Warehouse',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             inventoryId: 123,
             warehouseUuid: 'warehouse-uuid',
             startDate: '2024-01-01',
@@ -742,9 +820,10 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       ],
       execute: async (args, context) => {
         const parsed = inventoryLandedCostInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/landed-cost`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/landed-cost`,
           query: {
             warehouse_uuid: parsed.warehouseUuid,
             start_date: parsed.startDate,
@@ -765,7 +844,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Inventory COGS',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             inventoryId: 123,
             startDate: '2024-01-01',
           },
@@ -773,9 +852,10 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       ],
       execute: async (args, context) => {
         const parsed = inventoryCogsInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/cogs`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/cogs`,
           query: {
             start_date: parsed.startDate,
             end_date: parsed.endDate,
@@ -817,7 +897,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Create Bill Document',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             type: 'bill',
             data: { example: 'payload' },
           },
@@ -825,9 +905,10 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       ],
       execute: async (args, context) => {
         const parsed = createDocumentsInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/create/${encodeURIComponent(parsed.type)}`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/create/${encodeURIComponent(parsed.type)}`,
           method: 'POST',
           body: {
             data: parsed.data,
@@ -845,7 +926,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Create Bill From PDF Link',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             type: 'bill',
             file: {
               name: 'invoice.pdf',
@@ -856,9 +937,10 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       ],
       execute: async (args, context) => {
         const parsed = createDocumentsByPdfInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/import/${encodeURIComponent(parsed.type)}/pdf`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/import/${encodeURIComponent(parsed.type)}/pdf`,
           method: 'POST',
           body: {
             file: parsed.file,
@@ -876,7 +958,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         {
           name: 'Check Import Status',
           arguments: {
-            companyUuid: 'company-uuid',
+            company_id: 42,
             type: 'bill',
             requestId: '00000000-0000-0000-0000-000000000000',
           },
@@ -884,9 +966,10 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       ],
       execute: async (args, context) => {
         const parsed = checkImportStatusInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(parsed.companyUuid)}/import/${encodeURIComponent(parsed.type)}/status/${encodeURIComponent(parsed.requestId)}`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/import/${encodeURIComponent(parsed.type)}/status/${encodeURIComponent(parsed.requestId)}`,
         });
       },
     })

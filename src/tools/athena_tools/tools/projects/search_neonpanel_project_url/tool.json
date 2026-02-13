@@ -28,12 +28,6 @@
         "description": "Filter by company ID(s). Required."
       }
     },
-    "required": ["company_id"],
-    "anyOf": [
-      {"required": ["search"]},
-      {"required": ["project_name"]},
-      {"required": ["project_ref_number"]},
-      {"required": ["project_key"]}
-    ]
+    "required": ["company_id"]
   }
 }
