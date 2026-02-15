@@ -1,0 +1,36 @@
+CREATE TABLE sp_api_iceberg.v2_settlement_report_data_flat_file_v2 (
+  settlement_id bigint,
+  settlement_start_date string,
+  settlement_end_date string,
+  deposit_date string,
+  total_amount double,
+  currency string,
+  transaction_type string,
+  order_id string,
+  merchant_order_id string,
+  adjustment_id string,
+  shipment_id string,
+  marketplace_name string,
+  amount_type string,
+  amount_description string,
+  amount double,
+  fulfillment_id string,
+  posted_date string,
+  posted_date_time string,
+  order_item_code bigint,
+  merchant_order_item_id string,
+  merchant_adjustment_item_id string,
+  sku string,
+  quantity_purchased bigint,
+  promotion_id string,
+  ingest_source_s3_uri string,
+  ingest_ts_utc timestamp,
+  ingest_company_id string,
+  ingest_seller_id string,
+  partition_year string,
+  partition_month string)
+PARTITIONED BY (`ingest_company_id`, `partition_year`, `partition_month`)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/sp_api_iceberg.db/v2_settlement_report_data_flat_file_v2'
+TBLPROPERTIES (
+  'table_type'='iceberg'
+);

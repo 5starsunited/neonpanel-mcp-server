@@ -1,0 +1,170 @@
+{
+  "name": "financials_list_amazon_settlements",
+  "description": "Lists Amazon settlement reports – one row per settlement showing the title/summary: settlement ID, date range, deposit date, total amount, currency, seller ID, and company name.\n\nUse this tool to:\n- Browse recent settlement reports for a company\n- Search for a specific settlement by ID\n- Find settlements in a date range\n- Filter by marketplace (finds settlements that contain transactions for that marketplace)\n- Filter by currency or seller ID\n- Filter by total amount range\n\nEach settlement covers a ~2-week period. The deposit_date is when Amazon transfers funds. total_amount is the net payout in the statement currency.\n\nDrill-down: After finding a settlement, use financials_analyze_amazon_statement with the settlement_id filter to see the full transaction breakdown (fees, revenue, refunds, etc.).\n\nDefault time range: When no dates are provided, returns settlements from the last 3 months.\n\nKnowledge base: https://help.neonpanel.com",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for listing Amazon settlements.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for the query. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "settlement_ids": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by specific settlement IDs."
+              },
+              "marketplace_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter settlements that contain transactions for these marketplaces (e.g., 'Amazon.se', 'Amazon.de'). Case-insensitive."
+              },
+              "currencies": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by settlement currency code (e.g., 'SEK', 'EUR', 'GBP', 'USD'). Case-insensitive."
+              },
+              "seller_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by Amazon seller ID (e.g., 'A1CBIAOO7JTYUK')."
+              },
+              "min_amount": {
+                "type": "number",
+                "description": "Minimum total_amount (inclusive). Use to find settlements above a threshold."
+              },
+              "max_amount": {
+                "type": "number",
+                "description": "Maximum total_amount (inclusive). Use to find settlements below a threshold."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range filter on deposit_date.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Start of date range (YYYY-MM-DD). Defaults to 3 months ago if omitted."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "End of date range (YYYY-MM-DD). Defaults to today if omitted."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort by deposit_date. 'desc' = newest first (default), 'asc' = oldest first."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50,
+            "description": "Maximum rows to return (default 50, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "row_num": { "type": "integer", "description": "1-based row position by deposit_date." },
+            "company_name": { "type": "string", "description": "Company name." },
+            "company_id": { "type": "integer", "description": "Numeric company identifier." },
+            "settlement_id": { "type": "integer", "description": "Unique settlement identifier. Use this to drill into details with financials_analyze_amazon_statement." },
+            "settlement_start_date": { "type": "string", "description": "Settlement period start date/time." },
+            "settlement_end_date": { "type": "string", "description": "Settlement period end date/time." },
+            "deposit_date": { "type": "string", "description": "Date Amazon deposited the funds." },
+            "total_amount": { "type": "number", "description": "Net settlement payout in statement currency." },
+            "currency": { "type": "string", "description": "Settlement currency code (e.g., 'SEK', 'EUR', 'GBP')." },
+            "seller_id": { "type": "string", "description": "Amazon seller ID." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "List recent settlements",
+      "description": "Browse the most recent settlements.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "sort_direction": "desc",
+          "limit": 20
+        }
+      }
+    },
+    {
+      "title": "Settlements in January 2026",
+      "description": "Find settlements deposited in January 2026.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
+          "sort_direction": "desc"
+        }
+      }
+    },
+    {
+      "title": "Find a specific settlement",
+      "description": "Look up a settlement by ID.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "settlement_ids": [26557463082] }
+        }
+      }
+    },
+    {
+      "title": "EUR settlements only",
+      "description": "List only Euro-denominated settlements.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "currencies": ["EUR"] },
+          "sort_direction": "desc"
+        }
+      }
+    },
+    {
+      "title": "Large settlements over 10000",
+      "description": "Find settlements with total payout above 10,000.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "min_amount": 10000 },
+          "sort_direction": "desc",
+          "limit": 50
+        }
+      }
+    }
+  ]
+}

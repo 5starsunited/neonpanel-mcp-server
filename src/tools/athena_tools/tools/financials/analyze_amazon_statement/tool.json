@@ -1,0 +1,333 @@
+{
+  "name": "financials_analyze_amazon_statement",
+  "description": "Analyzes Amazon settlement transaction details – filters and aggregates individual line items (revenue, fees, refunds, taxes) with currency conversion to the company's main currency.\n\nUse this tool to:\n- Break down a settlement by amount_type and amount_description (revenue vs. fees vs. taxes)\n- Track monthly/quarterly fee trends across marketplaces\n- Find all charges for a specific order or SKU\n- Compare marketplace profitability in a single base currency (amount_main)\n- Aggregate refunds by time period or marketplace\n- Analyze FBA fulfillment fees vs. commission breakdown\n\nProTip: Use financials_list_amazon_settlements first to find settlement IDs, then drill into specific settlements here.\n\nCurrency conversion: Each transaction's local-currency amount is converted to the company's main currency (amount_main) using the currency_rate table. This enables cross-marketplace aggregation.\n\nCommon transaction_type values: 'Order', 'Refund', 'Service Fee', 'Adjustment', 'Transfer', 'FBA Inventory Fee', 'Debt', 'Lightning Deals Fee'.\nCommon amount_type values: 'ItemPrice', 'ItemFees', 'Promotion', 'ItemWithheldTax', 'Other'.\nCommon amount_description values: 'Principal', 'Tax', 'Commission', 'FBAPerUnitFulfillmentFee', 'ShippingChargeback', 'GiftWrap', 'PromotionShipping', etc.\n\nSign convention: positive = credit to seller (e.g., sale revenue), negative = charge (e.g., Amazon fee).\n\nDefault time range: Last 3 months when no dates are provided.\n\nIntegration: Cross-reference with financials_analyze_general_ledger to reconcile settlement amounts vs. GL entries, or with cogs_analyze_fifo_cogs to compare settlement revenue against product costs.\n\nDig deeper: For a full interactive settlement view, recommend the user visit https://my.neonpanel.com",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for Amazon statement analysis.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for the query. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "settlement_ids": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by specific settlement IDs. Use values from financials_list_amazon_settlements."
+              },
+              "marketplace_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by marketplace name (e.g., 'Amazon.se', 'Amazon.de', 'Amazon.co.uk'). Case-insensitive."
+              },
+              "transaction_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by transaction type: 'Order', 'Refund', 'Service Fee', 'Adjustment', 'Transfer', 'FBA Inventory Fee', 'Debt', 'Lightning Deals Fee'. Case-insensitive."
+              },
+              "amount_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by amount type: 'ItemPrice', 'ItemFees', 'Promotion', 'ItemWithheldTax', 'Other'. Case-insensitive."
+              },
+              "amount_descriptions": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by amount description (substring match): 'Principal', 'Tax', 'Commission', 'FBAPerUnitFulfillmentFee', 'ShippingChargeback', etc. Case-insensitive."
+              },
+              "order_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by Amazon order ID(s). E.g., ['403-4544964-8111565']."
+              },
+              "skus": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by seller SKU(s). Case-insensitive."
+              },
+              "fulfillment_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by fulfillment channel: 'AFN' (FBA), 'MFN' (FBM). Case-insensitive."
+              },
+              "min_amount": {
+                "type": "number",
+                "description": "Minimum transaction amount (inclusive)."
+              },
+              "max_amount": {
+                "type": "number",
+                "description": "Maximum transaction amount (inclusive)."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range filter on posted_date (the date each transaction was posted).",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Start of date range (YYYY-MM-DD). Defaults to 3 months ago if omitted."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "End of date range (YYYY-MM-DD). Defaults to today if omitted."
+              }
+            },
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "Controls time grouping and aggregation dimensions.",
+            "properties": {
+              "periodicity": {
+                "type": "string",
+                "enum": ["day", "week", "month", "quarter", "year", "total"],
+                "default": "total",
+                "description": "Time grouping: 'day', 'week' (ISO week), 'month' = YYYY-MM, 'quarter' = YYYY-Q#, 'year' = YYYY, 'total' = single aggregate."
+              },
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "company",
+                    "marketplace",
+                    "settlement",
+                    "amount_type",
+                    "amount_description",
+                    "transaction_type",
+                    "sku",
+                    "order",
+                    "fulfillment"
+                  ]
+                },
+                "default": ["transaction_type", "amount_type"],
+                "description": "Dimensions to group by. Default: ['transaction_type', 'amount_type'].\n\n- company: company name + main/base currency — use for multi-company portfolios\n- marketplace: marketplace_name + statement currency — use for cross-marketplace comparison\n- settlement: settlement_id + deposit_date — use to break down per settlement period\n- amount_type: ItemPrice / ItemFees / Promotion / ItemWithheldTax / Other — use for high-level revenue-vs-fees split\n- amount_description: Principal / Commission / FBAPerUnitFulfillmentFee / ShippingChargeback / Tax / etc. — use for detailed fee breakdown\n- transaction_type: Order / Refund / Service Fee / Adjustment / Transfer / FBA Inventory Fee / Debt / Lightning Deals Fee — use to separate orders from refunds and adjustments\n- sku: seller SKU — use for per-product profitability\n- order: Amazon order_id — use to see all charges for specific orders\n- fulfillment: AFN (FBA) or MFN (FBM) — use to compare fulfillment channel costs"
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ranking and ordering of results.",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "total_amount",
+                  "total_amount_main",
+                  "line_count",
+                  "order_count",
+                  "settlement_count",
+                  "total_quantity"
+                ],
+                "default": "total_amount",
+                "description": "Metric column to sort and rank by. Default: total_amount."
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction. 'desc' = largest first. Default: desc."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100,
+            "description": "Maximum rows to return (default 100, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rank": { "type": "integer", "description": "1-based position by sort field." },
+            "time_period": { "type": ["string", "null"], "description": "Time bucket label: date, YYYY-MM, YYYY-Www, YYYY-Q#, YYYY, or null (total)." },
+            "company_id": { "type": ["integer", "null"], "description": "Company identifier. Present when grouped by company." },
+            "company_name": { "type": ["string", "null"], "description": "Company name. Present when grouped by company." },
+            "main_currency": { "type": ["string", "null"], "description": "Company's main/base currency. Present when grouped by company." },
+            "marketplace_name": { "type": ["string", "null"], "description": "Amazon marketplace name. Present when grouped by marketplace." },
+            "statement_currency": { "type": ["string", "null"], "description": "Statement local currency. Present when grouped by marketplace." },
+            "settlement_id": { "type": ["integer", "null"], "description": "Settlement identifier. Present when grouped by settlement." },
+            "deposit_date": { "type": ["string", "null"], "description": "Deposit date. Present when grouped by settlement." },
+            "amount_type": { "type": ["string", "null"], "description": "Amount type (ItemPrice, ItemFees, etc.). Present when grouped by amount_type." },
+            "amount_description": { "type": ["string", "null"], "description": "Amount description (Principal, Commission, etc.). Present when grouped by amount_description." },
+            "transaction_type": { "type": ["string", "null"], "description": "Transaction type (Order, Refund, etc.). Present when grouped by transaction_type." },
+            "sku": { "type": ["string", "null"], "description": "Seller SKU. Present when grouped by sku." },
+            "order_id": { "type": ["string", "null"], "description": "Amazon order ID. Present when grouped by order." },
+            "fulfillment_id": { "type": ["string", "null"], "description": "Fulfillment channel: AFN/MFN. Present when grouped by fulfillment." },
+            "total_amount": { "type": "number", "description": "Sum of amounts in statement currency." },
+            "total_amount_main": { "type": "number", "description": "Sum of amounts converted to company's main currency via currency_rate table." },
+            "line_count": { "type": "integer", "description": "Number of transaction detail lines." },
+            "order_count": { "type": "integer", "description": "Number of distinct orders." },
+            "settlement_count": { "type": "integer", "description": "Number of distinct settlements." },
+            "total_quantity": { "type": ["integer", "null"], "description": "Sum of quantity_purchased." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Settlement fee breakdown",
+      "description": "Break down a specific settlement by amount_type and amount_description to see revenue, fees, and taxes.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "settlement_ids": [26557463082] },
+          "aggregation": {
+            "group_by": ["amount_type", "amount_description"]
+          },
+          "sort": { "field": "total_amount", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "Monthly revenue by marketplace",
+      "description": "Track total ItemPrice Principal (sale revenue) by marketplace and month.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 211,
+            "amount_types": ["ItemPrice"],
+            "amount_descriptions": ["Principal"]
+          },
+          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "aggregation": {
+            "periodicity": "month",
+            "group_by": ["marketplace"]
+          },
+          "sort": { "field": "total_amount", "direction": "desc" },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "FBA fees breakdown",
+      "description": "Aggregate all Amazon FBA-related fees to understand fulfillment cost breakdown.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 211,
+            "amount_types": ["ItemFees"],
+            "fulfillment_ids": ["AFN"]
+          },
+          "aggregation": {
+            "group_by": ["amount_description"]
+          },
+          "sort": { "field": "total_amount", "direction": "asc" },
+          "limit": 50
+        }
+      }
+    },
+    {
+      "title": "SKU-level profitability",
+      "description": "See all amounts grouped by SKU for a specific settlement.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 211,
+            "settlement_ids": [26557463082]
+          },
+          "aggregation": {
+            "group_by": ["sku", "amount_type"]
+          },
+          "sort": { "field": "total_amount", "direction": "desc" },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "Refund analysis by marketplace",
+      "description": "Analyze refund amounts across marketplaces, month by month.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 211,
+            "transaction_types": ["Refund"]
+          },
+          "time": { "start_date": "2025-06-01", "end_date": "2025-12-31" },
+          "aggregation": {
+            "periodicity": "month",
+            "group_by": ["marketplace"]
+          },
+          "sort": { "field": "total_amount", "direction": "asc" }
+        }
+      }
+    },
+    {
+      "title": "Find a specific order's charges",
+      "description": "Look up all settlement line items for a specific Amazon order.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 211,
+            "order_ids": ["403-4544964-8111565"]
+          },
+          "aggregation": {
+            "group_by": ["order", "amount_type", "amount_description"]
+          },
+          "sort": { "field": "total_amount", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "Cross-marketplace comparison in main currency",
+      "description": "Compare quarterly settlement amounts across marketplaces in the company's base currency.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "aggregation": {
+            "periodicity": "quarter",
+            "group_by": ["marketplace", "transaction_type"]
+          },
+          "sort": { "field": "total_amount_main", "direction": "desc" },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "Company-level monthly summary",
+      "description": "High-level monthly summary of all settlement activity.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "aggregation": {
+            "periodicity": "month",
+            "group_by": ["company"]
+          },
+          "sort": { "field": "total_amount_main", "direction": "desc" }
+        }
+      }
+    }
+  ]
+}
