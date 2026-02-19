@@ -1,0 +1,2174 @@
+openapi: 3.1.0
+info:
+  title: NeonPanel GPT API
+  version: 1.0.1
+  description: API to access companies, warehouses, inventory, reports, and document import (PDF/JSON)
+  contact:
+    name: Yurii Mazur
+    email: yurii.mazur@neonpanel.com
+servers:
+  - url: https://my.neonpanel.com
+
+tags:
+  - name: Companies
+    description: Operations for companies and related resources
+  - name: Reports
+    description: Retrieve available reports and their metadata
+  - name: Analytics
+    description: Revenue & COGS summaries
+  - name: Inventory
+    description: Inventory catalog data, COGS, and Landed Costs
+  - name: Products
+    description: Products catalog CRUD operations
+  - name: Listings
+    description: Listings catalog CRUD operations
+  - name: Import
+    description: Import instructions, file upload, and status checks
+
+components:
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      description: |
+        OAuth 2.0 Authorization Code. `tokenUrl` retrieves standard **POST**
+        request with `grant_type=authorization_code` and `refresh_token` for refreshing.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://my.neonpanel.com/oauth2/authorize
+          tokenUrl: https://my.neonpanel.com/oauth2/token
+          scopes:
+            openid: Basic authentication scope
+
+  schemas:
+    Pagination:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 30
+        last_page:
+          type: integer
+          example: 1
+
+    Document:
+      type: object
+      properties:
+        type:
+          type: string
+          example: Invoice
+        link:
+          type: string
+          format: uri
+          example: https://example.com/path/to/resource
+        status:
+          type: string
+          example: Completed
+        completed:
+          type: [string, "null"]
+          format: date-time
+          example: 2024-01-01T15:30:00Z
+        ref_number:
+          type: [string, "null"]
+          example: REF12345
+          description: Reference number for COGS or Landed Costs related documents
+        date:
+          type: [string, "null"]
+          format: date
+          example: 2024-01-01
+          description: Date for COGS or Landed Costs related documents
+
+    Warehouse:
+      type: object
+      properties:
+        uuid:
+          type: string
+          example: a1b2c3d4e5f6g7h8i9j0
+        name:
+          type: string
+          example: Warehouse Name
+        type:
+          type: [string, "null"]
+          example: Asset
+        country_code:
+          type: [string, "null"]
+          example: US
+
+    CogsDetailItem:
+      type: object
+      description: Inventory batches and documents that created costs
+      properties:
+        type:
+          type: string
+          example: Purchase Price
+        batch:
+          $ref: '#/components/schemas/Document'
+          description: The batch document from which the inventory was written off
+        document:
+          $ref: '#/components/schemas/Document'
+          description: The document that made costs
+        currency:
+          type: string
+          example: USD
+        amount:
+          type: number
+          example: 100.5
+        quantity:
+          type: integer
+          example: 50
+
+    CogsItem:
+      type: object
+      description: Sales and their costs by documents
+      properties:
+        document:
+          $ref: '#/components/schemas/Document'
+          description: The document that made sales
+        currency:
+          type: string
+          example: USD
+        amount:
+          type: number
+          example: 100.5
+        quantity:
+          type: integer
+          example: 50
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/CogsDetailItem'
+
+    CogsFilters:
+      type: object
+      properties:
+        country_code:
+          type: string
+          example: US
+        start_date:
+          type: string
+          format: date
+          example: 2024-01-01
+        end_date:
+          type: string
+          format: date
+          example: 2024-01-01
+
+    CogsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            filters:
+              $ref: '#/components/schemas/CogsFilters'
+            company:
+              $ref: '#/components/schemas/Company'
+            inventory:
+              $ref: '#/components/schemas/InventoryItem'
+            currency:
+              type: string
+              example: USD
+            amount:
+              type: number
+              example: 3675
+            lost_amount:
+              type: number
+              example: 0
+            total_amount:
+              type: number
+              example: 3675
+            quantity:
+              type: integer
+              example: 2000
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/CogsItem'
+
+    InventoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1001
+        name:
+          type: string
+          example: Product Name
+        fnsku:
+          type: string
+          example: FNSKU12345
+        asin:
+          type: string
+          example: ASIN12345
+        sku:
+          type: string
+          example: SKU12345
+        image:
+          type: string
+          format: uri
+          example: https://example.com/path/to/image
+          nullable: true
+        country_code:
+          type: string
+          example: US
+        weight:
+          type: number
+          example: 80.5
+          description: Weight of product in pounds
+        length:
+          type: number
+          example: 80.5
+          description: Length of product in inches
+        height:
+          type: number
+          example: 80.5
+          description: Height of product in inches
+        depth:
+          type: number
+          example: 80.5
+          description: Depth of product in inches
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1001
+        name:
+          type: string
+          example: John Doe
+        email:
+          type: string
+          format: email
+          example: user@neonpanel.com
+        avatar_url:
+          type: string
+          format: uri
+          example: https://example.com/path/to/resource
+        verified_at:
+          type: string
+          format: date-time
+          example: 2026-01-01 15:30:00
+        last_login_at:
+          type: string
+          format: date-time
+          example: 2026-01-01 15:30:00
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1001
+        sku:
+          type: string
+          example: SKU123
+        parent_sku:
+          type: string
+          example: SKU123
+        name:
+          type: string
+          example: Blue Shirt
+        image:
+          type: string
+          format: uri
+          example: https://example.com/path/to/resource
+        weight:
+          type: number
+          example: 80.5
+          description: Weight of product in pounds
+        length:
+          type: number
+          example: 80.5
+          description: Length of product in inches
+        height:
+          type: number
+          example: 80.5
+          description: Height of product in inches
+        depth:
+          type: number
+          example: 80.5
+          description: Depth of product in inches
+
+    Listing:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1001
+        asin:
+          type: string
+          example: ASIN123
+        parent_asin:
+          type: string
+          example: ASIN123
+        title:
+          type: string
+          example: Blue Shirt
+        brand:
+          type: string
+          example: 5 Stars United
+        color:
+          type: string
+          example: White
+        image:
+          type: string
+          format: uri
+          example: https://example.com/path/to/resource
+        bullet_points:
+          type: object
+          nullable: true
+          description: |
+            Bullet points grouped by language tag.
+            Each key is a BCP 47 language tag (e.g. en_US, de_DE), and
+            the value is an ordered list of bullet point strings.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+              description: Bullet point text (order preserved)
+          example:
+            en_US:
+              - "First description of bullet point"
+              - "Second description of bullet point"
+          default: {}
+
+    InventoryRestockData:
+      type: object
+      properties:
+        daily_sales_target:
+          type: number
+        unit_vendor_price:
+          type: number
+        unit_landed_cost:
+          type: number
+        estimated_daily_sales:
+          type: number
+        estimated_price:
+          type: number
+        lead_time_days:
+          type: number
+        safety_stock_days:
+          type: number
+        fba_lead_time_days:
+          type: number
+        fba_safety_stock_days:
+          type: number
+        target_fba_fee:
+          type: number
+        target_price:
+          type: number
+        target_referral_percentage:
+          type: number
+        daily_unit_sales_target:
+          type: number
+
+    InventoryItemFullData:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1001
+        country_code:
+          type: string
+          example: US
+        source:
+          type: string
+          example: amazon
+        fnsku:
+          type: string
+          example: FNSKU12345
+        variation:
+          type: string
+        manager:
+          $ref: '#/components/schemas/User'
+        product:
+          $ref: '#/components/schemas/Product'
+        listing:
+          $ref: '#/components/schemas/Listing'
+        restock_data:
+          $ref: '#/components/schemas/InventoryRestockData'
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-01-01 15:30:00
+
+    InventoryFilters:
+      type: object
+      properties:
+        country_code:
+          type: string
+          example: US
+        search:
+          type: string
+          example: SKU12345
+        fnsku:
+          type: string
+          example: FNSKU12345
+        asin:
+          type: string
+          example: ASIN12345
+        sku:
+          type: string
+          example: SKU12345
+
+    WarehouseListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Warehouse'
+
+    WarehouseBalancesListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            balances_date:
+              type: string
+              format: date
+              example: 2024-01-01
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  inventory:
+                    $ref: '#/components/schemas/InventoryItem'
+                  balance:
+                    type: number
+                    example: 100
+
+    InventoryListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            filters:
+              $ref: '#/components/schemas/InventoryFilters'
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/InventoryItem'
+
+    InventoryDetailsResponse:
+      type: object
+      properties:
+        inventory:
+          $ref: '#/components/schemas/InventoryItem'
+        restock_data:
+          $ref: '#/components/schemas/InventoryRestockData'
+        balances_data:
+          type: object
+          properties:
+            balances_date:
+              type: string
+              format: date
+            balances_list:
+              type: array
+              items:
+                type: object
+                properties:
+                  warehouse:
+                    $ref: '#/components/schemas/Warehouse'
+                  balance:
+                    type: number
+
+    Company:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 100
+        uuid:
+          type: string
+          example: a1b2c3d4e5f6g7h8i9j0
+        name:
+          type: string
+          example: Company Name
+        short_name:
+          type: string
+          example: CN
+        currency:
+          type: string
+          example: USD
+        timezone:
+          type: string
+          example: America/New_York
+
+    CompanyListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Company'
+
+    CompanyWithPermissionListResponse:
+      type: object
+      properties:
+        filters:
+          type: object
+          properties:
+            company_uuids:
+              type: array
+              items:
+                type: string
+        companies:
+          type: array
+          items:
+            $ref: '#/components/schemas/Company'
+
+    CostDetail:
+      type: object
+      description: Batch costs details, its types and documents that created this costs
+      properties:
+        type:
+          type: string
+          example: Purchase Price
+        document:
+          $ref: '#/components/schemas/Document'
+          description: The document that made costs
+        currency:
+          type: string
+          example: USD
+        amount:
+          type: number
+          example: 100.5
+        quantity:
+          type: integer
+          example: 50
+
+    CostItem:
+      type: object
+      description: Batches of inventory, each batch usually gets slightly different item cost
+      properties:
+        batch:
+          $ref: '#/components/schemas/Document'
+        currency:
+          type: string
+          example: USD
+        amount:
+          type: number
+          example: 100.5
+        quantity:
+          type: integer
+          example: 50
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostDetail'
+
+    LandedCostFilters:
+      type: object
+      properties:
+        country_code:
+          type: string
+          example: US
+        warehouse_uuid:
+          type: string
+        start_date:
+          type: string
+          format: date
+          example: 2024-01-01
+        end_date:
+          type: string
+          format: date
+          example: 2024-01-01
+
+    LandedCostResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            filters:
+              $ref: '#/components/schemas/LandedCostFilters'
+            company:
+              $ref: '#/components/schemas/Company'
+            inventory:
+              $ref: '#/components/schemas/InventoryItem'
+            warehouse:
+              $ref: '#/components/schemas/Warehouse'
+            currency:
+              type: string
+              example: USD
+            amount:
+              type: number
+              example: 100.5
+            quantity:
+              type: integer
+              example: 50
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/CostItem'
+
+    ProductsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Product'
+
+    ListingsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Pagination'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Listing'
+
+    ReportItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID of Report
+        title:
+          type: string
+          description: Name of Report
+        group:
+          type: string
+          description: Title of Report's Group
+        description:
+          type: string
+        link:
+          type: string
+          format: uri
+          description: >
+            Base URL to open the report. To open a specific sheet with filters,
+            append query parameters to this URL (see sheets[].slug and sheets[].parameters[].slug).
+          example: https://my.neonpanel.com/app/reports/basic_suite_new/v3-inventory-transactions-bas-user
+
+    ReportItemFullData:
+      allOf:
+        - $ref: '#/components/schemas/ReportItem'
+        - type: object
+          properties:
+            sheets:
+              type: array
+              description: >
+                List of available report sheets. Each sheet defines which query parameters can be used.
+
+                Build the report URL by appending query parameters to `link`:
+                {link}?sheet={sheets[].slug}&{paramSlug}={value}&...
+
+                The `sheet` query parameter is optional.
+                If `sheet` is not provided, the report will open the first available sheet by default.
+
+                You can additionally pass the `company` query parameter as a comma-separated list of company identifiers.
+                Each value must be taken from `short_name` returned by GET /api/v1/companies (listCompanies).
+                The order of query parameters does not matter.
+
+                Example:
+                https://my.neonpanel.com/app/reports/basic_suite_new/v3-inventory-transactions-bas-user?company=5SU,KEM&sheet=transaction-list&start-date=2026-02-01&end-date=2026-02-13
+              items:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                    description: >
+                      Sheet identifier. Use this value as the `sheet` query parameter when building the report URL.
+                      Example:
+                      {link}?sheet={slug}
+                    example: transaction-list
+                  title:
+                    type: string
+                    description: Title of Report's Sheet
+                  description:
+                    type:
+                      - string
+                      - "null"
+                  parameters:
+                    type: array
+                    description: >
+                      Filters/parameters supported by this sheet. Each item describes one query parameter.
+                      Use parameter.slug as the query parameter name.
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                          description: A slug name that can be used in Report link alongside sheet
+                        title:
+                          type: string
+                          description: Title of Parameter/Filter
+                        type:
+                          type: string
+                          description: >
+                            UI control type. It also implies how to format the value in the URL:
+                            - DateTimePicker: use `YYYY-MM-DD` (e.g. 2026-02-01) or `YYYY-MM-DDTHH:mm:ss`
+                            - DateTimeRangePicker: usually represented by two params (e.g. start-date/end-date) if present in parameters list
+                            - Dropdown + multiselect=true: value is comma-separated list
+                          enum:
+                            - Dropdown
+                            - TextField
+                            - TextArea
+                            - Slider
+                            - DateTimePicker
+                            - DateTimeRangePicker
+                        multiselect:
+                          type: boolean
+                          description: >
+                            Applies to Dropdown only.
+                            - If type=Dropdown and multiselect=true: pass selected values as a single comma-separated string.
+                              Example: brand=Nike,Adidas
+                            - Otherwise: pass a single value.
+
+    ReportsListResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+          example: 10
+          description: Count of Reports available and accessible
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportItem'
+
+    RevenueAndCogsFilters:
+      type: object
+      properties:
+        company_uuids:
+          type: array
+          items:
+            type: string
+        country_codes:
+          type: array
+          items:
+            type: string
+            example: US
+        periodicity:
+          type: string
+          example: yearly
+        grouping:
+          type: array
+          items:
+            type: string
+        start_date:
+          type: string
+          format: date
+          example: 2024-01-01
+        end_date:
+          type: string
+          format: date
+          example: 2024-01-01
+
+    RevenueAndCogsItem:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+          example: 2024-01-01
+        end_date:
+          type: string
+          format: date
+          example: 2024-01-01
+        revenue_amount:
+          type: number
+          description: Amount of Inventories sold
+        cogs_amount:
+          type: number
+          description: Cost of Inventories sold
+        currency:
+          type: string
+          description: Currency of amounts provided
+        company:
+          $ref: '#/components/schemas/Company'
+          nullable: true
+          description: Company data if in grouping parameter company was provided
+        country_code:
+          type: string
+          example: US
+          nullable: true
+          description: Country code if in grouping parameter country was provided
+        invoice:
+          $ref: '#/components/schemas/Document'
+          nullable: true
+          description: Invoice data if in grouping parameter invoice was provided
+
+    RevenueAndCogsResponse:
+      type: object
+      properties:
+        filters:
+          $ref: '#/components/schemas/RevenueAndCogsFilters'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevenueAndCogsItem'
+
+    ImportStatus:
+      type: string
+      description: Status of import
+      enum: [queued, processing, done, error]
+
+    ImportType:
+      type: string
+      description: >
+        Lowercase import type. Currently only **bill** is supported.
+      enum: [bill]
+
+paths:
+  /api/v1/companies:
+    get:
+      tags: [Companies]
+      operationId: listCompanies
+      x-openai-isConsequential: false
+      summary: Retrieve list of Companies
+      description: Returns paginated list of available for user companies
+      security:
+        - OAuth2: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 60
+            default: 30
+      responses:
+        '200':
+          description: List of companies retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyListResponse'
+
+
+  /api/v1/permissions/{permission}/companies:
+    get:
+      tags: [Companies]
+      operationId: listCompaniesWithPermission
+      x-openai-isConsequential: false
+      summary: Retrieve a list of Companies where the User has the specified Permission
+      security:
+        - OAuth2: []
+      parameters:
+        - name: permission
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of Permission which the User must have in Companies
+        - name: company_uuids
+          in: query
+          description: Filter by Companies. Defaults to all accessible for user companies
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              description: The UUID of the company
+      responses:
+        '200':
+          description: List of companies retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyWithPermissionListResponse'
+
+  /api/v1/reports:
+    get:
+      tags: [Reports]
+      operationId: listReports
+      x-openai-isConsequential: false
+      summary: Retrieve list of accessible Reports with their URLs
+      description: Returns list of reports with groups, descriptions and direct links
+      security:
+        - OAuth2: []
+      responses:
+        '200':
+          description: List of reports retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportsListResponse'
+
+  /api/v1/reports/{reportId}:
+    get:
+      tags: [Reports]
+      operationId: getReportData
+      x-openai-isConsequential: false
+      summary: Retrieve report full data with sheets and query parameters
+      description: >
+        Returns basic report info and a list of sheets with supported parameters.
+
+        Build report URL by appending query parameters to `link`:
+        {link}?sheet={sheets[].slug}&{parameter.slug}={value}&...
+
+        The `sheet` query parameter is optional.
+        If `sheet` is not provided, the report will open the first available sheet by default.
+
+        You can additionally pass the `company` query parameter as a comma-separated list of company identifiers.
+        Each value must be taken from `short_name` returned by GET /api/v1/companies (listCompanies).
+        The order of query parameters does not matter.
+
+        Example:
+        {link}?company=5SU,KEM&sheet=transaction-list&start-date=2026-01-01
+      security:
+        - OAuth2: []
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Report ID obtained in listReports operation
+      responses:
+        '200':
+          description: Report retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportItemFullData'
+        '403':
+          description: No permissions for requested Report
+        '404':
+          description: Report not found
+
+  /api/v1/revenue-and-cogs:
+    get:
+      tags: [Analytics]
+      operationId: revenueAndCogsSummary
+      x-openai-isConsequential: false
+      summary: Retrieve volume of Revenue and Cost of Goods Sold (COGS) by specified period and grouping type
+      description: Returns total values of Sales and COGS by specified periodicity and grouping
+      security:
+        - OAuth2: []
+      parameters:
+        - name: company_uuids
+          in: query
+          description: Filter by Companies. Defaults to all accessible for user companies
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              description: The UUID of the company
+        - name: country_codes
+          in: query
+          description: Filter by countries. Defaults to all accessible for company marketplaces
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              description: The country ISO code
+        - name: grouping
+          in: query
+          description: Type of grouping of results. If not provided, company grouping will be set
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [company, country, invoice]
+        - name: periodicity
+          in: query
+          description: Chunking results by time periods
+          schema:
+            type: string
+            enum: [total, yearly, quarterly, monthly]
+            default: total
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: 2024-01-01
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: 2024-12-31
+          description: Defaults to current date if not provided
+      responses:
+        '200':
+          description: Sales and COGS summary data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevenueAndCogsResponse'
+
+  /api/v1/companies/{companyUuid}/warehouses:
+    get:
+      tags: [Companies, Inventory]
+      operationId: listWarehouses
+      x-openai-isConsequential: false
+      summary: Retrieve warehouses for a Company
+      description: Returns paginated list of warehouses of specified company with search by name
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 60
+            default: 30
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by Warehouse name
+      responses:
+        '200':
+          description: List of warehouses retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseListResponse'
+
+  /api/v1/companies/{companyUuid}/warehouses/{warehouseUuid}/balances:
+    get:
+      tags: [Companies, Inventory]
+      operationId: warehouseBalances
+      x-openai-isConsequential: false
+      summary: Retrieve Warehouse inventory balances
+      description: Returns paginated list of warehouse inventory balances of specified warehouse
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: warehouseUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the warehouse
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 60
+            default: 30
+        - name: balances_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: 2024-01-01
+          description: Set a date if you need a balances in a past. Defaults to current date if not provided
+      responses:
+        '200':
+          description: List of warehouses retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseBalancesListResponse'
+
+  /api/v1/companies/{companyUuid}/inventory-items:
+    get:
+      tags: [Companies, Inventory]
+      operationId: listInventoryItems
+      x-openai-isConsequential: false
+      summary: Retrieve inventory items for a Company
+      description: Returns paginated list of company inventory with filters and search
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 60
+            default: 30
+        - name: country_code
+          in: query
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 2
+        - name: search
+          in: query
+          schema:
+            type: string
+            example: SKU12345
+          description: Search by SKU, ASIN, FnSKU, ID or Name
+        - name: fnsku
+          in: query
+          schema:
+            type: string
+            example: FNSKU12345
+        - name: asin
+          in: query
+          schema:
+            type: string
+            example: ASIN12345
+        - name: sku
+          in: query
+          schema:
+            type: string
+            example: SKU12345
+      responses:
+        '200':
+          description: List of inventory items retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryListResponse'
+    post:
+      tags: [Companies, Inventory]
+      operationId: createInventoryItem
+      x-openai-isConsequential: false
+      summary: Create Inventory Item for a Company
+      description: Returns newly created Inventory Item full data
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                country_code:
+                  type: string
+                  example: US
+                source:
+                  type: string
+                  example: amazon
+                fnsku:
+                  type: string
+                  example: FNSKU123
+                variation:
+                  type: string
+                manager_id:
+                  type: integer
+                  example: 1001
+                listing_id:
+                  type: integer
+                  example: 1001
+                product_id:
+                  type: integer
+                  example: 1001
+                restock_data:
+                  $ref: '#/components/schemas/InventoryRestockData'
+      responses:
+        '200':
+          description: Inventory Item data created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItemFullData'
+
+  /api/v1/companies/{companyUuid}/inventory-items/{inventoryId}:
+    get:
+      tags: [Companies, Inventory]
+      operationId: getInventoryItemFullData
+      x-openai-isConsequential: false
+      summary: Get Inventory Item full info
+      description: Returns Inventory Item full info with related Manager, Product and Listing
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the inventory item
+      responses:
+        '200':
+          description: Inventory Item data created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItemFullData'
+    put:
+      tags: [Companies, Inventory]
+      operationId: updateInventoryItem
+      x-openai-isConsequential: false
+      summary: Update Inventory Item
+      description: Updates and returns Inventory Item full info with related Manager, Product and Listing
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the inventory item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                country_code:
+                  type: string
+                  example: US
+                source:
+                  type: string
+                  example: amazon
+                fnsku:
+                  type: string
+                  example: FNSKU123
+                variation:
+                  type: string
+                manager_id:
+                  type: integer
+                  example: 1001
+                listing_id:
+                  type: integer
+                  example: 1001
+                product_id:
+                  type: integer
+                  example: 1001
+                restock_data:
+                  $ref: '#/components/schemas/InventoryRestockData'
+      responses:
+        '200':
+          description: Inventory Item data created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItemFullData'
+    delete:
+      tags: [Companies, Inventory]
+      operationId: deleteInventoryItem
+      x-openai-isConsequential: false
+      summary: Delete Inventory Item
+      description: Deletes Inventory Item
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the inventory item
+      responses:
+        '204':
+          description: Inventory Item data deleted successfully
+
+  /api/v1/companies/{companyUuid}/inventory-items/{inventoryId}/balances:
+    get:
+      tags: [Inventory]
+      operationId: inventoryBalances
+      x-openai-isConsequential: false
+      summary: Retrieve restock information and warehouse balances for an Inventory Item
+      description: Returns general information, restock information and detailed warehouse balances
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the inventory item
+        - name: balances_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: 2024-01-01
+          description: Set a date if you need a balances information in a past. Defaults to current date if not provided
+      responses:
+        '200':
+          description: Inventory Item data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryDetailsResponse'
+
+  /api/v1/companies/{companyUuid}/inventory-items/{inventoryId}/landed-cost:
+    get:
+      tags: [Inventory]
+      operationId: listInventoryLandedCosts
+      x-openai-isConsequential: false
+      summary: Retrieve Landed Costs (manufacturing expenses) for an Inventory Item
+      description: Returns detailed manufacturing expenses (Landed Costs) for specified inventory by period and warehouse
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the inventory item
+        - name: warehouse_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The UUID of the warehouse
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 60
+            default: 30
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: 2024-01-01
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: 2024-12-31
+          description: Defaults to current date if not provided
+      responses:
+        '200':
+          description: Landed costs data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandedCostResponse'
+
+  /api/v1/companies/{companyUuid}/inventory-items/{inventoryId}/cogs:
+    get:
+      tags: [Inventory]
+      operationId: listInventoryCogs
+      x-openai-isConsequential: false
+      summary: Retrieve Cost of Goods Sold (COGS) for an Inventory Item
+      description: Returns detailed cost of goods sold (COGS) for inventory by period
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the inventory item
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 60
+            default: 30
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: 2024-01-01
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+            example: 2024-12-31
+          description: Defaults to current date if not provided
+      responses:
+        '200':
+          description: COGS data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CogsResponse'
+
+  /api/v1/companies/{companyUuid}/products:
+    get:
+      tags: [Companies, Inventory, Products]
+      operationId: getProducts
+      x-openai-isConsequential: false
+      summary: Retrieve products information with filters
+      description: Returns a list of products filtered by parameters
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: ID of Product. It will return only 1 product if such was found
+                sku:
+                  type: string
+                  example: SKU123
+                  description: Filter by exact SKU value
+                search:
+                  type: string
+                  example: Blue Shirt
+                  description: Search by SKU, Name or Parent SKU
+      responses:
+        '200':
+          description: Products data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductsResponse'
+    post:
+      tags: [Companies, Inventory, Products]
+      operationId: createProduct
+      x-openai-isConsequential: false
+      summary: Create product
+      description: Creates and returns a product
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+      responses:
+        '200':
+          description: Products data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+
+  /api/v1/companies/{companyUuid}/products/{productId}:
+    put:
+      tags: [Companies, Inventory, Products]
+      operationId: updateProduct
+      x-openai-isConsequential: false
+      summary: Update product
+      description: Updates and returns a product
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the product
+      responses:
+        '200':
+          description: Product data updated and retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+    delete:
+      tags: [Companies, Inventory, Products]
+      operationId: deleteProduct
+      x-openai-isConsequential: false
+      summary: Delete product
+      description: Deletes a product
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the product
+      responses:
+        '204':
+          description: Product has been deleted successfully
+        '403':
+          description: Product has not been deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: bool
+                    default: false
+                  message:
+                    type: string
+                    description: Error description
+
+  /api/v1/companies/{companyUuid}/listings:
+    get:
+      tags: [Companies, Inventory, Listings]
+      operationId: getListings
+      x-openai-isConsequential: false
+      summary: Retrieve listings information with filters
+      description: Returns a list of listings filtered by parameters
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: ID of Product. It will return only 1 product if such was found
+                asin:
+                  type: string
+                  example: ASIN123
+                  description: Filter by exact ASIN value
+                search:
+                  type: string
+                  example: Blue Shirt
+                  description: Search by ASIN or Title
+      responses:
+        '200':
+          description: Listings data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingsResponse'
+
+  /api/v1/companies/{companyUuid}/listings/{listingId}/sync:
+    post:
+      tags: [Companies, Inventory, Listings]
+      operationId: syncListing
+      x-openai-isConsequential: false
+      summary: Retrieve updated from Amazon listing
+      description: Returns the listing data updated from Amazon
+      security:
+        - OAuth2: []
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The UUID of the company
+        - name: listingId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: The ID of the listing
+      responses:
+        '200':
+          description: Listings data updated and retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Listing'
+
+  /api/v1/import/{type}/instructions:
+    get:
+      tags: [Import]
+      operationId: getImportInstructions
+      x-openai-isConsequential: false
+      summary: Retrieve document upload instructions
+      description: Returns a payload of parameters needed for document creation with descriptions
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ImportType'
+      responses:
+        '200':
+          description: Instructions by specified type found and provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attributes:
+                    type: object
+                    description: Object with keys as parameter name and value as description
+                  general:
+                    type: string
+                    description: General specifications and tips
+            text/plain:
+              schema:
+                type: string
+                description: Formatted instructions as plain text
+        '404':
+          description: Unsupported document type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/companies/{companyUuid}/create/{type}:
+    post:
+      tags: [Import]
+      operationId: createDocuments
+      x-openai-isConsequential: false
+      summary: Upload documents payload
+      description: Creates documents by JSON payload. Structure of data can be obtained by **getImportInstructions** operation
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The UUID of the company.
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ImportType'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: object
+                  description: Document parameters with line items included. Structure can be obtained by **getImportInstructions** operation
+      responses:
+        '200':
+          description: Result is ready.
+          headers:
+            X-Request-Id:
+              description: Echo of the generated request ID.
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/ImportStatus'
+                  documents:
+                    type: array
+                    description: Documents created from the uploaded file.
+                    items:
+                      $ref: '#/components/schemas/Document'
+        '400':
+          description: Unsupported type or data is broken.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /api/v1/companies/{companyUuid}/settings/forecasts:
+    get:
+      tags: [Companies]
+      operationId: getCompanyForecastingSettings
+      x-openai-isConsequential: false
+      summary: Retrieve a list of forecasting settings for company
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The UUID of the company.
+      responses:
+        '200':
+          description: Result is ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [active, trial, inactive]
+                    default: trial
+                  default_seasonality:
+                    type: string
+                    description: 12 multipliers for each month in a year separated by semicolon
+                    example: "1;1;1;1;1;1;1;1;1;0.8;1.5;2.5"
+                    default: "1;1;1;1;1;1;1;1;1;1;1;1"
+                  default_scenario_id:
+                    type: integer
+                    description: Scenario ID
+                    nullable: true
+                  default_lead_time_days:
+                    type: integer
+                    description: Default supplier lead time in days
+                    nullable: true
+                  default_safety_stock_days:
+                    type: integer
+                    description: Default safety stock coverage in days
+                    nullable: true
+                  default_fba_lead_time:
+                    type: integer
+                    description: Default Amazon FBA lead time in days
+                    nullable: true
+                  default_fba_safety_stock:
+                    type: integer
+                    description: Default FBA safety stock coverage in days
+                    nullable: true
+                  default_planned_po_frequency:
+                    type: integer
+                    default: 30
+                  default_fba_replenishment_frequency:
+                    type: integer
+                    default: 7
+                  default_safety_stock_multiplicator_class_a:
+                    type: number
+                    default: 1.2
+                  default_safety_stock_multiplicator_class_b:
+                    type: number
+                    default: 1
+                  default_safety_stock_multiplicator_class_c:
+                    type: number
+                    default: 0.6
+                  default_safety_stock_multiplicator_class_d:
+                    type: number
+                    default: 0.5
+                  default_revenue_class_a:
+                    type: number
+                    default: 10
+                  default_revenue_class_b:
+                    type: number
+                    default: 3
+                  default_revenue_class_c:
+                    type: number
+                    default: 0.5
+                  default_pareto_class_a:
+                    type: number
+                    default: 80
+                  default_pareto_class_b:
+                    type: number
+                    default: 15
+                  default_pareto_class_c:
+                    type: number
+                    default: 5
+    put:
+      tags: [Companies]
+      operationId: updateCompanyForecastingSettings
+      x-openai-isConsequential: false
+      summary: Update forecasting settings for company
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The UUID of the company.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [active, trial, inactive]
+                  default: trial
+                default_seasonality:
+                  type: string
+                  description: 12 multipliers for each month in a year separated by semicolon
+                  example: "1;1;1;1;1;1;1;1;1;0.8;1.5;2.5"
+                  default: "1;1;1;1;1;1;1;1;1;1;1;1"
+                default_scenario_id:
+                  type: integer
+                  nullable: true
+                  description: Scenario ID
+                default_lead_time_days:
+                  type: integer
+                  nullable: true
+                  description: Default supplier lead time in days
+                default_safety_stock_days:
+                  type: integer
+                  nullable: true
+                  description: Default safety stock coverage in days
+                default_fba_lead_time:
+                  type: integer
+                  nullable: true
+                  description: Default Amazon FBA lead time in days
+                default_fba_safety_stock:
+                  type: integer
+                  nullable: true
+                  description: Default FBA safety stock coverage in days
+                default_planned_po_frequency:
+                  type: integer
+                  default: 30
+                default_fba_replenishment_frequency:
+                  type: integer
+                  default: 7
+                default_safety_stock_multiplicator_class_a:
+                  type: number
+                  default: 1.2
+                default_safety_stock_multiplicator_class_b:
+                  type: number
+                  default: 1
+                default_safety_stock_multiplicator_class_c:
+                  type: number
+                  default: 0.6
+                default_safety_stock_multiplicator_class_d:
+                  type: number
+                  default: 0.5
+                default_revenue_class_a:
+                  type: number
+                  default: 10
+                default_revenue_class_b:
+                  type: number
+                  default: 3
+                default_revenue_class_c:
+                  type: number
+                  default: 0.5
+                default_pareto_class_a:
+                  type: number
+                  default: 80
+                default_pareto_class_b:
+                  type: number
+                  default: 15
+                default_pareto_class_c:
+                  type: number
+                  default: 5
+      responses:
+        '200':
+          description: The operation succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: Indication that parameters have been saved successfully
+
+  /api/v1/companies/{companyUuid}/import/{type}/pdf:
+    post:
+      tags: [Import]
+      operationId: createDocumentsByPdf
+      x-openai-isConsequential: false
+      summary: Upload a single PDF file as raw binary and create documents
+      description: |
+        Primary: send a raw PDF stream (`application/pdf`) with `filename` query parameter.
+        Fallback: send JSON with a `file` object containing a short-lived download link.
+        After a 202 response, WAIT the indicated seconds (or 15 if the header is absent), then call **checkImportProcessing**
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The UUID of the company.
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ImportType'
+        - in: query
+          name: filename
+          description: Original filename to store alongside the uploaded PDF, required for application/pdf request
+          schema:
+            type: string
+            example: file.pdf
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+          application/pdf:
+            schema:
+              type: string
+              format: binary
+          application/json:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: object
+                  description: File reference for server-side download.
+                  required: [name, link]
+                  properties:
+                    name:
+                      type: string
+                      description: Original filename.
+                    link:
+                      type: string
+                      format: uri
+                      description: Short-lived URL to GET the file.
+      responses:
+        '202':
+          description: Accepted for processing. First status check should occur after 15 seconds.
+          headers:
+            Retry-After:
+              description: Seconds to wait before the first status poll.
+              schema:
+                type: integer
+                minimum: 1
+                default: 15
+            X-Request-Id:
+              description: Request ID of created import.
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                    format: uuid
+                    description: Request ID of created import.
+                  status:
+                    $ref: '#/components/schemas/ImportStatus'
+        '400':
+          description: Unsupported type or file is broken.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '415':
+          description: Unsupported Media Type (must be `application/pdf` or `application/json`).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /api/v1/companies/{companyUuid}/import/{type}/status/{requestId}:
+    get:
+      tags: [Import]
+      operationId: checkImportProcessing
+      x-openai-isConsequential: false
+      summary: Check status of import processing
+      description: |
+        Poll this endpoint using the `requestId` from the upload response.
+        If processing isn't finished, returns `202 Accepted` with header `Retry-After` (default 5).
+        GPT: when you receive 202, WAIT the indicated seconds (or 5 if the header is absent) and poll again.
+      parameters:
+        - name: companyUuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The UUID of the company.
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/ImportType'
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Request ID of the previously created import.
+      responses:
+        '200':
+          description: Result is ready.
+          headers:
+            X-Request-Id:
+              description: Echo of the generated request ID.
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/ImportStatus'
+                  documents:
+                    type: array
+                    description: Documents created from the uploaded file.
+                    items:
+                      $ref: '#/components/schemas/Document'
+        '202':
+          description: Not ready yet. Client should poll again after the suggested delay.
+          headers:
+            Retry-After:
+              description: Seconds to wait before next poll (default 5).
+              schema:
+                type: integer
+                minimum: 1
+                default: 5
+            X-Request-Id:
+              description: Echo of the generated request ID.
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/ImportStatus'
