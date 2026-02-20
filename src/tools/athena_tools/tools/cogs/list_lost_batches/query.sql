@@ -41,9 +41,6 @@ lost_transactions AS (
     AND ({{sku_filter}})
     AND ({{marketplace_filter}})
     AND ({{country_filter}})
-    
-    -- Only include transactions without cost data
-    AND (ft.item_landed_cost IS NULL OR ft.item_landed_cost = 0)
 )
 
 SELECT 

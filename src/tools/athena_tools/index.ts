@@ -18,6 +18,7 @@ import { registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool } from './too
 import { registerBrandAnalyticsGetCrossSellOpportunitiesTool } from './tools/brand_analytics/get_cross_sell_opportunities/register';
 import { registerBrandAnalyticsAnalyzeRepeatPurchasesTool } from './tools/brand_analytics/analyze_repeat_purchases/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
+import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
 import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
@@ -53,6 +54,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry);
   registerBrandAnalyticsAnalyzeRepeatPurchasesTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
+  registerCogsListLostBatchesTool(registry);
   registerCogsExportUnitCostsTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
   registerAdvertisingAnalyzeSearchTermsTool(registry);
