@@ -98,7 +98,9 @@ latest AS (
 date_bounds AS (
   SELECT
     COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week)) AS start_date,
-    COALESCE(p.end_date, l.latest_week) AS end_date
+    COALESCE(p.end_date, l.latest_week) AS end_date,
+    -- 1-week lookback so LAG has a prior row even when periods_back = 1
+    date_add('week', -1, COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week))) AS lookback_start
   FROM params p
   CROSS JOIN latest l
 ),
@@ -107,8 +109,8 @@ windowed AS (
   SELECT r.*
   FROM raw r
   CROSS JOIN date_bounds d
-  WHERE r.week_start BETWEEN d.start_date AND d.end_date
-    AND r.year BETWEEN year(d.start_date) AND year(d.end_date)
+  WHERE r.week_start BETWEEN d.lookback_start AND d.end_date
+    AND r.year BETWEEN year(d.lookback_start) AND year(d.end_date)
 ),
 
 -- ─── 3. Aggregate to keyword × period level ────────────────────────────────

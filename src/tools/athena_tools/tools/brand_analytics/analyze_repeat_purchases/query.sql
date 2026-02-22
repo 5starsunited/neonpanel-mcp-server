@@ -65,7 +65,7 @@ marketplaces_dim AS (
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
 ),
 
-with_marketplace AS (
+with_marketplace_raw AS (
   SELECT
     r.*,
     COALESCE(upper(m.country_code), r.marketplace_ids[1]) AS marketplace,
@@ -90,6 +90,26 @@ with_marketplace AS (
     )
 ),
 
+-- Deduplicate rows created by CROSS JOIN UNNEST when marketplace_ids has >1 element
+-- mapping to the same resolved marketplace code
+with_marketplace AS (
+  SELECT
+    asin,
+    marketplace,
+    company_id,
+    week_start,
+    MAX(marketplace_numeric_id)  AS marketplace_numeric_id,
+    MAX(currency)                AS currency,
+    marketplace_ids,
+    SUM(orders)                  AS orders,
+    SUM(unique_customers)        AS unique_customers,
+    MAX(repeat_customers_pct)    AS repeat_customers_pct,
+    SUM(repeat_revenue)          AS repeat_revenue,
+    MAX(repeat_revenue_pct)      AS repeat_revenue_pct
+  FROM with_marketplace_raw
+  GROUP BY asin, marketplace, company_id, week_start, marketplace_ids
+),
+
 -- ─── 3. Determine date window ──────────────────────────────────────────────
 latest AS (
   SELECT max(week_start) AS latest_week FROM with_marketplace
@@ -98,11 +118,22 @@ latest AS (
 date_bounds AS (
   SELECT
     COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week)) AS start_date,
-    COALESCE(p.end_date,   l.latest_week)                                               AS end_date
+    COALESCE(p.end_date,   l.latest_week)                                               AS end_date,
+    -- 1-week lookback so LAG has a prior row even when periods_back = 1
+    date_add('week', -1, COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week))) AS lookback_start
   FROM params p
   CROSS JOIN latest l
 ),
 
+-- Expanded window includes 1 extra prior week for LAG
+windowed_expanded AS (
+  SELECT w.*
+  FROM with_marketplace w
+  CROSS JOIN date_bounds d
+  WHERE w.week_start BETWEEN d.lookback_start AND d.end_date
+),
+
+-- User's requested window (no lookback) — used for aggregated totals/averages
 windowed AS (
   SELECT w.*
   FROM with_marketplace w
@@ -144,11 +175,13 @@ aggregated AS (
 ),
 
 -- ─── 5. Latest-week snapshot for WoW trend ─────────────────────────────────
--- Get per-ASIN weekly rows ordered for LAG calculation
+-- Uses windowed_expanded (includes 1 extra prior week) so LAG has history.
+-- Partition includes company_id to prevent cross-tenant mixing.
 weekly_series AS (
   SELECT
     w.asin,
     w.marketplace,
+    w.company_id,
     w.week_start,
     w.orders,
     w.unique_customers,
@@ -156,24 +189,25 @@ weekly_series AS (
     w.repeat_revenue,
     w.repeat_revenue_pct,
     LAG(w.repeat_customers_pct) OVER (
-      PARTITION BY w.asin, w.marketplace ORDER BY w.week_start
+      PARTITION BY w.asin, w.marketplace, w.company_id ORDER BY w.week_start
     ) AS prev_repeat_customers_pct,
     LAG(w.repeat_revenue_pct) OVER (
-      PARTITION BY w.asin, w.marketplace ORDER BY w.week_start
+      PARTITION BY w.asin, w.marketplace, w.company_id ORDER BY w.week_start
     ) AS prev_repeat_revenue_pct,
     LAG(w.orders) OVER (
-      PARTITION BY w.asin, w.marketplace ORDER BY w.week_start
+      PARTITION BY w.asin, w.marketplace, w.company_id ORDER BY w.week_start
     ) AS prev_orders,
     ROW_NUMBER() OVER (
-      PARTITION BY w.asin, w.marketplace ORDER BY w.week_start DESC
+      PARTITION BY w.asin, w.marketplace, w.company_id ORDER BY w.week_start DESC
     ) AS rn
-  FROM windowed w
+  FROM windowed_expanded w
 ),
 
 latest_week_trend AS (
   SELECT
     ws.asin,
     ws.marketplace,
+    ws.company_id,
     ws.orders                          AS latest_week_orders,
     ws.unique_customers                AS latest_week_unique_customers,
     ws.repeat_customers_pct            AS latest_week_repeat_customers_pct,
@@ -218,6 +252,7 @@ combined AS (
   LEFT JOIN latest_week_trend lt
     ON  lt.asin        = a.asin
     AND lt.marketplace = a.marketplace
+    AND lt.company_id  = a.company_id
   CROSS JOIN params p
   WHERE
     -- Optional min orders filter
