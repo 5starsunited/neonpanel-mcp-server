@@ -35,7 +35,71 @@ WITH params AS (
 ),
 
 raw AS (
-    SELECT *
+    SELECT
+        company,
+        marketplace,
+        marketplace_country_code,
+        parent_asin,
+        revenue_abcd_class,
+        pareto_abc_class,
+        brand,
+        revenue_share,
+        title,
+        date,
+        rspec_marketplaceids,
+        asin,
+        cartadddata_asincartaddcount,
+        cartadddata_asincartaddshare,
+        cartadddata_asinmediancartaddprice_amount,
+        cartadddata_asinmediancartaddprice_currencycode,
+        cartadddata_totalcartaddcount,
+        cartadddata_totalcartaddrate,
+        cartadddata_totalmediancartaddprice_amount,
+        cartadddata_totalmediancartaddprice_currencycode,
+        cartadddata_totalonedayshippingcartaddcount,
+        cartadddata_totalsamedayshippingcartaddcount,
+        cartadddata_totaltwodayshippingcartaddcount,
+        clickdata_asinclickcount,
+        clickdata_asinclickshare,
+        clickdata_asinmedianclickprice_amount,
+        clickdata_asinmedianclickprice_currencycode,
+        clickdata_totalclickcount,
+        clickdata_totalclickrate,
+        clickdata_totalmedianclickprice_amount,
+        clickdata_totalmedianclickprice_currencycode,
+        clickdata_totalonedayshippingclickcount,
+        clickdata_totalsamedayshippingclickcount,
+        clickdata_totaltwodayshippingclickcount,
+        enddate,
+        impressiondata_asinimpressioncount,
+        impressiondata_asinimpressionshare,
+        impressiondata_totalqueryimpressioncount,
+        purchasedata_asinmedianpurchaseprice_amount,
+        purchasedata_asinmedianpurchaseprice_currencycode,
+        purchasedata_asinpurchasecount,
+        purchasedata_asinpurchaseshare,
+        purchasedata_totalmedianpurchaseprice_amount,
+        purchasedata_totalmedianpurchaseprice_currencycode,
+        purchasedata_totalonedayshippingpurchasecount,
+        purchasedata_totalpurchasecount,
+        purchasedata_totalpurchaserate,
+        purchasedata_totalsamedayshippingpurchasecount,
+        purchasedata_totaltwodayshippingpurchasecount,
+        searchquerydata_searchquery,
+        searchquerydata_searchqueryscore,
+        searchquerydata_searchqueryvolume,
+        startdate,
+        ingest_ts_utc,
+        company_id,
+        amazon_seller_id,
+        week_start,
+        year,
+        kpi_impression_share,
+        kpi_click_share,
+        kpi_cart_add_rate,
+        kpi_purchase_rate,
+        kpi_ctr_advantage,
+        row_type
     FROM "{{catalog}}"."brand_analytics_iceberg"."search_query_performance_snapshot"
 ),
 
@@ -95,6 +159,89 @@ windowed AS (
       AND f.year BETWEEN year(d.lookback_start) AND year(d.end_date)
 ),
 
+-- ─── Compute WoW / WoLast4 / WoLast12 deltas via window functions ──────────
+-- Replaces pre-computed ETL columns that may be NULL or stale.
+with_deltas AS (
+    SELECT
+        w.*,
+        -- Impression share
+        w.kpi_impression_share - LAG(w.kpi_impression_share) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+        ) AS kpi_impression_share_wow,
+        w.kpi_impression_share - AVG(w.kpi_impression_share) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
+        ) AS kpi_impression_share_wolast4,
+        w.kpi_impression_share - AVG(w.kpi_impression_share) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
+        ) AS kpi_impression_share_wolast12,
+        -- Click share
+        w.kpi_click_share - LAG(w.kpi_click_share) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+        ) AS kpi_click_share_wow,
+        w.kpi_click_share - AVG(w.kpi_click_share) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
+        ) AS kpi_click_share_wolast4,
+        w.kpi_click_share - AVG(w.kpi_click_share) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
+        ) AS kpi_click_share_wolast12,
+        -- Cart add rate
+        w.kpi_cart_add_rate - LAG(w.kpi_cart_add_rate) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+        ) AS kpi_cart_add_rate_wow,
+        w.kpi_cart_add_rate - AVG(w.kpi_cart_add_rate) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
+        ) AS kpi_cart_add_rate_wolast4,
+        w.kpi_cart_add_rate - AVG(w.kpi_cart_add_rate) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
+        ) AS kpi_cart_add_rate_wolast12,
+        -- Purchase rate
+        w.kpi_purchase_rate - LAG(w.kpi_purchase_rate) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+        ) AS kpi_purchase_rate_wow,
+        w.kpi_purchase_rate - AVG(w.kpi_purchase_rate) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
+        ) AS kpi_purchase_rate_wolast4,
+        w.kpi_purchase_rate - AVG(w.kpi_purchase_rate) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
+        ) AS kpi_purchase_rate_wolast12,
+        -- CTR advantage
+        w.kpi_ctr_advantage - LAG(w.kpi_ctr_advantage) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+        ) AS kpi_ctr_advantage_wow,
+        w.kpi_ctr_advantage - AVG(w.kpi_ctr_advantage) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
+        ) AS kpi_ctr_advantage_wolast4,
+        w.kpi_ctr_advantage - AVG(w.kpi_ctr_advantage) OVER (
+            PARTITION BY w.company_id, w.marketplace_country_code, w.searchquerydata_searchquery, w.row_type, w.parent_asin, w.asin
+            ORDER BY w.week_start
+            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
+        ) AS kpi_ctr_advantage_wolast12
+    FROM windowed w
+),
+
 cvr_base AS (
     SELECT
         w.*,
@@ -129,7 +276,7 @@ cvr_base AS (
             ELSE (w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount)
                 / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
         END AS cvr_one_vs_two_ratio
-    FROM windowed w
+    FROM with_deltas w
 ),
 
 signal_base AS (
