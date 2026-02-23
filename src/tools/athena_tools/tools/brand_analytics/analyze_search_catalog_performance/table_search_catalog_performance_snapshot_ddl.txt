@@ -42,15 +42,7 @@ CREATE TABLE brand_analytics_iceberg.search_catalog_performance_snapshot (
   kpi_sales_per_click double,
   kpi_sales_per_impression double,
   row_type string,
-  kpi_click_rate_wow double,
-  kpi_click_rate_wolast4 double,
-  kpi_click_rate_wolast12 double,
-  kpi_cart_add_rate_wow double,
-  kpi_cart_add_rate_wolast4 double,
-  kpi_cart_add_rate_wolast12 double,
-  kpi_purchase_rate_wow double,
-  kpi_purchase_rate_wolast4 double,
-  kpi_purchase_rate_wolast12 double)
+  product_family string)
 PARTITIONED BY (`company_id`, `year`, `week_start`)
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/search_catalog_performance_snapshot'
 TBLPROPERTIES (

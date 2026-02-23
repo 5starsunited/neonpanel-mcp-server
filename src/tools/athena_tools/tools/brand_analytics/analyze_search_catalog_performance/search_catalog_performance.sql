@@ -216,55 +216,7 @@ final_base AS (
     SELECT * FROM base_child
     UNION ALL
     SELECT * FROM parent_agg
-),
-
-with_deltas AS (
-    SELECT
-        fb.*,
-        fb.kpi_click_rate - LAG(fb.kpi_click_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-        ) AS kpi_click_rate_wow,
-        fb.kpi_click_rate - AVG(fb.kpi_click_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
-        ) AS kpi_click_rate_wolast4,
-        fb.kpi_click_rate - AVG(fb.kpi_click_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
-        ) AS kpi_click_rate_wolast12,
-        fb.kpi_cart_add_rate - LAG(fb.kpi_cart_add_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-        ) AS kpi_cart_add_rate_wow,
-        fb.kpi_cart_add_rate - AVG(fb.kpi_cart_add_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
-        ) AS kpi_cart_add_rate_wolast4,
-        fb.kpi_cart_add_rate - AVG(fb.kpi_cart_add_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
-        ) AS kpi_cart_add_rate_wolast12,
-        fb.kpi_purchase_rate - LAG(fb.kpi_purchase_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-        ) AS kpi_purchase_rate_wow,
-        fb.kpi_purchase_rate - AVG(fb.kpi_purchase_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-            ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
-        ) AS kpi_purchase_rate_wolast4,
-        fb.kpi_purchase_rate - AVG(fb.kpi_purchase_rate) OVER (
-            PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
-            ORDER BY fb.week_start
-            ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
-        ) AS kpi_purchase_rate_wolast12
-    FROM final_base fb
 )
 
 SELECT *
-FROM with_deltas;
+FROM final_base;

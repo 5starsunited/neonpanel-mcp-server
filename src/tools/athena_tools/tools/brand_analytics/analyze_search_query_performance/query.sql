@@ -99,7 +99,8 @@ raw AS (
         kpi_cart_add_rate,
         kpi_purchase_rate,
         kpi_ctr_advantage,
-        row_type
+        row_type,
+        product_family
     FROM "{{catalog}}"."brand_analytics_iceberg"."search_query_performance_snapshot"
 ),
 

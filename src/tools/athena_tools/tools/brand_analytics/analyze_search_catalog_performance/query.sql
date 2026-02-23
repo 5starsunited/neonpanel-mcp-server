@@ -1,5 +1,7 @@
--- Tool query for search_catalog_performance_snapshot
--- Provides KPI signals (strength/weakness/opportunity/threshold) and trend deltas for catalog-level performance.
+-- Tool query for search_catalog_performance
+-- Reads directly from the raw SP-API source table (not the snapshot) to guarantee
+-- multi-week history for LAG/AVG window functions.
+-- Replicates the ETL enrichment (marketplace, parent_asin, ASIN attributes) at query time.
 
 WITH params AS (
     SELECT
@@ -10,6 +12,7 @@ WITH params AS (
 
         -- REQUIRED (authorization + partition pruning)
         {{company_ids_array}} AS company_ids,
+        transform({{company_ids_array}}, x -> CAST(x AS VARCHAR)) AS company_ids_str,
 
         -- OPTIONAL filters (empty array => no filter)
         {{marketplaces_array}} AS marketplaces,
@@ -30,22 +33,104 @@ WITH params AS (
         {{purchase_trend_colors_array}} AS purchase_trend_colors
 ),
 
-raw AS (
-    SELECT *
-    FROM "{{catalog}}"."brand_analytics_iceberg"."search_catalog_performance_snapshot"
+-- ─── Dimension tables ──────────────────────────────────────────────────────
+marketplaces_dim AS (
+    SELECT
+        CAST(amazon_marketplace_id AS VARCHAR) AS amazon_marketplace_id,
+        lower(country)    AS country,
+        lower(code)       AS country_code,
+        lower(name)       AS marketplace_name,
+        lower(domain)     AS domain,
+        id                AS marketplace_id
+    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
 ),
 
+-- Parent ASIN + ASIN attribute enrichment
+asin_dim AS (
+    SELECT
+        child_asin        AS asin,
+        parent_asin,
+        marketplace_id,
+        brand,
+        product_family,
+        revenue_abcd_class,
+        pareto_abc_class,
+        revenue_share
+    FROM "{{catalog}}"."inventory_planning"."last_snapshot_inventory_planning"
+),
+
+asin_attrs AS (
+    SELECT
+        asin,
+        marketplace_id,
+        MAX(parent_asin)        AS parent_asin,
+        MAX(brand)              AS brand,
+        MAX(product_family)     AS product_family,
+        MIN(revenue_abcd_class) AS revenue_abcd_class,
+        MIN(pareto_abc_class)   AS pareto_abc_class,
+        SUM(revenue_share)      AS revenue_share
+    FROM asin_dim
+    GROUP BY asin, marketplace_id
+),
+
+-- Company name lookup
+companies_dim AS (
+    SELECT
+        CAST(id AS VARCHAR) AS company_id_str,
+        name AS company_name
+    FROM "{{catalog}}"."neonpanel_iceberg"."app_companies"
+),
+
+-- ─── Raw SP-API data ───────────────────────────────────────────────────────
+raw AS (
+    SELECT
+        r.asin,
+        r.week_start,
+        r.year,
+        CAST(r.date AS DATE)       AS report_date,
+        r.startdate,
+        r.enddate,
+        r.impressiondata_impressioncount,
+        r.clickdata_clickcount,
+        r.cartadddata_cartaddcount,
+        r.purchasedata_purchasecount,
+        r.clickdata_clickrate,
+        r.purchasedata_conversionrate,
+        r.purchasedata_searchtrafficsales_amount,
+        r.purchasedata_searchtrafficsales_currencycode,
+        r.cartadddata_onedayshippingcartaddcount,
+        r.cartadddata_samedayshippingcartaddcount,
+        r.cartadddata_twodayshippingcartaddcount,
+        r.clickdata_onedayshippingclickcount,
+        r.clickdata_samedayshippingclickcount,
+        r.clickdata_twodayshippingclickcount,
+        r.purchasedata_onedayshippingpurchasecount,
+        r.purchasedata_samedayshippingpurchasecount,
+        r.purchasedata_twodayshippingpurchasecount,
+        r.impressiondata_onedayshippingimpressioncount,
+        r.impressiondata_samedayshippingimpressioncount,
+        r.impressiondata_twodayshippingimpressioncount,
+        CAST(r.ingest_company_id AS BIGINT) AS company_id,
+        r.ingest_seller_id                  AS amazon_seller_id,
+        r.rspec_marketplaceids
+    FROM "{{catalog}}"."sp_api_iceberg"."brand_analytics_search_catalog_performance_report" r
+    CROSS JOIN params p
+    WHERE
+        contains(p.company_ids_str, r.ingest_company_id)
+),
+
+-- ─── Enrich with marketplace + parent_asin + attributes ────────────────────
 base_child AS (
     SELECT
-        r.company,
-        r.marketplace,
-        r.marketplace_country_code,
-        r.parent_asin,
-        r.revenue_abcd_class,
-        r.pareto_abc_class,
-        r.brand,
-        r.revenue_share,
-        r.title,
+        COALESCE(c.company_name, 'unknown')           AS company,
+        COALESCE(m.marketplace_name, 'unknown')        AS marketplace,
+        COALESCE(m.country_code, 'unknown')            AS marketplace_country_code,
+        COALESCE(aa.parent_asin, r.asin)               AS parent_asin,
+        COALESCE(aa.revenue_abcd_class, 'D')           AS revenue_abcd_class,
+        COALESCE(aa.pareto_abc_class, 'C')             AS pareto_abc_class,
+        COALESCE(aa.brand, 'unknown')                  AS brand,
+        aa.revenue_share,
+        CAST(NULL AS VARCHAR)                          AS title,
         r.asin,
         r.week_start,
         r.year,
@@ -74,31 +159,46 @@ base_child AS (
         r.impressiondata_twodayshippingimpressioncount,
         r.company_id,
         r.amazon_seller_id,
-        r.kpi_click_rate,
-        r.kpi_cart_add_rate,
-        r.kpi_purchase_rate,
-        r.kpi_sales_per_click,
-        r.kpi_sales_per_impression,
+        -- KPI base calculations
+        r.clickdata_clickrate AS kpi_click_rate,
+        CASE
+            WHEN r.impressiondata_impressioncount = 0 THEN NULL
+            ELSE r.cartadddata_cartaddcount / r.impressiondata_impressioncount
+        END AS kpi_cart_add_rate,
+        r.purchasedata_conversionrate AS kpi_purchase_rate,
+        CASE
+            WHEN r.clickdata_clickcount = 0 THEN NULL
+            ELSE r.purchasedata_searchtrafficsales_amount / r.clickdata_clickcount
+        END AS kpi_sales_per_click,
+        CASE
+            WHEN r.impressiondata_impressioncount = 0 THEN NULL
+            ELSE r.purchasedata_searchtrafficsales_amount / r.impressiondata_impressioncount
+        END AS kpi_sales_per_impression,
         'child' AS row_type
     FROM raw r
+    LEFT JOIN marketplaces_dim m
+        ON lower(m.amazon_marketplace_id) = lower(r.rspec_marketplaceids)
+    LEFT JOIN companies_dim c
+        ON c.company_id_str = CAST(r.company_id AS VARCHAR)
+    LEFT JOIN asin_attrs aa
+        ON aa.asin = r.asin
+        AND aa.marketplace_id = m.marketplace_id
     CROSS JOIN params p
     WHERE
-        contains(p.company_ids, r.company_id)
-        AND (
+        (
             cardinality(p.marketplaces) = 0
             OR any_match(
                 p.marketplaces,
                 input -> lower(input) IN (
-                    lower(r.marketplace_country_code),
-                    lower(r.marketplace)
+                    COALESCE(m.country_code, ''),
+                    COALESCE(m.marketplace_name, '')
                 )
             )
         )
         AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(r.asin)))
-        AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(r.parent_asin)))
-        AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(r.revenue_abcd_class)))
-        AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, c -> upper(c) = upper(r.pareto_abc_class)))
-        AND lower(r.row_type) = 'child'
+        AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(COALESCE(aa.parent_asin, r.asin))))
+        AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, rc -> upper(rc) = upper(COALESCE(aa.revenue_abcd_class, 'D'))))
+        AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, pc -> upper(pc) = upper(COALESCE(aa.pareto_abc_class, 'C'))))
 ),
 
 latest AS (
