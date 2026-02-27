@@ -71,7 +71,8 @@ const querySchema = z
         direction: z.enum(['asc', 'desc']).optional(),
       })
       .optional(),
-    limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
+    select_fields: z.array(z.string()).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50).optional(),
   })
   .strict();
 
@@ -189,6 +190,7 @@ export function registerBrandAnalyticsAnalyzeRepeatPurchasesTool(registry: ToolR
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 50;
+      const selectFields = query.select_fields;
       const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '')
         ? query.sort!.field!
         : 'total_orders';
@@ -220,7 +222,12 @@ export function registerBrandAnalyticsAnalyzeRepeatPurchasesTool(registry: ToolR
         maxRows: limitTopN,
       });
 
-      return { items: athenaResult.rows ?? [] };
+      const rows = athenaResult.rows ?? [];
+      if (selectFields && selectFields.length > 0) {
+        const keep = new Set(selectFields);
+        return { items: rows.map((r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => keep.has(k)))) };
+      }
+      return { items: rows };
     },
   });
 }

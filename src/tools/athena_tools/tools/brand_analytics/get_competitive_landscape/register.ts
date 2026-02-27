@@ -73,7 +73,8 @@ const querySchema = z
         direction: z.enum(['asc', 'desc']).optional(),
       })
       .optional(),
-    limit: z.coerce.number().int().min(1).max(500).default(100).optional(),
+    select_fields: z.array(z.string()).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(100).optional(),
   })
   .strict();
 

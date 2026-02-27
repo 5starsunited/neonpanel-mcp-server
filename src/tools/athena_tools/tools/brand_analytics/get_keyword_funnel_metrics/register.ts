@@ -78,7 +78,7 @@ const querySchema = z
       })
       .optional(),
     select_fields: z.array(z.string()).optional(),
-    limit: z.coerce.number().int().min(1).max(500).default(100).optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(100).optional(),
   })
   .strict();
 
@@ -209,6 +209,7 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 100;
+      const selectFields = query.select_fields;
       const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_frequency_rank';
       const sortDirection = query.sort?.direction ?? (sortField === 'search_frequency_rank' ? 'asc' : 'desc');
 
@@ -245,7 +246,12 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
         maxRows: limitTopN,
       });
 
-      return { items: athenaResult.rows ?? [] };
+      const rows = athenaResult.rows ?? [];
+      if (selectFields && selectFields.length > 0) {
+        const keep = new Set(selectFields);
+        return { items: rows.map((r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => keep.has(k)))) };
+      }
+      return { items: rows };
     },
   });
 }

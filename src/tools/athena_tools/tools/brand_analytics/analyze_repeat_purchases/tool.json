@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_analyze_repeat_purchases",
-  "description": "Analyzes repeat purchase behaviour per ASIN from Amazon Brand Analytics Repeat Purchase Report.\n\nUse this tool to:\n- Identify ASINs with the highest repeat customer rates (loyalty signals)\n- Find products driving recurring revenue (Subscribe & Save candidates)\n- Compare repeat purchase rates across the portfolio to spot consumables vs one-time buys\n- Track week-over-week trends in repeat purchase metrics\n- Detect ASINs with declining repeat rates (quality/satisfaction issues)\n\nKey metrics:\n- repeat_customers_pct: Fraction of customers who purchased the ASIN more than once (0-1 scale). Higher values indicate strong product loyalty or consumable nature.\n- repeat_revenue_pct: Fraction of total ASIN revenue from repeat buyers (0-1 scale). High repeat_revenue_pct with low repeat_customers_pct suggests a few heavy buyers.\n- orders vs unique_customers: When orders >> unique_customers, customers are re-ordering.\n\nWoW trends: The latest-week snapshot includes week-over-week deltas for repeat_customers_pct, repeat_revenue_pct, and orders. Positive repeat_customers_pct_wow = growing loyalty.\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 50). When 'asin' filter is omitted, ALL ASINs are considered but only the top N by sort order are returned. A seller may have hundreds of ASINs. To explore different segments: (1) filter by specific ASINs, (2) adjust sort field, or (3) increase limit up to 500.\n\nDefault time window: Last 4 complete weeks. Use periods_back or explicit start_date/end_date for custom ranges.\n\nTip: Sort by avg_repeat_customers_pct DESC to find the most loyal products. Use min_orders to filter out low-volume ASINs with noisy percentages.\n\nIntegration note: Cross-reference with brand_analytics_get_cross_sell_opportunities to find bundle candidates among high-repeat ASINs. Use brand_analytics_get_keyword_funnel_metrics to understand acquisition funnels for top repeaters.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-repeat-purchase",
+  "description": "Analyzes repeat purchase behaviour per ASIN from Amazon Brand Analytics Repeat Purchase Report.\n\nUse this tool to:\n- Identify ASINs with the highest repeat customer rates (loyalty signals)\n- Find products driving recurring revenue (Subscribe & Save candidates)\n- Compare repeat purchase rates across the portfolio to spot consumables vs one-time buys\n- Track week-over-week trends in repeat purchase metrics\n- Detect ASINs with declining repeat rates (quality/satisfaction issues)\n\nKey metrics:\n- repeat_customers_pct: Fraction of customers who purchased the ASIN more than once (0-1 scale). Higher values indicate strong product loyalty or consumable nature.\n- repeat_revenue_pct: Fraction of total ASIN revenue from repeat buyers (0-1 scale). High repeat_revenue_pct with low repeat_customers_pct suggests a few heavy buyers.\n- orders vs unique_customers: When orders >> unique_customers, customers are re-ordering.\n\nWoW trends: The latest-week snapshot includes week-over-week deltas for repeat_customers_pct, repeat_revenue_pct, and orders. Positive repeat_customers_pct_wow = growing loyalty.\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 50). When 'asin' filter is omitted, ALL ASINs are considered but only the top N by sort order are returned. A seller may have hundreds of ASINs. To explore different segments: (1) filter by specific ASINs, (2) adjust sort field, or (3) increase limit up to 200.\n\nDefault time window: Last 4 complete weeks. Use periods_back or explicit start_date/end_date for custom ranges.\n\nTip: Sort by avg_repeat_customers_pct DESC to find the most loyal products. Use min_orders to filter out low-volume ASINs with noisy percentages.\n\nIntegration note: Cross-reference with brand_analytics_get_cross_sell_opportunities to find bundle candidates among high-repeat ASINs. Use brand_analytics_get_keyword_funnel_metrics to understand acquisition funnels for top repeaters.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-repeat-purchase",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -109,12 +109,17 @@
             },
             "additionalProperties": false
           },
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size."
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 500,
+            "maximum": 200,
             "default": 50,
-            "description": "Maximum rows to return (default 50, max 500). Only the top N ASINs by the chosen sort order are returned."
+            "description": "Maximum rows to return (default 50, max 200). Only the top N ASINs by the chosen sort order are returned."
           }
         },
         "required": [

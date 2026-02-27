@@ -99,10 +99,15 @@
             },
             "additionalProperties": false
           },
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size."
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 500,
+            "maximum": 200,
             "default": 100
           }
         },

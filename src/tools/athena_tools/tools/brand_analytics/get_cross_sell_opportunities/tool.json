@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_cross_sell_opportunities",
-  "description": "Retrieves products frequently purchased together from Amazon Brand Analytics Market Basket Analysis report.\n\nUse this tool to:\n- Discover complementary products for Virtual Bundle creation\n- Identify A+ Content cross-sell table candidates\n- Find Product Targeting ad campaign opportunities (target ASINs frequently co-purchased with yours)\n- Detect competitor products commonly bought alongside yours (defensive/offensive targeting)\n- Validate bundle ideas with real co-purchase data\n\nData source: Weekly Market Basket report. Each primary ASIN has up to 3 co-purchased ASINs per week.\n- combination_pct: Percentage of the primary ASIN's orders that also included the co-purchased ASIN (0-100 scale)\n- best_rank: Amazon's co-purchase rank (1 = most frequently bought together)\n- consistency_score: How reliably this pair appears across weeks (1.0 = every week in the window)\n\nOwnership detection: co_purchased_is_own = true when the co-purchased ASIN also appears as a primary ASIN (i.e., it belongs to the seller). Use this to distinguish own-portfolio cross-sell from competitor product insights.\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 50). When 'asin' filter is omitted, ALL ASINs are considered but only the top N pairs by sort order are returned. A seller may have hundreds of ASIN pairs. To explore different segments: (1) filter by specific ASINs, (2) adjust sort field, or (3) increase limit up to 500.\n\nDefault time window: Last 4 complete weeks. Use periods_back or explicit start_date/end_date for custom ranges.\n\nTip: Filter to max_rank=1 to see only the #1 co-purchased product per ASIN. Raise min_combination_pct to focus on strong signals.\n\nIntegration note: Cross-reference with advertising_analyze_search_terms to validate co-purchase patterns with paid traffic behaviour. Use brand_analytics_get_keyword_funnel_metrics to check if co-purchased ASINs share keywords.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-market-basket",
+  "description": "Retrieves products frequently purchased together from Amazon Brand Analytics Market Basket Analysis report.\n\nUse this tool to:\n- Discover complementary products for Virtual Bundle creation\n- Identify A+ Content cross-sell table candidates\n- Find Product Targeting ad campaign opportunities (target ASINs frequently co-purchased with yours)\n- Detect competitor products commonly bought alongside yours (defensive/offensive targeting)\n- Validate bundle ideas with real co-purchase data\n\nData source: Weekly Market Basket report. Each primary ASIN has up to 3 co-purchased ASINs per week.\n- combination_pct: Percentage of the primary ASIN's orders that also included the co-purchased ASIN (0-100 scale)\n- best_rank: Amazon's co-purchase rank (1 = most frequently bought together)\n- consistency_score: How reliably this pair appears across weeks (1.0 = every week in the window)\n\nOwnership detection: co_purchased_is_own = true when the co-purchased ASIN also appears as a primary ASIN (i.e., it belongs to the seller). Use this to distinguish own-portfolio cross-sell from competitor product insights.\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 50). When 'asin' filter is omitted, ALL ASINs are considered but only the top N pairs by sort order are returned. A seller may have hundreds of ASIN pairs. To explore different segments: (1) filter by specific ASINs, (2) adjust sort field, or (3) increase limit up to 200.\n\nDefault time window: Last 4 complete weeks. Use periods_back or explicit start_date/end_date for custom ranges.\n\nTip: Filter to max_rank=1 to see only the #1 co-purchased product per ASIN. Raise min_combination_pct to focus on strong signals.\n\nIntegration note: Cross-reference with advertising_analyze_search_terms to validate co-purchase patterns with paid traffic behaviour. Use brand_analytics_get_keyword_funnel_metrics to check if co-purchased ASINs share keywords.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-market-basket",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -101,12 +101,17 @@
             },
             "additionalProperties": false
           },
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size."
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 500,
+            "maximum": 200,
             "default": 50,
-            "description": "Maximum rows to return (default 50, max 500). Only the top N pairs by the chosen sort order are returned."
+            "description": "Maximum rows to return (default 50, max 200). Only the top N pairs by the chosen sort order are returned."
           }
         },
         "required": [
