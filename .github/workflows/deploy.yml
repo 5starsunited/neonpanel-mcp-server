@@ -1,0 +1,64 @@
+# Deploy NeonPanel MCP Server on push to main
+# Uses OIDC federation - no long-lived AWS credentials stored in GitHub.
+# Prerequisites: run scripts/setup-github-oidc.sh once to create the IAM role.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "303498144074"
+  CDK_STACK: NeonpanelMcpStackV3
+  NODE_VERSION: "18"
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Build app
+        run: npm run build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubActionsDeployRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install CDK dependencies
+        working-directory: infrastructure
+        run: npm ci
+
+      - name: CDK deploy
+        working-directory: infrastructure
+        run: npx cdk deploy ${{ env.CDK_STACK }} --require-approval never
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting 30s for ECS service to stabilize..."
+          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://mcp.neonpanel.com/healthz || true)
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Health check passed (HTTP $STATUS)"
+          else
+            echo "⚠️  Health check returned HTTP $STATUS — ECS may still be rolling out"
+          fi
