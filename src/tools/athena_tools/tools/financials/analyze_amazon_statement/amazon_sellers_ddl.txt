@@ -1,0 +1,18 @@
+CREATE TABLE neonpanel_iceberg.amazon_sellers (
+  id bigint,
+  status int,
+  name string,
+  amazon_seller_id string,
+  marketplace_id bigint,
+  region_id bigint,
+  company_id bigint,
+  start_date date,
+  deleted_at timestamp,
+  partition_name string)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/amazon_sellers'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);

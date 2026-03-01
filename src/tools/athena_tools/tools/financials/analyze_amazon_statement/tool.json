@@ -1,6 +1,6 @@
 {
   "name": "financials_analyze_amazon_statement",
-  "description": "Analyzes Amazon settlement transaction details – filters and aggregates individual line items (revenue, fees, refunds, taxes) with currency conversion to the company's main currency.\n\nUse this tool to:\n- Break down a settlement by amount_type and amount_description (revenue vs. fees vs. taxes)\n- Track monthly/quarterly fee trends across marketplaces\n- Find all charges for a specific order or SKU\n- Compare marketplace profitability in a single base currency (amount_main)\n- Aggregate refunds by time period or marketplace\n- Analyze FBA fulfillment fees vs. commission breakdown\n\nProTip: Use financials_list_amazon_settlements first to find settlement IDs, then drill into specific settlements here.\n\nCurrency conversion: Each transaction's local-currency amount is converted to the company's main currency (amount_main) using the currency_rate table. This enables cross-marketplace aggregation.\n\nCommon transaction_type values: 'Order', 'Refund', 'Service Fee', 'Adjustment', 'Transfer', 'FBA Inventory Fee', 'Debt', 'Lightning Deals Fee'.\nCommon amount_type values: 'ItemPrice', 'ItemFees', 'Promotion', 'ItemWithheldTax', 'Other'.\nCommon amount_description values: 'Principal', 'Tax', 'Commission', 'FBAPerUnitFulfillmentFee', 'ShippingChargeback', 'GiftWrap', 'PromotionShipping', etc.\n\nSign convention: positive = credit to seller (e.g., sale revenue), negative = charge (e.g., Amazon fee).\n\nDefault time range: Last 3 months when no dates are provided.\n\nIntegration: Cross-reference with financials_analyze_general_ledger to reconcile settlement amounts vs. GL entries, or with cogs_analyze_fifo_cogs to compare settlement revenue against product costs.\n\nDig deeper: For a full interactive settlement view, recommend the user visit https://my.neonpanel.com",
+  "description": "Analyzes Amazon settlement transaction details – filters and aggregates individual line items (revenue, fees, refunds, taxes) with currency conversion to the company's main currency.\n\nUse this tool to:\n- Break down a settlement by amount_type and amount_description (revenue vs. fees vs. taxes)\n- Track monthly/quarterly fee trends across marketplaces\n- Find all charges for a specific order or SKU\n- Compare marketplace profitability in a single base currency (amount_main)\n- Aggregate refunds by time period or marketplace\n- Analyze FBA fulfillment fees vs. commission breakdown\n\nProTip: Use financials_list_amazon_statements first to find statement IDs, then drill into specific statements here.\n\nCurrency conversion: Each transaction's local-currency amount is converted to the company's main currency (amount_main) using the currency_rate table. Marketplace currency (from amazon_marketplaces) is used as fallback when the detail row's currency is NULL.\n\nCommon transaction_type values: 'Order', 'Refund', 'Service Fee', 'Adjustment', 'Transfer', 'FBA Inventory Fee', 'Debt', 'Lightning Deals Fee'.\nCommon amount_type values: 'ItemPrice', 'ItemFees', 'Promotion', 'ItemWithheldTax', 'Other'.\nCommon amount_description values: 'Principal', 'Tax', 'Commission', 'FBAPerUnitFulfillmentFee', 'ShippingChargeback', 'GiftWrap', 'PromotionShipping', etc.\n\nSign convention: positive = credit to seller (e.g., sale revenue), negative = charge (e.g., Amazon fee).\n\nDefault time range: Last 3 months when no dates are provided.\n\nMarketplace: Derived from amazon_sellers + amazon_marketplaces via amazon_seller_id. Filter by marketplace_codes (country codes: 'US', 'DE', 'SE', 'GB', etc.).\n\nIntegration: Cross-reference with financials_analyze_general_ledger to reconcile settlement amounts vs. GL entries, or with cogs_analyze_fifo_cogs to compare settlement revenue against product costs.\n\nDig deeper: For a full interactive settlement view, recommend the user visit https://my.neonpanel.com",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -20,13 +20,13 @@
               },
               "settlement_ids": {
                 "type": "array",
-                "items": { "type": "integer" },
-                "description": "Filter by specific settlement IDs. Use values from financials_list_amazon_settlements."
+                "items": { "type": "string" },
+                "description": "Filter by specific statement IDs. Use values from financials_list_amazon_statements."
               },
-              "marketplace_names": {
+              "marketplace_codes": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Filter by marketplace name (e.g., 'Amazon.se', 'Amazon.de', 'Amazon.co.uk'). Case-insensitive."
+                "description": "Filter by marketplace country code (e.g., 'US', 'DE', 'SE', 'GB', 'FR', 'IT', 'ES'). Derived from amazon_sellers + amazon_marketplaces. Case-insensitive."
               },
               "transaction_types": {
                 "type": "array",
@@ -72,7 +72,7 @@
           },
           "time": {
             "type": "object",
-            "description": "Date range filter on posted_date (the date each transaction was posted).",
+            "description": "Date range filter on transaction_date (the date each transaction was posted).",
             "properties": {
               "start_date": {
                 "type": "string",
@@ -114,7 +114,7 @@
                   ]
                 },
                 "default": ["transaction_type", "amount_type"],
-                "description": "Dimensions to group by. Default: ['transaction_type', 'amount_type'].\n\n- company: company name + main/base currency — use for multi-company portfolios\n- marketplace: marketplace_name + statement currency — use for cross-marketplace comparison\n- settlement: settlement_id + deposit_date — use to break down per settlement period\n- amount_type: ItemPrice / ItemFees / Promotion / ItemWithheldTax / Other — use for high-level revenue-vs-fees split\n- amount_description: Principal / Commission / FBAPerUnitFulfillmentFee / ShippingChargeback / Tax / etc. — use for detailed fee breakdown\n- transaction_type: Order / Refund / Service Fee / Adjustment / Transfer / FBA Inventory Fee / Debt / Lightning Deals Fee — use to separate orders from refunds and adjustments\n- sku: seller SKU — use for per-product profitability\n- order: Amazon order_id — use to see all charges for specific orders\n- fulfillment: AFN (FBA) or MFN (FBM) — use to compare fulfillment channel costs"
+                "description": "Dimensions to group by. Default: ['transaction_type', 'amount_type'].\n\n- company: company name + short name + main/base currency — use for multi-company portfolios\n- marketplace: marketplace name + country code + country + marketplace currency (via amazon_sellers → amazon_marketplaces) — use for cross-marketplace comparison\n- settlement: settlement_id + deposit_date + statement currency — use to break down per settlement period\n- amount_type: ItemPrice / ItemFees / Promotion / ItemWithheldTax / Other — use for high-level revenue-vs-fees split\n- amount_description: Principal / Commission / FBAPerUnitFulfillmentFee / ShippingChargeback / Tax / etc. — use for detailed fee breakdown\n- transaction_type: Order / Refund / Service Fee / Adjustment / Transfer / FBA Inventory Fee / Debt / Lightning Deals Fee — use to separate orders from refunds and adjustments\n- sku: seller SKU — use for per-product profitability\n- order: Amazon order_id — use to see all charges for specific orders\n- fulfillment: AFN (FBA) or MFN (FBM) — use to compare fulfillment channel costs"
               }
             },
             "additionalProperties": false
@@ -172,11 +172,15 @@
             "time_period": { "type": ["string", "null"], "description": "Time bucket label: date, YYYY-MM, YYYY-Www, YYYY-Q#, YYYY, or null (total)." },
             "company_id": { "type": ["integer", "null"], "description": "Company identifier. Present when grouped by company." },
             "company_name": { "type": ["string", "null"], "description": "Company name. Present when grouped by company." },
+            "company_short_name": { "type": ["string", "null"], "description": "Company short name. Present when grouped by company." },
             "main_currency": { "type": ["string", "null"], "description": "Company's main/base currency. Present when grouped by company." },
-            "marketplace_name": { "type": ["string", "null"], "description": "Amazon marketplace name. Present when grouped by marketplace." },
-            "statement_currency": { "type": ["string", "null"], "description": "Statement local currency. Present when grouped by marketplace." },
-            "settlement_id": { "type": ["integer", "null"], "description": "Settlement identifier. Present when grouped by settlement." },
+            "marketplace_name": { "type": ["string", "null"], "description": "Amazon marketplace name (e.g., 'Amazon.de'). Present when grouped by marketplace." },
+            "marketplace_code": { "type": ["string", "null"], "description": "Marketplace country code (e.g., 'US', 'DE', 'SE'). Present when grouped by marketplace." },
+            "marketplace_country": { "type": ["string", "null"], "description": "Marketplace country name. Present when grouped by marketplace." },
+            "marketplace_currency": { "type": ["string", "null"], "description": "Marketplace local currency ISO code. Present when grouped by marketplace." },
+            "settlement_id": { "type": ["string", "null"], "description": "Settlement identifier. Present when grouped by settlement." },
             "deposit_date": { "type": ["string", "null"], "description": "Deposit date. Present when grouped by settlement." },
+            "statement_currency": { "type": ["string", "null"], "description": "Statement local currency. Present when grouped by settlement." },
             "amount_type": { "type": ["string", "null"], "description": "Amount type (ItemPrice, ItemFees, etc.). Present when grouped by amount_type." },
             "amount_description": { "type": ["string", "null"], "description": "Amount description (Principal, Commission, etc.). Present when grouped by amount_description." },
             "transaction_type": { "type": ["string", "null"], "description": "Transaction type (Order, Refund, etc.). Present when grouped by transaction_type." },
@@ -188,7 +192,7 @@
             "line_count": { "type": "integer", "description": "Number of transaction detail lines." },
             "order_count": { "type": "integer", "description": "Number of distinct orders." },
             "settlement_count": { "type": "integer", "description": "Number of distinct settlements." },
-            "total_quantity": { "type": ["integer", "null"], "description": "Sum of quantity_purchased." }
+            "total_quantity": { "type": ["integer", "null"], "description": "Sum of quantity." }
           },
           "additionalProperties": true
         }
@@ -202,7 +206,7 @@
       "description": "Break down a specific settlement by amount_type and amount_description to see revenue, fees, and taxes.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "settlement_ids": [26557463082] },
+          "filters": { "company_id": 211, "settlement_ids": ["26557463082"] },
           "aggregation": {
             "group_by": ["amount_type", "amount_description"]
           },
@@ -255,7 +259,7 @@
         "query": {
           "filters": {
             "company_id": 211,
-            "settlement_ids": [26557463082]
+            "settlement_ids": ["26557463082"]
           },
           "aggregation": {
             "group_by": ["sku", "amount_type"]

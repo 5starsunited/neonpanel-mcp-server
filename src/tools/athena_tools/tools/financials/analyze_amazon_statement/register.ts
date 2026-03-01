@@ -80,8 +80,8 @@ const querySchema = z
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
-        settlement_ids: z.array(z.coerce.number().int()).optional(),
-        marketplace_names: z.array(z.string()).optional(),
+        settlement_ids: z.array(z.coerce.string()).optional(),
+        marketplace_codes: z.array(z.string()).optional(),
         transaction_types: z.array(z.string()).optional(),
         amount_types: z.array(z.string()).optional(),
         amount_descriptions: z.array(z.string()).optional(),
@@ -200,8 +200,8 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
       const sortDirection = query.sort?.direction ?? 'desc';
       const sortField = query.sort?.field ?? 'total_amount';
 
-      const settlementIds = query.filters.settlement_ids ?? [];
-      const marketplaceNames = (query.filters.marketplace_names ?? []).map((s) => s.trim()).filter(Boolean);
+      const settlementIds = (query.filters.settlement_ids ?? []).map((s) => s.trim()).filter(Boolean);
+      const marketplaceCodes = (query.filters.marketplace_codes ?? []).map((s) => s.trim()).filter(Boolean);
       const transactionTypes = (query.filters.transaction_types ?? []).map((s) => s.trim()).filter(Boolean);
       const amountTypes = (query.filters.amount_types ?? []).map((s) => s.trim()).filter(Boolean);
       const amountDescriptions = (query.filters.amount_descriptions ?? []).map((s) => s.trim()).filter(Boolean);
@@ -243,8 +243,8 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
 
         // Filters
-        settlement_ids_array: sqlBigintArrayExpr(settlementIds),
-        marketplace_names_array: sqlVarcharArrayExpr(marketplaceNames),
+        settlement_ids_array: sqlVarcharArrayExpr(settlementIds),
+        marketplace_codes_array: sqlVarcharArrayExpr(marketplaceCodes),
         transaction_types_array: sqlVarcharArrayExpr(transactionTypes),
         amount_types_array: sqlVarcharArrayExpr(amountTypes),
         amount_descriptions_array: sqlVarcharArrayExpr(amountDescriptions),
@@ -255,9 +255,9 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
         max_amount_sql: sqlNullableDecimal(maxAmount),
 
         // Partition pruning
-        partition_year_start: sqlStringLiteral(partYearStart),
+        partition_year_start: Number(partYearStart),
         partition_month_start: sqlStringLiteral(partMonthStart),
-        partition_year_end: sqlStringLiteral(partYearEnd),
+        partition_year_end: Number(partYearEnd),
         partition_month_end: sqlStringLiteral(partMonthEnd),
 
         // Periodicity

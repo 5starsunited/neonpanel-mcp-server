@@ -57,8 +57,8 @@ const querySchema = z
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
-        settlement_ids: z.array(z.coerce.number().int()).optional(),
-        marketplace_names: z.array(z.string()).optional(),
+        statement_ids: z.array(z.coerce.string()).optional(),
+        marketplace_codes: z.array(z.string()).optional(),
         currencies: z.array(z.string()).optional(),
         seller_ids: z.array(z.string()).optional(),
         min_amount: z.coerce.number().optional(),
@@ -86,7 +86,7 @@ const inputSchema = z
 
 // ── Registration ───────────────────────────────────────────────────────────────
 
-export function registerFinancialsListAmazonSettlementsTool(registry: ToolRegistry) {
+export function registerFinancialsListAmazonStatementsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -100,9 +100,9 @@ export function registerFinancialsListAmazonSettlementsTool(registry: ToolRegist
   }
 
   registry.register({
-    name: 'financials_list_amazon_settlements',
+    name: 'financials_list_amazon_statements',
     description:
-      'Lists Amazon settlement reports – one row per settlement showing settlement ID, date range, deposit date, total payout amount, currency, seller ID, and company name. Use this to browse, search, or filter settlements before drilling into transaction details with financials_analyze_amazon_statement.',
+      'Lists Amazon statements – one row per statement showing statement ID, date range, deposit date, total payout amount, currency, seller ID, marketplace, and company. Use this to browse, search, or filter statements before drilling into transaction details with financials_analyze_amazon_statement.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -158,8 +158,8 @@ export function registerFinancialsListAmazonSettlementsTool(registry: ToolRegist
       const limitTopN = query.limit ?? 50;
       const sortDirection = query.sort_direction ?? 'desc';
 
-      const settlementIds = query.filters.settlement_ids ?? [];
-      const marketplaceNames = (query.filters.marketplace_names ?? []).map((s) => s.trim()).filter(Boolean);
+      const statementIds = (query.filters.statement_ids ?? []).map((s) => s.trim()).filter(Boolean);
+      const marketplaceCodes = (query.filters.marketplace_codes ?? []).map((s) => s.trim()).filter(Boolean);
       const currencies = (query.filters.currencies ?? []).map((s) => s.trim()).filter(Boolean);
       const sellerIds = (query.filters.seller_ids ?? []).map((s) => s.trim()).filter(Boolean);
       const minAmount = query.filters.min_amount ?? null;
@@ -192,16 +192,16 @@ export function registerFinancialsListAmazonSettlementsTool(registry: ToolRegist
         start_date_sql: sqlDateExpr(startDate),
         end_date_sql: sqlDateExpr(endDate),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        settlement_ids_array: sqlBigintArrayExpr(settlementIds),
-        marketplace_names_array: sqlVarcharArrayExpr(marketplaceNames),
+        statement_ids_array: sqlVarcharArrayExpr(statementIds),
+        marketplace_codes_array: sqlVarcharArrayExpr(marketplaceCodes),
         currencies_array: sqlVarcharArrayExpr(currencies),
         seller_ids_array: sqlVarcharArrayExpr(sellerIds),
         min_amount_sql: sqlNullableDecimal(minAmount),
         max_amount_sql: sqlNullableDecimal(maxAmount),
         sort_direction: sortDirection.toUpperCase(),
-        partition_year_start: sqlStringLiteral(partYearStart),
+        partition_year_start: Number(partYearStart),
         partition_month_start: sqlStringLiteral(partMonthStart),
-        partition_year_end: sqlStringLiteral(partYearEnd),
+        partition_year_end: Number(partYearEnd),
         partition_month_end: sqlStringLiteral(partMonthEnd),
       });
 

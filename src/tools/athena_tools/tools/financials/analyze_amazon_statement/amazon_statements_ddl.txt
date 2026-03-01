@@ -1,0 +1,18 @@
+CREATE TABLE sp_api_iceberg.amazon_statements (
+  settlement_id string,
+  settlement_start_date timestamp,
+  settlement_end_date timestamp,
+  deposit_date timestamp,
+  settlement_amount double,
+  currency string,
+  company_id string,
+  amazon_seller_id string,
+  ingest_source_s3_uri string,
+  ingest_ts_utc timestamp,
+  settlement_year int,
+  settlement_month string)
+PARTITIONED BY (`company_id`, `settlement_year`, `settlement_month`)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/sp_api_iceberg.db/amazon_statements'
+TBLPROPERTIES (
+  'table_type'='iceberg'
+);
