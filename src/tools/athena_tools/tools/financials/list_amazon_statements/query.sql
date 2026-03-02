@@ -1,15 +1,16 @@
 -- Tool: financials_list_amazon_statements
 -- Purpose: List Amazon statements – one row per statement (header row from amazon_statements).
 -- Source tables:
---   sp_api_iceberg.amazon_statements   (statement-level header: dates, deposit, totals)
+--   sp_api_iceberg.amazon_statements   (statement-level header: dates, deposit, totals, marketplace_name)
 --   neonpanel_iceberg.app_companies    (company name, shortname, main currency)
---   neonpanel_iceberg.amazon_sellers   (seller → marketplace mapping)
---   neonpanel_iceberg.amazon_marketplaces (marketplace name, code, country, currency)
+--   neonpanel_iceberg.amazon_marketplaces (marketplace code, country, currency_iso)
 -- Join chain:
 --   amazon_statements S
---     → app_companies       C   ON CAST(C.id AS VARCHAR) = S.company_id
---     → amazon_sellers      AS2 ON AS2.amazon_seller_id = S.amazon_seller_id AND AS2.deleted_at IS NULL
---     → amazon_marketplaces M   ON M.id = AS2.marketplace_id
+--     → app_companies       C    ON CAST(C.id AS VARCHAR) = S.company_id
+--     → amazon_marketplaces M    ON M.name = S.marketplace_name  (primary)
+--     → marketplace_by_currency   ON currency_iso = S.currency   (fallback when marketplace_name IS NULL)
+-- Note: ~10% of statements have NULL marketplace_name. Fallback resolves marketplace
+--       by currency. EUR maps to 'Europe' (multiple EU marketplaces share EUR).
 
 WITH params AS (
   SELECT
@@ -37,24 +38,42 @@ SELECT
   s.settlement_end_date                                                    AS statement_end_date,
   s.deposit_date,
   s.settlement_amount                                                      AS total_amount,
-  COALESCE(s.currency, m.currency_iso)                                     AS currency,
+  COALESCE(s.currency, m.currency_iso, m_cur.currency_iso)                  AS currency,
   s.amazon_seller_id                                                       AS seller_id,
-  m.name                                                                   AS marketplace_name,
-  m.code                                                                   AS marketplace_code,
-  m.country                                                                AS marketplace_country,
-  m.currency_iso                                                           AS marketplace_currency
+  COALESCE(
+    s.marketplace_name,
+    m_cur.name,
+    CASE WHEN s.currency = 'EUR' THEN 'Europe' ELSE NULL END
+  )                                                                        AS marketplace_name,
+  COALESCE(m.code, m_cur.code)                                             AS marketplace_code,
+  COALESCE(
+    m.country,
+    m_cur.country,
+    CASE WHEN s.currency = 'EUR' THEN 'Europe' ELSE NULL END
+  )                                                                        AS marketplace_country,
+  COALESCE(m.currency_iso, m_cur.currency_iso, s.currency)                 AS marketplace_currency
 
 FROM "{{catalog}}"."sp_api_iceberg"."amazon_statements" s
 
 INNER JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" c
   ON CAST(c.id AS VARCHAR) = s.company_id
 
-LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" as2
-  ON as2.amazon_seller_id = s.amazon_seller_id
-  AND as2.deleted_at IS NULL
-
 LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
-  ON m.id = as2.marketplace_id
+  ON m.name = s.marketplace_name
+
+-- Fallback: resolve marketplace by currency when marketplace_name is NULL
+-- EUR excluded (multiple EU marketplaces share EUR → handled inline as 'Europe')
+LEFT JOIN (
+  SELECT currency_iso,
+         MIN(name) AS name,
+         MIN(code) AS code,
+         MIN(country) AS country
+  FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
+  WHERE currency_iso IS NOT NULL AND currency_iso <> 'EUR'
+  GROUP BY currency_iso
+) m_cur
+  ON s.marketplace_name IS NULL
+  AND m_cur.currency_iso = s.currency
 
 CROSS JOIN params p
 
@@ -71,13 +90,13 @@ WHERE
   -- Optional: marketplace code filter
   AND (
     cardinality(p.marketplace_codes) = 0
-    OR any_match(p.marketplace_codes, mc -> lower(mc) = lower(m.code))
+    OR any_match(p.marketplace_codes, mc -> lower(mc) = lower(COALESCE(m.code, m_cur.code)))
   )
 
   -- Optional: currency filter
   AND (
     cardinality(p.currencies) = 0
-    OR any_match(p.currencies, cur -> lower(cur) = lower(COALESCE(s.currency, m.currency_iso)))
+    OR any_match(p.currencies, cur -> lower(cur) = lower(COALESCE(s.currency, m.currency_iso, m_cur.currency_iso)))
   )
 
   -- Optional: seller_id filter

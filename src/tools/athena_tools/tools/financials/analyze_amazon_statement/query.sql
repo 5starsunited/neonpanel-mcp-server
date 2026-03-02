@@ -3,18 +3,19 @@
 -- Source tables:
 --   sp_api_iceberg.amazon_statement_details  (transaction-level detail lines)
 --   sp_api_iceberg.amazon_statements          (settlement-level header: dates, deposit, totals)
---   neonpanel_iceberg.amazon_sellers          (seller → marketplace mapping)
---   neonpanel_iceberg.amazon_marketplaces     (marketplace name, code, country, currency)
+--   neonpanel_iceberg.amazon_marketplaces     (marketplace code, country, currency_iso)
 -- Join chain:
 --   amazon_statement_details D
 --     → amazon_statements      S   ON S.settlement_id = D.settlement_id AND S.company_id = D.company_id
 --     → app_companies          C   ON CAST(C.id AS VARCHAR) = D.company_id  (company name/shortname, main currency)
---     → amazon_sellers         AS2 ON AS2.amazon_seller_id = D.amazon_seller_id AND AS2.deleted_at IS NULL
---     → amazon_marketplaces    M   ON M.id = AS2.marketplace_id
---     → currency_rate          CR  ON CR.currency = COALESCE(D.currency, M.currency_iso)
+--     → amazon_marketplaces    M   ON M.name = S.marketplace_name
+--     → marketplace_by_currency      ON currency_iso = S.currency  (fallback when marketplace_name IS NULL)
+--     → currency_rate          CR  ON CR.currency = COALESCE(D.currency, M.currency_iso, m_cur.currency_iso)
 --                                     AND CR.date = CAST(D.transaction_date AS DATE)  (FX conversion)
 -- Notes:
 --   • Detail rows have: transaction_type, order_id, amount_type, amount_description, amount.
+--   • ~10% of statements have NULL marketplace_name. Fallback resolves by currency.
+--   • EUR maps to 'Europe' (multiple EU marketplaces share EUR).
 --   • currency_rate converts local amount → company's main currency.
 --   • amount_main = amount * COALESCE(cr.rate, 1.0).
 --   • M.currency_iso is used as fallback when D.currency is NULL.
@@ -67,7 +68,7 @@ enriched AS (
     s.settlement_start_date,
     s.settlement_end_date,
     s.deposit_date,
-    COALESCE(d.currency, m.currency_iso)                                   AS statement_currency,
+    COALESCE(d.currency, m.currency_iso, m_cur.currency_iso)                AS statement_currency,
     d.transaction_type,
     d.order_id,
     d.merchant_order_id,
@@ -91,11 +92,20 @@ enriched AS (
     c.shortname                                                            AS company_short_name,
     c.currency                                                             AS main_currency,
 
-    -- Marketplace (via amazon_sellers → amazon_marketplaces)
-    m.name                                                                 AS marketplace_name,
-    m.code                                                                 AS marketplace_code,
-    m.country                                                              AS marketplace_country,
-    m.currency_iso                                                         AS marketplace_currency,
+    -- Marketplace (directly from amazon_statements.marketplace_name + amazon_marketplaces for code/country/currency)
+    -- Fallback: currency-based lookup when marketplace_name IS NULL; EUR → 'Europe'
+    COALESCE(
+      s.marketplace_name,
+      m_cur.name,
+      CASE WHEN s.currency = 'EUR' THEN 'Europe' ELSE NULL END
+    )                                                                      AS marketplace_name,
+    COALESCE(m.code, m_cur.code)                                           AS marketplace_code,
+    COALESCE(
+      m.country,
+      m_cur.country,
+      CASE WHEN s.currency = 'EUR' THEN 'Europe' ELSE NULL END
+    )                                                                      AS marketplace_country,
+    COALESCE(m.currency_iso, m_cur.currency_iso, s.currency)               AS marketplace_currency,
 
     -- FX conversion: amount in company's main currency
     -- Use d.currency with m.currency_iso as fallback
@@ -110,15 +120,25 @@ enriched AS (
   INNER JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" c
     ON CAST(c.id AS VARCHAR) = d.company_id
 
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" as2
-    ON as2.amazon_seller_id = d.amazon_seller_id
-    AND as2.deleted_at IS NULL
-
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
-    ON m.id = as2.marketplace_id
+    ON m.name = s.marketplace_name
+
+  -- Fallback: resolve marketplace by currency when marketplace_name is NULL
+  -- EUR excluded (multiple EU marketplaces share EUR → handled inline as 'Europe')
+  LEFT JOIN (
+    SELECT currency_iso,
+           MIN(name) AS name,
+           MIN(code) AS code,
+           MIN(country) AS country
+    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
+    WHERE currency_iso IS NOT NULL AND currency_iso <> 'EUR'
+    GROUP BY currency_iso
+  ) m_cur
+    ON s.marketplace_name IS NULL
+    AND m_cur.currency_iso = s.currency
 
   LEFT JOIN currency_rates cr
-    ON lower(cr.currency) = lower(COALESCE(d.currency, m.currency_iso))
+    ON lower(cr.currency) = lower(COALESCE(d.currency, m.currency_iso, m_cur.currency_iso))
     AND cr.date = CAST(d.transaction_date AS DATE)
 
   CROSS JOIN params p
@@ -150,7 +170,7 @@ enriched AS (
     -- Marketplace code filter
     AND (
       cardinality(p.marketplace_codes) = 0
-      OR any_match(p.marketplace_codes, mc -> lower(mc) = lower(m.code))
+      OR any_match(p.marketplace_codes, mc -> lower(mc) = lower(COALESCE(m.code, m_cur.code)))
     )
 
     -- Transaction type filter

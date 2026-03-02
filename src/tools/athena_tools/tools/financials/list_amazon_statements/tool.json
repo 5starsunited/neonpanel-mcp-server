@@ -26,7 +26,7 @@
               "marketplace_codes": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Filter by marketplace country code (e.g., 'US', 'DE', 'SE', 'GB', 'FR', 'IT', 'ES'). Derived from amazon_sellers + amazon_marketplaces. Case-insensitive."
+                "description": "Filter by marketplace country code (e.g., 'US', 'DE', 'SE', 'GB', 'FR', 'IT', 'ES'). Derived from amazon_marketplaces via marketplace_name. Case-insensitive."
               },
               "currencies": {
                 "type": "array",
