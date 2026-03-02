@@ -229,9 +229,9 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
       const endD = endDate ? new Date(endDate) : new Date();
       const bufStart = new Date(startD.getFullYear(), startD.getMonth() - 1, 1);
       const partYearStart = String(bufStart.getFullYear());
-      const partMonthStart = String(bufStart.getMonth() + 1).padStart(2, '0');
+      const partMonthStart = `${bufStart.getFullYear()}-${String(bufStart.getMonth() + 1).padStart(2, '0')}`;
       const partYearEnd = String(endD.getFullYear());
-      const partMonthEnd = String(endD.getMonth() + 1).padStart(2, '0');
+      const partMonthEnd = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, '0')}`;
 
       // ── Render & execute SQL ──────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
