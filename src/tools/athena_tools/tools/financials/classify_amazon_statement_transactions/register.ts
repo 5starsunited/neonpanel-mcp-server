@@ -182,14 +182,18 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
 
       const groupBy = query.aggregation?.group_by ?? ['class', 'subclass'];
 
-      // Default time range: last 3 months
+      // Default time range: last 3 months.
+      // All date arithmetic uses America/Los_Angeles so that "today" and
+      // month boundaries match the business day in LA, even when the
+      // server runs on UTC (ECS).
       let startDate = query.time?.start_date;
       let endDate = query.time?.end_date;
       if (!startDate && !endDate) {
-        const now = new Date();
-        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-        startDate = threeMonthsAgo.toISOString().slice(0, 10);
-        endDate = now.toISOString().slice(0, 10);
+        const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+        const [y, m] = todayLA.split('-').map(Number);
+        const threeMonthsAgo = new Date(y, m - 1 - 3, 1); // JS months 0-indexed
+        startDate = `${threeMonthsAgo.getFullYear()}-${String(threeMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = todayLA;
       }
 
       // Partition bounds for pruning.
