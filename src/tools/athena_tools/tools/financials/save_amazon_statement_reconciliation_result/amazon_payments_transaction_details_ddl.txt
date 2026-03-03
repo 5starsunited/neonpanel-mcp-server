@@ -1,0 +1,20 @@
+CREATE TABLE financial_accounting.amazon_payments_transaction_details (
+  company_id string,
+  year int,
+  user_id string,
+  category string,
+  item_description string,
+  debit_amount decimal(18, 2),
+  credit_amount decimal(18, 2),
+  status string,
+  memo string,
+  created_at timestamp,
+  updated_at timestamp)
+PARTITIONED BY (`company_id`, `year`)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/amazon_finance/transaction_details'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'write_target_data_file_size_bytes'='536870912',
+  'format'='parquet',
+  'write_compression'='zstd'
+);

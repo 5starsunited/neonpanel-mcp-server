@@ -44,6 +44,11 @@ const RawConfigSchema = z.object({
   ATHENA_DATABASE: z.string().default('inventory_planning'),
   ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT: z.string().default('inventory_planning_snapshot_iceberg'),
 
+  // Financial accounting tables (Athena / Iceberg)
+  ATHENA_FINANCIAL_ACCOUNTING_DATABASE: z.string().default('financial_accounting'),
+  ATHENA_TABLE_PAYMENTS_SUMMARIES: z.string().default('amazon_payments_summaries'),
+  ATHENA_TABLE_PAYMENTS_TRANSACTION_DETAILS: z.string().default('amazon_payments_transaction_details'),
+
   // Forecasting tables (Athena)
   ATHENA_FORECASTING_DATABASE: z.string().default('fc_forecasting_prod'),
   ATHENA_TABLE_SALES_FORECAST: z.string().default('fc_sales_forecast_iceberg'),
@@ -105,6 +110,9 @@ function buildConfig() {
       database: parsed.ATHENA_DATABASE,
       tables: {
         inventoryPlanningSnapshot: parsed.ATHENA_TABLE_INVENTORY_PLANNING_SNAPSHOT,
+        financialAccountingDatabase: parsed.ATHENA_FINANCIAL_ACCOUNTING_DATABASE,
+        paymentsSummaries: parsed.ATHENA_TABLE_PAYMENTS_SUMMARIES,
+        paymentsTransactionDetails: parsed.ATHENA_TABLE_PAYMENTS_TRANSACTION_DETAILS,
         forecastingDatabase: parsed.ATHENA_FORECASTING_DATABASE,
         salesForecast: parsed.ATHENA_TABLE_SALES_FORECAST,
         salesHistory: parsed.ATHENA_TABLE_SALES_HISTORY,

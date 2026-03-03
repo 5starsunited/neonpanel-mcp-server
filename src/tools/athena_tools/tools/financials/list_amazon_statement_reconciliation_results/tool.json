@@ -1,0 +1,171 @@
+{
+  "name": "financials_list_amazon_statement_reconciliation_results",
+  "description": "Lists previously saved Amazon statement reconciliation results. Returns one row per reconciliation showing totals, status, legal name, author, and creation date.\n\nTwo modes:\n1. Summary mode (default) – one row per reconciliation: overall totals (income, expenses, tax, transfers), overall status, author, reason, created_at.\n2. Detail mode (include_details=true) – also returns per-category detail rows: category, item_description, debit/credit amounts, per-row status, memo.\n\nUse this tool to:\n- Browse past reconciliations for a company and year\n- Review overall Match / Discrepancy / Unknown status at a glance\n- Drill into detail rows to see per-category reconciliation breakdown\n- Track reconciliation history and audit trail by creation date\n- Filter by specific statuses to find unresolved discrepancies\n\nReconciliation workflow context: After comparing a PDF payments report against classified settlement data (via financials_classify_amazon_statement_transactions) and saving the result (via financials_save_amazon_statement_reconciliation_result), use THIS tool to retrieve and review the saved comparison.\n\nProTip: Use financials_list_amazon_statements to find settlement date ranges and IDs, then financials_classify_amazon_statement_transactions to re-examine the source data if a discrepancy needs investigation.\n\nDefault: Returns reconciliations from the current year, sorted by creation date descending (most recent first).\n\nKnowledge base: https://help.neonpanel.com\nDig deeper: For a full interactive settlement view, direct the user to https://my.neonpanel.com",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for listing reconciliation results.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for the query. company_id is required; all others are optional.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 2020,
+                "maximum": 2030,
+                "description": "Filter by report year. Defaults to current year."
+              },
+              "statuses": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["Match", "Discrepancy", "Unknown"] },
+                "description": "Filter by overall reconciliation status. Use ['Discrepancy'] to find unresolved items."
+              },
+              "include_details": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, also return per-category detail rows (category, item_description, debit/credit, status, memo)."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range filter on created_at.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Start of date range (YYYY-MM-DD). Defaults to start of current year if omitted."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "End of date range (YYYY-MM-DD). Defaults to today if omitted."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort by created_at. 'desc' = newest first (default), 'asc' = oldest first."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50,
+            "description": "Maximum rows to return (default 50, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "description": "Summary rows – one per reconciliation.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "row_num": { "type": "integer", "description": "1-based position by created_at." },
+            "company_id": { "type": "integer", "description": "Company identifier." },
+            "year": { "type": "integer", "description": "Report year." },
+            "legal_name": { "type": ["string", "null"], "description": "Legal entity name from the payments report." },
+            "total_income": { "type": "number", "description": "Total income amount." },
+            "total_expenses": { "type": "number", "description": "Total expenses amount (typically negative)." },
+            "total_tax": { "type": "number", "description": "Total tax amount." },
+            "total_transfers": { "type": "number", "description": "Total transfers amount." },
+            "status": { "type": "string", "description": "Overall reconciliation status: Match / Discrepancy / Unknown." },
+            "author_type": { "type": ["string", "null"], "description": "Author type: user / ai / system." },
+            "author_name": { "type": ["string", "null"], "description": "Author display name." },
+            "reason": { "type": ["string", "null"], "description": "Human-readable reason for the reconciliation." },
+            "created_at": { "type": "string", "description": "Timestamp when the reconciliation was saved." }
+          },
+          "additionalProperties": true
+        }
+      },
+      "details": {
+        "type": "array",
+        "description": "Detail rows (only present when include_details=true).",
+        "items": {
+          "type": "object",
+          "properties": {
+            "company_id": { "type": "integer" },
+            "year": { "type": "integer" },
+            "category": { "type": "string", "description": "Classification category (e.g., 'Income', 'Amazon Fees')." },
+            "item_description": { "type": "string", "description": "Line item description (e.g., 'Product Sales', 'Referral Fees')." },
+            "debit_amount": { "type": "number" },
+            "credit_amount": { "type": "number" },
+            "status": { "type": "string", "description": "Per-row status: Match / Discrepancy / Unknown." },
+            "memo": { "type": ["string", "null"], "description": "Optional explanatory memo." },
+            "created_at": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Browse recent reconciliations",
+      "description": "List the most recent reconciliation results for a company.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "sort_direction": "desc",
+          "limit": 10
+        }
+      }
+    },
+    {
+      "title": "Find discrepancies",
+      "description": "List only reconciliations with discrepancy status.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "statuses": ["Discrepancy"] },
+          "sort_direction": "desc"
+        }
+      }
+    },
+    {
+      "title": "Reconciliations for 2025 with details",
+      "description": "Get full reconciliation results including per-category detail rows.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "year": 2025, "include_details": true },
+          "sort_direction": "desc"
+        }
+      }
+    },
+    {
+      "title": "Reconciliations in a date range",
+      "description": "Find reconciliations saved during a specific time period.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
+          "sort_direction": "desc"
+        }
+      }
+    }
+  ]
+}

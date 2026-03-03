@@ -1,0 +1,208 @@
+{
+  "name": "financials_save_amazon_statement_reconciliation_result",
+  "description": "Persist reconciliation results comparing an uploaded Amazon payments report (PDF) against classified settlement data. Writes a summary row and detail rows to Iceberg tables. Consequential (writes data).\n\nUse cases:\n- Persist the outcome of a PDF-vs-settlement comparison\n- Record Match / Discrepancy / Unknown status per line item for audit\n- Store explanatory memos for discrepancies\n\nReconciliation workflow:\n1. User uploads a PDF payments report → LLM extracts dates, totals, and line items\n2. LLM calls financials_classify_amazon_statement_transactions to pull classified settlement data for the same period\n3. LLM compares the two and determines Match / Discrepancy / Unknown per line\n4. LLM calls THIS tool to persist the comparison\n5. Use financials_list_amazon_statement_reconciliation_results to retrieve and review saved results\n\nProTip: Use financials_list_amazon_statements to find settlement IDs and date ranges before calling financials_classify_amazon_statement_transactions.\n\nWhat gets written:\n- Summary row: overall totals (income, expenses, tax, transfers) + overall status\n- Detail rows: per-category breakdown (category, item_description, debit/credit, per-row status, optional memo)\n\nStatus values: 'Match' (amounts agree within tolerance), 'Discrepancy' (amounts differ), 'Unknown' (could not map to a classification).\n\nSafety / audit:\n- dry_run=true (default): validates and returns a preview without persisting — always dry-run first\n- write_mode='replace': deletes prior reconciliation for the same company_id + year before inserting\n- Every write records author, reason, and timestamp for auditability\n\nAuthor (important):\n- If author.type='ai', author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nPartitioning: Both tables are partitioned by (company_id, year). The year is the report period year.\n\nKnowledge base: https://help.neonpanel.com",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Numeric company identifier. Required."
+      },
+      "year": {
+        "type": "integer",
+        "minimum": 2020,
+        "maximum": 2030,
+        "description": "Report year (e.g., 2025). Used for partitioning. Required."
+      },
+      "author": {
+        "type": "object",
+        "description": "Who/what is making this change (for audit). If type='ai', name MUST be provided (ask the user for their name or team).",
+        "properties": {
+          "type": { "type": "string", "enum": ["user", "ai", "system"], "default": "user" },
+          "name": { "type": "string", "description": "Display name or agent name. Required when type='ai'." },
+          "id": { "type": "string", "description": "Optional stable identifier (user id / agent id)." }
+        },
+        "required": ["type"],
+        "additionalProperties": false
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 10,
+        "description": "Human-readable reason for this reconciliation (stored for audit). Be specific (minimum 10 characters)."
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true (default), validate and preview writes without persisting. Always dry-run first."
+      },
+      "write_mode": {
+        "type": "string",
+        "enum": ["append", "replace"],
+        "default": "append",
+        "description": "append (default) inserts new rows; replace deletes existing rows for the same company_id + year before inserting."
+      },
+      "debug_sql": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true during dry_run, include rendered SQL in meta.debug for troubleshooting. (Ignored when dry_run=false.)"
+      },
+      "summary": {
+        "type": "object",
+        "description": "Reconciliation summary totals (one row per reconciliation).",
+        "properties": {
+          "legal_name": {
+            "type": "string",
+            "description": "Legal entity name from the payments report."
+          },
+          "total_income": {
+            "type": "number",
+            "description": "Total income from the report (decimal, e.g., 123456.78)."
+          },
+          "total_expenses": {
+            "type": "number",
+            "description": "Total expenses (typically negative)."
+          },
+          "total_tax": {
+            "type": "number",
+            "description": "Total tax collected/remitted."
+          },
+          "total_transfers": {
+            "type": "number",
+            "description": "Total transfers to seller account."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Match", "Discrepancy", "Unknown"],
+            "description": "Overall reconciliation status."
+          }
+        },
+        "required": ["total_income", "total_expenses", "total_tax", "total_transfers", "status"],
+        "additionalProperties": false
+      },
+      "details": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 500,
+        "description": "Row-by-row reconciliation detail entries.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "description": "Category/classification label matching the class hierarchy: 'Income', 'Amazon Fees', 'Cost of Advertising', 'Tax', 'Other'."
+            },
+            "item_description": {
+              "type": "string",
+              "description": "Line item description matching subclass labels: 'Product Sales', 'FBA Fees', 'Referral Fees', 'Sponsored Products', etc."
+            },
+            "debit_amount": {
+              "type": "number",
+              "description": "Debit amount (typically 0 or positive). Use 0 if not applicable."
+            },
+            "credit_amount": {
+              "type": "number",
+              "description": "Credit amount (typically 0 or positive). Use 0 if not applicable."
+            },
+            "status": {
+              "type": "string",
+              "enum": ["Match", "Discrepancy", "Unknown"],
+              "description": "Per-row reconciliation status."
+            },
+            "memo": {
+              "type": "string",
+              "description": "Optional note explaining the status (e.g., discrepancy explanation, mapping note, tolerance note)."
+            }
+          },
+          "required": ["category", "item_description", "debit_amount", "credit_amount", "status"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["company_id", "year", "reason", "summary", "details"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "accepted_summary": { "type": "integer", "description": "1 if summary row accepted." },
+      "accepted_details": { "type": "integer", "description": "Count of detail rows accepted." },
+      "written_summary": { "type": "integer", "description": "Summary rows written (0 in dry-run)." },
+      "written_details": { "type": "integer", "description": "Detail rows written (0 in dry-run)." },
+      "items": {
+        "type": "array",
+        "description": "Per-row validation results.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["summary", "detail"] },
+            "status": { "type": "string", "enum": ["ok", "error"] },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["dry_run", "accepted_summary", "accepted_details", "written_summary", "written_details"],
+    "additionalProperties": true
+  },
+  "examples": [
+    {
+      "title": "Dry-run reconciliation",
+      "description": "Validate a reconciliation result before persisting (dry_run=true is the default).",
+      "request": {
+        "company_id": 211,
+        "year": 2025,
+        "author": { "type": "ai", "name": "Kio" },
+        "reason": "Monthly reconciliation of December 2025 Amazon payments report",
+        "dry_run": true,
+        "summary": {
+          "legal_name": "Example Corp AB",
+          "total_income": 125000.50,
+          "total_expenses": -18750.25,
+          "total_tax": -6250.10,
+          "total_transfers": 100000.15,
+          "status": "Match"
+        },
+        "details": [
+          { "category": "Income", "item_description": "Product Sales", "debit_amount": 0, "credit_amount": 125000.50, "status": "Match" },
+          { "category": "Amazon Fees", "item_description": "Referral Fees", "debit_amount": 12500.00, "credit_amount": 0, "status": "Match" },
+          { "category": "Amazon Fees", "item_description": "FBA Fees", "debit_amount": 6250.25, "credit_amount": 0, "status": "Discrepancy", "memo": "PDF shows 6200.00, settlement shows 6250.25 — possible late fee adjustment" }
+        ]
+      }
+    },
+    {
+      "title": "Replace existing reconciliation",
+      "description": "Overwrite a previously saved reconciliation for the same company + year.",
+      "request": {
+        "company_id": 211,
+        "year": 2025,
+        "author": { "type": "user", "name": "Jane" },
+        "reason": "Corrected reconciliation after FBA fee adjustment was resolved",
+        "dry_run": false,
+        "write_mode": "replace",
+        "summary": {
+          "total_income": 125000.50,
+          "total_expenses": -18700.00,
+          "total_tax": -6250.10,
+          "total_transfers": 100050.40,
+          "status": "Match"
+        },
+        "details": [
+          { "category": "Income", "item_description": "Product Sales", "debit_amount": 0, "credit_amount": 125000.50, "status": "Match" },
+          { "category": "Amazon Fees", "item_description": "Referral Fees", "debit_amount": 12500.00, "credit_amount": 0, "status": "Match" },
+          { "category": "Amazon Fees", "item_description": "FBA Fees", "debit_amount": 6200.00, "credit_amount": 0, "status": "Match" }
+        ]
+      }
+    }
+  ]
+}

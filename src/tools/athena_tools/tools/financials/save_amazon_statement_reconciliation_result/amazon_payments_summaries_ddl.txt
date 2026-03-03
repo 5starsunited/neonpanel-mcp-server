@@ -1,0 +1,20 @@
+CREATE TABLE financial_accounting.amazon_payments_summaries (
+  company_id string,
+  year int,
+  user_id string,
+  legal_name string,
+  total_income decimal(18, 2),
+  total_expenses decimal(18, 2),
+  total_tax decimal(18, 2),
+  total_transfers decimal(18, 2),
+  status string,
+  memo string,
+  created_at timestamp,
+  updated_at timestamp)
+PARTITIONED BY (`company_id`, `year`)
+LOCATION 's3://iceberg-simple-prod-icebergwarehoused9a72b6d-p8oa0tdy9wki/amazon_finance/report_summaries'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'format'='parquet',
+  'write_compression'='zstd'
+);

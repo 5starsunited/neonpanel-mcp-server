@@ -32,6 +32,9 @@ import { registerFinancialsGetBookkeepingSyncRegisterTool } from './tools/financ
 import { registerFinancialsAnalyzeProfitAndLossTool } from './tools/financials/analyze_profit_and_loss/register';
 import { registerFinancialsListAmazonStatementsTool } from './tools/financials/list_amazon_statements/register';
 import { registerFinancialsAnalyzeAmazonStatementTool } from './tools/financials/analyze_amazon_statement/register';
+import { registerFinancialsClassifyAmazonStatementTransactionsTool } from './tools/financials/classify_amazon_statement_transactions/register';
+import { registerFinancialsSaveAmazonStatementReconciliationResultTool } from './tools/financials/save_amazon_statement_reconciliation_result/register';
+import { registerFinancialsListAmazonStatementReconciliationResultsTool } from './tools/financials/list_amazon_statement_reconciliation_results/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -67,5 +70,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerFinancialsAnalyzeProfitAndLossTool(registry);
   registerFinancialsListAmazonStatementsTool(registry);
   registerFinancialsAnalyzeAmazonStatementTool(registry);
+  registerFinancialsClassifyAmazonStatementTransactionsTool(registry);
+  registerFinancialsSaveAmazonStatementReconciliationResultTool(registry);
+  registerFinancialsListAmazonStatementReconciliationResultsTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }
