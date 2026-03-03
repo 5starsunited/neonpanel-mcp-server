@@ -58,7 +58,7 @@ WITH params AS (
 -- ─── Currency rates (USD is base; no row for USD → COALESCE to 1.0) ─────────
 currency_rates AS (
   SELECT currency, date, rate
-  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rate"
+  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
 ),
 
 -- ─── Enriched detail rows ───────────────────────────────────────────────────

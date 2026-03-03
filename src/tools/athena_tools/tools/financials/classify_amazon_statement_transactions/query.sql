@@ -33,7 +33,7 @@ seller_marketplace AS (
     am.country AS marketplace_country
   FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" asl
   INNER JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" am
-    ON am.id = asl.amazon_marketplace_id
+    ON am.id = asl.marketplace_id
 ),
 
 -- ── Filtered classified rows ─────────────────────────────────────────
