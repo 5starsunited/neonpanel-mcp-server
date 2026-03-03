@@ -113,7 +113,7 @@ function normalizeCompanyIdFilters(filters: any): { companyId?: number; error?: 
     if (!/^\d+$/.test(raw)) {
       return {
         error:
-          'query.filters.company must be a numeric string (company_id). Do not pass a company name. Call neonpanel_listCompanies and use query.filters.company_id.',
+          'query.filters.company must be a numeric string (company_id). Do not pass a company name. Call account_list_companies and use query.filters.company_id.',
       };
     }
     return { companyId: Math.trunc(Number(raw)) };

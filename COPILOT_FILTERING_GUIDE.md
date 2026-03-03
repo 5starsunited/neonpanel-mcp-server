@@ -37,7 +37,7 @@ Pattern:
 When `query.filters.company` is present:
 - Accept only **numeric strings** (treated as `company_id`).
 - If it is not numeric, return an error instructing the caller to:
-  1. call `neonpanel_listCompanies`
+  1. call `account_list_companies`
   2. pick the correct company
   3. pass `query.filters.company_id`
 

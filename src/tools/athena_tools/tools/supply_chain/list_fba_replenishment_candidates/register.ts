@@ -195,7 +195,7 @@ function mergeInputs(
           merged,
           warnings,
           error:
-            'Unsupported company filter: query.filters.company must be a numeric company_id. Use neonpanel_listCompanies to find the correct company (e.g., "5 Stars United LLC"), then pass query.filters.company_id (preferred) or tool_specific.company_id.',
+            'Unsupported company filter: query.filters.company must be a numeric company_id. Use account_list_companies to find the correct company (e.g., "5 Stars United LLC"), then pass query.filters.company_id (preferred) or tool_specific.company_id.',
         };
       }
     }
