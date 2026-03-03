@@ -118,6 +118,7 @@
           "type": "object",
           "properties": {
             "rank": { "type": "integer", "description": "1-based position by sort field." },
+            "currency": { "type": "string", "description": "ISO 4217 currency code (e.g., 'EUR', 'GBP', 'USD'). Always present — amounts are never mixed across currencies." },
             "class_code": { "type": ["string", "null"], "description": "Accounting class code (e.g., '1', '2'). Present when grouped by class." },
             "class_name": { "type": ["string", "null"], "description": "Accounting class name (e.g., 'Income', 'Amazon Fees'). Present when grouped by class." },
             "subclass_code": { "type": ["string", "null"], "description": "Accounting subclass code (e.g., '1.01', '2.01'). Present when grouped by subclass." },

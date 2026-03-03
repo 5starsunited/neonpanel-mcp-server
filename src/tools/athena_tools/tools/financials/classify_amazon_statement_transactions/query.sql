@@ -192,6 +192,9 @@ filtered AS (
 -- ── Aggregate by classification dimensions ───────────────────────────
 aggregated AS (
   SELECT
+    -- Currency is ALWAYS grouped to prevent mixing different currencies
+    f.currency,
+
     -- Classification keys (conditional group-by)
     CASE WHEN p.group_by_class = 1 THEN f.class_code ELSE NULL END             AS class_code,
     CASE WHEN p.group_by_class = 1 THEN f.class_name ELSE NULL END             AS class_name,
@@ -212,6 +215,7 @@ aggregated AS (
   FROM filtered f
   CROSS JOIN params p
   GROUP BY
+    f.currency,
     CASE WHEN p.group_by_class = 1 THEN f.class_code ELSE NULL END,
     CASE WHEN p.group_by_class = 1 THEN f.class_name ELSE NULL END,
     CASE WHEN p.group_by_subclass = 1 THEN f.subclass_code ELSE NULL END,
@@ -225,6 +229,7 @@ aggregated AS (
 -- ── Final output ─────────────────────────────────────────────────────
 SELECT
   ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+  a.currency,
   a.class_code,
   a.class_name,
   a.subclass_code,
