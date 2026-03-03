@@ -36,7 +36,7 @@ WITH params AS (
 
 SELECT
   ROW_NUMBER() OVER (ORDER BY qr.transaction_date {{sort_direction}}, qr.id) AS row_num,
-  CAST(qr.transaction_date AS DATE)   AS transaction_date,
+  CAST(AT_TIMEZONE(qr.transaction_date, 'America/Los_Angeles') AS DATE)   AS transaction_date,
   je.doc_number,
   je.name                             AS je_name,
   je.message                          AS je_message,
@@ -85,9 +85,9 @@ WHERE
   -- Authorization
   contains(p.company_ids, qr.company_id)
 
-  -- Date range
-  AND CAST(qr.transaction_date AS DATE) >= p.start_date
-  AND CAST(qr.transaction_date AS DATE) <= p.end_date
+  -- Date range (LA timezone)
+  AND CAST(AT_TIMEZONE(qr.transaction_date, 'America/Los_Angeles') AS DATE) >= p.start_date
+  AND CAST(AT_TIMEZONE(qr.transaction_date, 'America/Los_Angeles') AS DATE) <= p.end_date
 
   -- Sync status filter
   AND (

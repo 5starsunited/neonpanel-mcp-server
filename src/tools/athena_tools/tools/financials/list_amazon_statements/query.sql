@@ -115,9 +115,9 @@ WHERE
   AND (s.settlement_year > {{partition_year_start}} OR s.settlement_month >= {{partition_month_start}})
   AND (s.settlement_year < {{partition_year_end}}   OR s.settlement_month <= {{partition_month_end}})
 
-  -- Date filter on deposit_date (precise, after partition pruning)
-  AND (p.start_date IS NULL OR CAST(s.deposit_date AS DATE) >= p.start_date)
-  AND (p.end_date   IS NULL OR CAST(s.deposit_date AS DATE) <= p.end_date)
+  -- Date filter on deposit_date in LA timezone (precise, after partition pruning)
+  AND (p.start_date IS NULL OR CAST(AT_TIMEZONE(s.deposit_date, 'America/Los_Angeles') AS DATE) >= p.start_date)
+  AND (p.end_date   IS NULL OR CAST(AT_TIMEZONE(s.deposit_date, 'America/Los_Angeles') AS DATE) <= p.end_date)
 
 ORDER BY s.deposit_date {{sort_direction}} NULLS LAST, s.settlement_id DESC
 LIMIT {{limit_top_n}}

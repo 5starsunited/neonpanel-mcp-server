@@ -73,9 +73,9 @@ classified AS (
     AND d.settlement_year <= {{partition_year_end}}
     AND (d.settlement_year > {{partition_year_start}} OR d.settlement_month >= {{partition_month_start}})
     AND (d.settlement_year < {{partition_year_end}}   OR d.settlement_month <= {{partition_month_end}})
-    -- Date filter
-    AND (p.start_date IS NULL OR CAST(d.transaction_date AS DATE) >= p.start_date)
-    AND (p.end_date   IS NULL OR CAST(d.transaction_date AS DATE) <= p.end_date)
+    -- Date filter (LA timezone)
+    AND (p.start_date IS NULL OR CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) >= p.start_date)
+    AND (p.end_date   IS NULL OR CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) <= p.end_date)
     -- Settlement ID filter
     AND (cardinality(p.settlement_ids) = 0 OR contains(p.settlement_ids, d.settlement_id))
 ),

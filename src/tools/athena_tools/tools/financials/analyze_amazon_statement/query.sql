@@ -79,6 +79,7 @@ enriched AS (
     d.amount,
     d.fulfillment_id,
     d.transaction_date,
+    CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) AS transaction_date_la,
     d.posted_date_time_raw,
     d.merchant_order_item_code,
     d.sku,
@@ -157,9 +158,9 @@ enriched AS (
     AND (d.settlement_year > {{partition_year_start}} OR d.settlement_month >= {{partition_month_start}})
     AND (d.settlement_year < {{partition_year_end}}   OR d.settlement_month <= {{partition_month_end}})
 
-    -- Date filter on transaction_date (precise, after partition pruning)
-    AND (p.start_date IS NULL OR CAST(d.transaction_date AS DATE) >= p.start_date)
-    AND (p.end_date   IS NULL OR CAST(d.transaction_date AS DATE) <= p.end_date)
+    -- Date filter on transaction_date in LA timezone (precise, after partition pruning)
+    AND (p.start_date IS NULL OR CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) >= p.start_date)
+    AND (p.end_date   IS NULL OR CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) <= p.end_date)
 
     -- Settlement ID filter
     AND (
@@ -219,11 +220,11 @@ aggregated AS (
   SELECT
     -- Periodicity key
     CASE p.periodicity
-      WHEN 'day'     THEN CAST(CAST(e.transaction_date AS DATE) AS VARCHAR)
-      WHEN 'week'    THEN DATE_FORMAT(CAST(e.transaction_date AS DATE), '%x-W%v')
-      WHEN 'month'   THEN DATE_FORMAT(CAST(e.transaction_date AS DATE), '%Y-%m')
-      WHEN 'quarter' THEN CAST(YEAR(CAST(e.transaction_date AS DATE)) AS VARCHAR) || '-Q' || CAST(QUARTER(CAST(e.transaction_date AS DATE)) AS VARCHAR)
-      WHEN 'year'    THEN CAST(YEAR(CAST(e.transaction_date AS DATE)) AS VARCHAR)
+      WHEN 'day'     THEN CAST(e.transaction_date_la AS VARCHAR)
+      WHEN 'week'    THEN DATE_FORMAT(e.transaction_date_la, '%x-W%v')
+      WHEN 'month'   THEN DATE_FORMAT(e.transaction_date_la, '%Y-%m')
+      WHEN 'quarter' THEN CAST(YEAR(e.transaction_date_la) AS VARCHAR) || '-Q' || CAST(QUARTER(e.transaction_date_la) AS VARCHAR)
+      WHEN 'year'    THEN CAST(YEAR(e.transaction_date_la) AS VARCHAR)
       ELSE NULL
     END                                                                    AS time_period,
 
@@ -258,11 +259,11 @@ aggregated AS (
   CROSS JOIN params p
   GROUP BY
     CASE p.periodicity
-      WHEN 'day'     THEN CAST(CAST(e.transaction_date AS DATE) AS VARCHAR)
-      WHEN 'week'    THEN DATE_FORMAT(CAST(e.transaction_date AS DATE), '%x-W%v')
-      WHEN 'month'   THEN DATE_FORMAT(CAST(e.transaction_date AS DATE), '%Y-%m')
-      WHEN 'quarter' THEN CAST(YEAR(CAST(e.transaction_date AS DATE)) AS VARCHAR) || '-Q' || CAST(QUARTER(CAST(e.transaction_date AS DATE)) AS VARCHAR)
-      WHEN 'year'    THEN CAST(YEAR(CAST(e.transaction_date AS DATE)) AS VARCHAR)
+      WHEN 'day'     THEN CAST(e.transaction_date_la AS VARCHAR)
+      WHEN 'week'    THEN DATE_FORMAT(e.transaction_date_la, '%x-W%v')
+      WHEN 'month'   THEN DATE_FORMAT(e.transaction_date_la, '%Y-%m')
+      WHEN 'quarter' THEN CAST(YEAR(e.transaction_date_la) AS VARCHAR) || '-Q' || CAST(QUARTER(e.transaction_date_la) AS VARCHAR)
+      WHEN 'year'    THEN CAST(YEAR(e.transaction_date_la) AS VARCHAR)
       ELSE NULL
     END,
     CASE WHEN p.group_by_company = 1 THEN e.company_id ELSE NULL END,
