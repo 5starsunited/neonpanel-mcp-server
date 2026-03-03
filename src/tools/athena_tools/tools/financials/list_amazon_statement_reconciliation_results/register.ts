@@ -143,8 +143,9 @@ export function registerFinancialsListAmazonStatementReconciliationResultsTool(
       const sortDirection = query.sort_direction ?? 'desc';
       const includeDetails = query.filters.include_details ?? false;
 
-      // Default year: current year
-      const year = query.filters.year ?? new Date().getFullYear();
+      // Default year: current year (LA timezone)
+      const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+      const year = query.filters.year ?? Number(todayLA.split('-')[0]);
 
       const statuses = (query.filters.statuses ?? []).map((s) => s.trim()).filter(Boolean);
 

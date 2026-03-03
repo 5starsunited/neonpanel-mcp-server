@@ -220,17 +220,18 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
       const time = query.aggregation?.time;
       const limitTopN = query.limit ?? 100;
 
-      // Default to last calendar month when no time params are provided
+      // Default to last calendar month when no time params are provided (LA timezone)
       let startDate = time?.start_date;
       let endDate = time?.end_date;
       const periodsBack = time?.periods_back ?? 4;
 
       if (!startDate && !endDate && !time?.periods_back) {
-        const now = new Date();
-        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // day 0 = last day of prev month
-        startDate = lastMonthStart.toISOString().slice(0, 10);
-        endDate = lastMonthEnd.toISOString().slice(0, 10);
+        const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+        const [y, m] = todayLA.split('-').map(Number);
+        const lastMonthStart = new Date(y, m - 2, 1);
+        const lastMonthEnd = new Date(y, m - 1, 0);
+        startDate = `${lastMonthStart.getFullYear()}-${String(lastMonthStart.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(lastMonthEnd.getDate()).padStart(2, '0')}`;
       }
 
       // ── Render & execute SQL ──────────────────────────────────────────────

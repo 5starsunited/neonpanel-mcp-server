@@ -19,12 +19,19 @@ type CompaniesWithPermissionResponse = {
   }>;
 };
 
+// ── SQL helpers ────────────────────────────────────────────────────────────────
+
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
 }
 
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
+}
+
+function sqlVarcharArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
+  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
 }
 
 function sqlBigintArrayExpr(values: number[]): string {
@@ -38,15 +45,24 @@ function sqlDateExpr(value?: string): string {
   return `DATE ${sqlStringLiteral(trimmed)}`;
 }
 
-// ── Schemas ────────────────────────────────────────────────────────────────────
+function sqlNullableDecimal(value?: number | null): string {
+  if (value === undefined || value === null) return 'CAST(NULL AS DOUBLE)';
+  return String(value);
+}
 
-const PERIODICITY_OPTIONS = ['month', 'quarter', 'year', 'total'] as const;
+// ── Schema ─────────────────────────────────────────────────────────────────────
 
 const querySchema = z
   .object({
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
+        settlement_ids: z.array(z.coerce.number().int()).optional(),
+        marketplace_names: z.array(z.string()).optional(),
+        currencies: z.array(z.string()).optional(),
+        seller_ids: z.array(z.string()).optional(),
+        min_amount: z.coerce.number().optional(),
+        max_amount: z.coerce.number().optional(),
       })
       .strict(),
     time: z
@@ -55,8 +71,8 @@ const querySchema = z
         end_date: z.string().optional(),
       })
       .optional(),
-    periodicity: z.enum(PERIODICITY_OPTIONS).default('month').optional(),
-    group_by_company: z.coerce.number().int().min(0).max(1).default(0).optional(),
+    sort_direction: z.enum(['asc', 'desc']).default('desc').optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
   })
   .strict();
 
@@ -70,7 +86,7 @@ const inputSchema = z
 
 // ── Registration ───────────────────────────────────────────────────────────────
 
-export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistry) {
+export function registerFinancialsListAmazonSettlementsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -84,9 +100,9 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
   }
 
   registry.register({
-    name: 'financials_analyze_profit_and_loss',
+    name: 'financials_list_amazon_settlements',
     description:
-      'Analyzes the Profit & Loss statement (P&L waterfall). Computes Gross Revenue, Sales, VAT, Reimbursements, Promo Discounts, Refunds, Liquidations, Revenue, Cost of Inventory Sold, CM1, Amazon Fees, CM2, Amazon Promotion, CM3, Expenses, EBITDA, and Margin from journal entry data. Supports monthly, quarterly, yearly, or total periodicity.',
+      'Lists Amazon settlement reports – one row per settlement showing settlement ID, date range, deposit date, total payout amount, currency, seller ID, and company name. Use this to browse, search, or filter settlements before drilling into transaction details with financials_analyze_amazon_statement.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -95,7 +111,7 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
       const parsed = inputSchema.parse(args);
       const query = parsed.query as QueryInput;
 
-      // ── Permission check – user needs at least ONE of these permissions ──
+      // ── Permission check ──────────────────────────────────────────────
       const permissions = [
         'view:quicksight_group.bookkeeping',
         'view:quicksight_group.audit_and_comliance_new',
@@ -127,7 +143,6 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
       }
 
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
-
       const requestedCompanyIds = [query.filters.company_id];
       const allowedCompanyIds = requestedCompanyIds.filter((id) =>
         permittedCompanyIds.includes(id),
@@ -137,35 +152,60 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
         return { items: [] };
       }
 
-      // ── Extract parameters ────────────────────────────────────────────────
+      // ── Extract values ────────────────────────────────────────────────
       const catalog = config.athena.catalog;
-      const database = 'neonpanel_iceberg';
+      const database = 'sp_api_iceberg';
+      const limitTopN = query.limit ?? 50;
+      const sortDirection = query.sort_direction ?? 'desc';
 
-      const periodicity = query.periodicity ?? 'month';
-      const groupByCompany = query.group_by_company ?? 0;
+      const settlementIds = query.filters.settlement_ids ?? [];
+      const marketplaceNames = (query.filters.marketplace_names ?? []).map((s) => s.trim()).filter(Boolean);
+      const currencies = (query.filters.currencies ?? []).map((s) => s.trim()).filter(Boolean);
+      const sellerIds = (query.filters.seller_ids ?? []).map((s) => s.trim()).filter(Boolean);
+      const minAmount = query.filters.min_amount ?? null;
+      const maxAmount = query.filters.max_amount ?? null;
 
-      // Default to last calendar month when no time params are provided (LA timezone)
+      // Default time range: last 3 months (LA timezone)
       let startDate = query.time?.start_date;
       let endDate = query.time?.end_date;
-
       if (!startDate && !endDate) {
         const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
         const [y, m] = todayLA.split('-').map(Number);
-        const lastMonthStart = new Date(y, m - 2, 1);
-        const lastMonthEnd = new Date(y, m - 1, 0);
-        startDate = `${lastMonthStart.getFullYear()}-${String(lastMonthStart.getMonth() + 1).padStart(2, '0')}-01`;
-        endDate = `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(lastMonthEnd.getDate()).padStart(2, '0')}`;
+        const threeMonthsAgo = new Date(y, m - 1 - 3, 1);
+        startDate = `${threeMonthsAgo.getFullYear()}-${String(threeMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = todayLA;
       }
 
-      // ── Render & execute SQL ──────────────────────────────────────────────
+      // Partition bounds for pruning.
+      // Buffer: -1 month on start, +1 month on end.
+      const startD = startDate ? new Date(startDate) : new Date();
+      const endD = endDate ? new Date(endDate) : new Date();
+      const bufStart = new Date(startD.getFullYear(), startD.getMonth() - 1, 1);
+      const bufEnd = new Date(endD.getFullYear(), endD.getMonth() + 1, 1);
+      const partYearStart = String(bufStart.getFullYear());
+      const partMonthStart = String(bufStart.getMonth() + 1).padStart(2, '0');
+      const partYearEnd = String(bufEnd.getFullYear());
+      const partMonthEnd = String(bufEnd.getMonth() + 1).padStart(2, '0');
+
+      // ── Render & execute SQL ──────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
+        limit_top_n: Number(limitTopN),
         start_date_sql: sqlDateExpr(startDate),
         end_date_sql: sqlDateExpr(endDate),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        periodicity_sql: sqlStringLiteral(periodicity),
-        group_by_company: groupByCompany,
+        settlement_ids_array: sqlBigintArrayExpr(settlementIds),
+        marketplace_names_array: sqlVarcharArrayExpr(marketplaceNames),
+        currencies_array: sqlVarcharArrayExpr(currencies),
+        seller_ids_array: sqlVarcharArrayExpr(sellerIds),
+        min_amount_sql: sqlNullableDecimal(minAmount),
+        max_amount_sql: sqlNullableDecimal(maxAmount),
+        sort_direction: sortDirection.toUpperCase(),
+        partition_year_start: sqlStringLiteral(partYearStart),
+        partition_month_start: sqlStringLiteral(partMonthStart),
+        partition_year_end: sqlStringLiteral(partYearEnd),
+        partition_month_end: sqlStringLiteral(partMonthEnd),
       });
 
       const athenaResult = await runAthenaQuery({
@@ -173,7 +213,7 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
         database,
         workGroup: config.athena.workgroup,
         outputLocation: config.athena.outputLocation,
-        maxRows: 500,
+        maxRows: limitTopN,
       });
 
       return { items: athenaResult.rows ?? [] };

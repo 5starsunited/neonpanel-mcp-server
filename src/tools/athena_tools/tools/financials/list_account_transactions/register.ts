@@ -189,16 +189,17 @@ export function registerFinancialsListAccountTransactionsTool(registry: ToolRegi
       const sortDirection = query.sort_direction ?? 'asc';
       const limitTopN = query.limit ?? 200;
 
-      // Default to last calendar month when no time params are provided
+      // Default to last calendar month when no time params are provided (LA timezone)
       let startDate = query.time?.start_date;
       let endDate = query.time?.end_date;
 
       if (!startDate && !endDate) {
-        const now = new Date();
-        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-        startDate = lastMonthStart.toISOString().slice(0, 10);
-        endDate = lastMonthEnd.toISOString().slice(0, 10);
+        const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+        const [y, m] = todayLA.split('-').map(Number);
+        const lastMonthStart = new Date(y, m - 2, 1);
+        const lastMonthEnd = new Date(y, m - 1, 0);
+        startDate = `${lastMonthStart.getFullYear()}-${String(lastMonthStart.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, '0')}-${String(lastMonthEnd.getDate()).padStart(2, '0')}`;
       }
 
       // ── Render & execute SQL ──────────────────────────────────────────────
