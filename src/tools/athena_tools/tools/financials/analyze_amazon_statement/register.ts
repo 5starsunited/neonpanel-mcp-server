@@ -224,14 +224,18 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
         endDate = now.toISOString().slice(0, 10);
       }
 
-      // Compute partition bounds for pruning (1-month buffer on start for edge cases)
+      // Partition bounds for pruning.
+      // Settlements span ~14 days, so a settlement_month can contain
+      // transactions from the prior or next calendar month.
+      // Buffer: -1 month on start, +1 month on end.
       const startD = startDate ? new Date(startDate) : new Date();
       const endD = endDate ? new Date(endDate) : new Date();
       const bufStart = new Date(startD.getFullYear(), startD.getMonth() - 1, 1);
+      const bufEnd = new Date(endD.getFullYear(), endD.getMonth() + 1, 1);
       const partYearStart = String(bufStart.getFullYear());
       const partMonthStart = `${bufStart.getFullYear()}-${String(bufStart.getMonth() + 1).padStart(2, '0')}`;
-      const partYearEnd = String(endD.getFullYear());
-      const partMonthEnd = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, '0')}`;
+      const partYearEnd = String(bufEnd.getFullYear());
+      const partMonthEnd = `${bufEnd.getFullYear()}-${String(bufEnd.getMonth() + 1).padStart(2, '0')}`;
 
       // ── Render & execute SQL ──────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
