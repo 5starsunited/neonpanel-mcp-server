@@ -1,9 +1,12 @@
 -- Tool: financials_classify_amazon_statement_transactions
 -- Purpose: Aggregate classified settlement transactions by class/subclass for reconciliation.
--- Source: financial_accounting.amazon_statement_details_classified (view)
+-- Source: sp_api_iceberg.amazon_statement_details (base table, partitioned)
+--         + financial_accounting.settlement_subclass_mapping (classification rules)
+--         + financial_accounting.settlement_subclasses / settlement_classes (lookups)
 --         + amazon_sellers / amazon_marketplaces for marketplace resolution
--- The view already handles classification rule matching (settlement_subclass_mapping),
--- subclass/class name lookup, and service_name generation.
+-- NOTE: We inline the view logic instead of querying the view so Athena can
+--       push partition filters (settlement_year, settlement_month) directly
+--       to the Iceberg base table scan.
 
 WITH params AS (
   SELECT
@@ -36,6 +39,101 @@ seller_marketplace AS (
     ON am.id = asl.marketplace_id
 ),
 
+-- ── Classify: inline the view logic against the base table ───────────
+-- This matches financial_accounting.amazon_statement_details_classified
+-- but lets Athena prune partitions on the base table scan.
+classified AS (
+  SELECT
+    d.*,
+    m.subclass_code AS mapped_subclass_code,
+    ROW_NUMBER() OVER (
+      PARTITION BY d.settlement_id, d.posted_date_time_raw,
+                   d.transaction_type, d.amount_type,
+                   d.amount_description, d.order_id, d.sku, d.amount
+      ORDER BY m.rule_priority
+    ) AS rn
+  FROM "{{catalog}}"."sp_api_iceberg"."amazon_statement_details" d
+  CROSS JOIN params p
+  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_subclass_mapping" m
+    ON (m.transaction_type IS NULL OR d.transaction_type = m.transaction_type)
+   AND (m.amount_type IS NULL OR d.amount_type = m.amount_type)
+   AND (m.amount_description IS NULL
+        OR (m.match_mode = 'exact' AND d.amount_description = m.amount_description)
+        OR (m.match_mode = 'like'  AND d.amount_description LIKE m.amount_description)
+        OR (m.match_mode = 'regex' AND regexp_like(d.amount_description, m.amount_description)))
+   AND (m.fulfillment_id IS NULL OR d.fulfillment_id = m.fulfillment_id)
+   AND (m.amount_sign IS NULL
+        OR (m.amount_sign = 'non_negative' AND d.amount >= 0)
+        OR (m.amount_sign = 'negative'     AND d.amount < 0))
+  WHERE
+    -- Authorization
+    contains(p.company_ids_str, d.company_id)
+    -- Partition pruning on the BASE TABLE (critical for performance)
+    AND d.settlement_year >= {{partition_year_start}}
+    AND d.settlement_year <= {{partition_year_end}}
+    AND (d.settlement_year > {{partition_year_start}} OR d.settlement_month >= {{partition_month_start}})
+    AND (d.settlement_year < {{partition_year_end}}   OR d.settlement_month <= {{partition_month_end}})
+    -- Date filter
+    AND (p.start_date IS NULL OR CAST(d.transaction_date AS DATE) >= p.start_date)
+    AND (p.end_date   IS NULL OR CAST(d.transaction_date AS DATE) <= p.end_date)
+    -- Settlement ID filter
+    AND (cardinality(p.settlement_ids) = 0 OR contains(p.settlement_ids, d.settlement_id))
+),
+
+-- ── Resolve subclass/class names and service_name ────────────────────
+classified_resolved AS (
+  SELECT
+    c.settlement_id,
+    c.company_id,
+    c.amazon_seller_id,
+    c.currency,
+    c.transaction_type,
+    c.amount_type,
+    c.amount_description,
+    c.transaction_date,
+    c.amount,
+    c.quantity,
+    c.order_id,
+    c.merchant_order_id,
+    c.fulfillment_id,
+    COALESCE(c.mapped_subclass_code, '9.99') AS subclass_code,
+    sc.subclass_name,
+    sc.class_code,
+    cl.class_name,
+    CONCAT(
+      CASE
+        WHEN c.order_id IS NOT NULL
+             AND c.merchant_order_id IS NOT NULL
+             AND c.order_id != c.merchant_order_id
+             AND NOT regexp_like(c.order_id, '^\d{3}-\d{7}-\d{7}$')
+        THEN 'Amazon MCF'
+        ELSE 'Amazon'
+      END,
+      ' ',
+      CASE
+        WHEN c.amount_description IN (
+                'FREE_REPLACEMENT_REFUND_ITEMS', 'WAREHOUSE_DAMAGE',
+                'WAREHOUSE_DAMAGE_EXCEPTION', 'WAREHOUSE_LOST_MANUAL',
+                'CS_ERROR_ITEMS', 'REVERSAL_REIMBURSEMENT',
+                'MISSING_FROM_INBOUND', 'REMOVAL_ORDER_LOST')
+             OR c.amount_type = 'FBA Inventory Reimbursement'
+             OR (c.amount_type = 'ItemPrice' AND c.amount_description = 'Principal')
+        THEN c.amount_description || ' ' || c.transaction_type
+        WHEN c.amount_type IN ('Tax', 'Promotion', 'CouponRedemptionFee', 'Grade and Resell Charge')
+        THEN c.amount_type || ' ' || c.transaction_type
+        WHEN c.amount_description = 'Transaction Total Amount'
+        THEN 'Cost of Advertising ' || c.transaction_type
+        ELSE c.amount_description || ' ' || c.transaction_type
+      END
+    ) AS service_name
+  FROM classified c
+  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_subclasses" sc
+    ON sc.subclass_code = COALESCE(c.mapped_subclass_code, '9.99')
+  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_classes" cl
+    ON sc.class_code = cl.class_code
+  WHERE c.rn = 1
+),
+
 -- ── Filtered classified rows ─────────────────────────────────────────
 filtered AS (
   SELECT
@@ -60,11 +158,11 @@ filtered AS (
     sm.marketplace_name,
     sm.marketplace_country,
 
-    -- Debit / credit split (positive = credit to seller, negative = debit/charge)
+    -- Debit / credit split
     CASE WHEN cv.amount >= 0 THEN cv.amount ELSE 0 END AS credit_amount,
     CASE WHEN cv.amount < 0  THEN ABS(cv.amount) ELSE 0 END AS debit_amount
 
-  FROM "{{catalog}}"."financial_accounting"."amazon_statement_details_classified" cv
+  FROM classified_resolved cv
 
   LEFT JOIN seller_marketplace sm
     ON sm.amazon_seller_id = cv.amazon_seller_id
@@ -72,27 +170,8 @@ filtered AS (
   CROSS JOIN params p
 
   WHERE
-    -- Authorization
-    contains(p.company_ids_str, cv.company_id)
-
-    -- Partition pruning (settlement_year + settlement_month)
-    AND cv.settlement_year >= {{partition_year_start}}
-    AND cv.settlement_year <= {{partition_year_end}}
-    AND (cv.settlement_year > {{partition_year_start}} OR cv.settlement_month >= {{partition_month_start}})
-    AND (cv.settlement_year < {{partition_year_end}}   OR cv.settlement_month <= {{partition_month_end}})
-
-    -- Date filter on transaction_date
-    AND (p.start_date IS NULL OR CAST(cv.transaction_date AS DATE) >= p.start_date)
-    AND (p.end_date   IS NULL OR CAST(cv.transaction_date AS DATE) <= p.end_date)
-
-    -- Settlement ID filter
-    AND (
-      cardinality(p.settlement_ids) = 0
-      OR contains(p.settlement_ids, cv.settlement_id)
-    )
-
     -- Marketplace code filter
-    AND (
+    (
       cardinality(p.marketplace_codes) = 0
       OR any_match(p.marketplace_codes, mc -> lower(mc) = lower(sm.marketplace_code))
     )
