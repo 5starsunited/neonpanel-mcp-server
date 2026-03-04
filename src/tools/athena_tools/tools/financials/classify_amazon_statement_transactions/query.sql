@@ -3,7 +3,8 @@
 -- Source: sp_api_iceberg.amazon_statement_details (base table, partitioned)
 --         + financial_accounting.settlement_subclass_mapping (classification rules)
 --         + financial_accounting.settlement_subclasses / settlement_classes (lookups)
---         + amazon_sellers / amazon_marketplaces for marketplace resolution
+--         + amazon_statements (marketplace_name per settlement)
+--         + amazon_marketplaces (marketplace code/country lookup)
 -- NOTE: We inline the view logic instead of querying the view so Athena can
 --       push partition filters (settlement_year, settlement_month) directly
 --       to the Iceberg base table scan.
@@ -27,26 +28,29 @@ WITH params AS (
     CAST({{group_by_settlement}} AS INTEGER)                               AS group_by_settlement
 ),
 
--- ── Marketplace resolution (amazon_seller_id → marketplace code) ─────
--- Deduplicated to exactly 1 row per amazon_seller_id to prevent fan-out.
-seller_marketplace AS (
+-- ── Marketplace resolution (from amazon_statements.marketplace_name) ─
+-- ~10% of statements have NULL marketplace_name → fallback by currency.
+-- EUR is ambiguous (multiple EU marketplaces) → mapped to 'Europe'.
+statement_marketplace AS (
   SELECT
-    amazon_seller_id,
-    marketplace_code,
-    marketplace_name,
-    marketplace_country
-  FROM (
-    SELECT
-      asl.amazon_seller_id,
-      am.code   AS marketplace_code,
-      am.name   AS marketplace_name,
-      am.country AS marketplace_country,
-      ROW_NUMBER() OVER (PARTITION BY asl.amazon_seller_id ORDER BY am.id) AS rn
-    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" asl
-    INNER JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" am
-      ON am.id = asl.marketplace_id
-  )
-  WHERE rn = 1
+    s.settlement_id,
+    s.company_id,
+    COALESCE(s.marketplace_name, m_cur.name,
+             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)   AS marketplace_name,
+    COALESCE(m.code, m_cur.code)                               AS marketplace_code,
+    COALESCE(m.country, m_cur.country,
+             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)   AS marketplace_country
+  FROM "{{catalog}}"."sp_api_iceberg"."amazon_statements" s
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
+    ON m.name = s.marketplace_name
+  LEFT JOIN (
+    SELECT currency_iso,
+           MIN(name) AS name, MIN(code) AS code, MIN(country) AS country
+    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
+    WHERE currency_iso IS NOT NULL AND currency_iso <> 'EUR'
+    GROUP BY currency_iso
+  ) m_cur
+    ON s.marketplace_name IS NULL AND m_cur.currency_iso = s.currency
 ),
 
 -- ── Classify: inline the view logic against the base table ───────────
@@ -195,7 +199,7 @@ filtered AS (
     cv.class_name,
     cv.service_name,
 
-    -- Marketplace from seller
+    -- Marketplace from statement header
     sm.marketplace_code,
     sm.marketplace_name,
     sm.marketplace_country,
@@ -206,8 +210,9 @@ filtered AS (
 
   FROM service_named cv
 
-  LEFT JOIN seller_marketplace sm
-    ON sm.amazon_seller_id = cv.amazon_seller_id
+  LEFT JOIN statement_marketplace sm
+    ON sm.settlement_id = cv.settlement_id
+    AND sm.company_id = cv.company_id
 
   CROSS JOIN params p
 
