@@ -28,15 +28,25 @@ WITH params AS (
 ),
 
 -- ── Marketplace resolution (amazon_seller_id → marketplace code) ─────
+-- Deduplicated to exactly 1 row per amazon_seller_id to prevent fan-out.
 seller_marketplace AS (
   SELECT
-    asl.amazon_seller_id,
-    am.code   AS marketplace_code,
-    am.name   AS marketplace_name,
-    am.country AS marketplace_country
-  FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" asl
-  INNER JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" am
-    ON am.id = asl.marketplace_id
+    amazon_seller_id,
+    marketplace_code,
+    marketplace_name,
+    marketplace_country
+  FROM (
+    SELECT
+      asl.amazon_seller_id,
+      am.code   AS marketplace_code,
+      am.name   AS marketplace_name,
+      am.country AS marketplace_country,
+      ROW_NUMBER() OVER (PARTITION BY asl.amazon_seller_id ORDER BY am.id) AS rn
+    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" asl
+    INNER JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" am
+      ON am.id = asl.marketplace_id
+  )
+  WHERE rn = 1
 ),
 
 -- ── Classify: inline the view logic against the base table ───────────

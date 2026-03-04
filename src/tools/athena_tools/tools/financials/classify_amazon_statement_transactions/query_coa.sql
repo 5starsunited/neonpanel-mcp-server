@@ -32,15 +32,65 @@ WITH params AS (
 ),
 
 -- ── Marketplace resolution (amazon_seller_id → marketplace code) ─────
+-- Deduplicated to exactly 1 row per amazon_seller_id to prevent fan-out.
 seller_marketplace AS (
   SELECT
-    asl.amazon_seller_id,
-    am.code   AS marketplace_code,
-    am.name   AS marketplace_name,
-    am.country AS marketplace_country
-  FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" asl
-  INNER JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" am
-    ON am.id = asl.marketplace_id
+    amazon_seller_id,
+    marketplace_code,
+    marketplace_name,
+    marketplace_country
+  FROM (
+    SELECT
+      asl.amazon_seller_id,
+      am.code   AS marketplace_code,
+      am.name   AS marketplace_name,
+      am.country AS marketplace_country,
+      ROW_NUMBER() OVER (PARTITION BY asl.amazon_seller_id ORDER BY am.id) AS rn
+    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_sellers" asl
+    INNER JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" am
+      ON am.id = asl.marketplace_id
+  )
+  WHERE rn = 1
+),
+
+-- ── Service → Account mapping (deduplicated) ────────────────────────
+-- Multiple services can share the same name within a company (e.g.,
+-- duplicates or variants). We collapse to exactly 1 row per
+-- (service_name, company_id) to prevent transaction fan-out.
+-- Tie-break: prefer active services, then newest (highest id).
+service_account_mapping AS (
+  SELECT
+    service_name_lower,
+    company_id,
+    account_name,
+    account_full_name,
+    account_number,
+    account_type,
+    account_classification,
+    income_account_id
+  FROM (
+    SELECT
+      lower(s.name)       AS service_name_lower,
+      s.company_id,
+      a.name              AS account_name,
+      a.full_name         AS account_full_name,
+      a.number            AS account_number,
+      at.name             AS account_type,
+      at.classification   AS account_classification,
+      s.income_account_id,
+      ROW_NUMBER() OVER (
+        PARTITION BY lower(s.name), s.company_id
+        ORDER BY s.active DESC, s.id DESC
+      ) AS rn
+    FROM "{{catalog}}"."neonpanel_iceberg"."services" s
+    LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."accounts" a
+      ON a.id = s.income_account_id
+      AND a.company_id = s.company_id
+    LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."account_types" at
+      ON at.id = a.account_type_id
+    WHERE s.template = 0
+  )
+  WHERE rn = 1
 ),
 
 -- ── Classify: inline the view logic against the base table ───────────
@@ -128,7 +178,9 @@ classified_resolved AS (
   WHERE c.rn = 1
 ),
 
--- ── Map service_name → CoA via services → accounts → account_types ──
+-- ── Map service_name → CoA via pre-deduped mapping ──────────────────
+-- Uses service_account_mapping (1 row per service_name+company) to
+-- guarantee exactly 1:1 join — no transaction fan-out.
 coa_mapped AS (
   SELECT
     cv.settlement_id,
@@ -145,16 +197,16 @@ coa_mapped AS (
 
     -- CoA mapping
     CASE
-      WHEN s.id IS NOT NULL AND a.id IS NOT NULL THEN 'mapped'
+      WHEN sam.income_account_id IS NOT NULL AND sam.account_name IS NOT NULL THEN 'mapped'
       ELSE 'unmapped'
     END AS mapping_status,
-    a.name                  AS account_name,
-    a.full_name             AS account_full_name,
-    a.number                AS account_number,
-    at.name                 AS account_type,
-    at.classification       AS account_classification,
+    sam.account_name,
+    sam.account_full_name,
+    sam.account_number,
+    sam.account_type,
+    sam.account_classification,
 
-    -- Marketplace from seller
+    -- Marketplace from seller (also deduplicated)
     sm.marketplace_code,
     sm.marketplace_name,
     sm.marketplace_country,
@@ -165,19 +217,12 @@ coa_mapped AS (
 
   FROM classified_resolved cv
 
-  -- Service → Account mapping: service_name → services.name → accounts via income_account_id
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."services" s
-    ON lower(s.name) = lower(cv.service_name)
-    AND s.company_id = CAST(cv.company_id AS BIGINT)
-    AND s.template = 0
+  -- 1:1 join to pre-deduped service → account mapping
+  LEFT JOIN service_account_mapping sam
+    ON sam.service_name_lower = lower(cv.service_name)
+    AND sam.company_id = CAST(cv.company_id AS BIGINT)
 
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."accounts" a
-    ON a.id = s.income_account_id
-    AND a.company_id = s.company_id
-
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."account_types" at
-    ON at.id = a.account_type_id
-
+  -- 1:1 join to pre-deduped seller → marketplace
   LEFT JOIN seller_marketplace sm
     ON sm.amazon_seller_id = cv.amazon_seller_id
 ),
