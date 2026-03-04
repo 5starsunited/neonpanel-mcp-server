@@ -44,11 +44,21 @@ function sqlDateExpr(value?: string): string {
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
-const GROUP_BY_OPTIONS = ['class', 'subclass', 'service_name', 'marketplace', 'settlement'] as const;
+const CLASSIFY_MODES = ['default', 'reference'] as const;
 
-const SORTABLE_FIELDS = [
+const COA_GROUP_BY_OPTIONS = ['account_classification', 'account_type', 'account_name', 'service_name', 'marketplace', 'settlement'] as const;
+const REF_GROUP_BY_OPTIONS = ['class', 'subclass', 'service_name', 'marketplace', 'settlement'] as const;
+const ALL_GROUP_BY_OPTIONS = [
+  'account_classification', 'account_type', 'account_name',
+  'class', 'subclass', 'service_name', 'marketplace', 'settlement',
+] as const;
+
+const ALL_SORTABLE_FIELDS = [
   'class_code',
   'subclass_code',
+  'account_classification',
+  'account_type',
+  'account_name',
   'total_amount',
   'total_debit',
   'total_credit',
@@ -57,13 +67,19 @@ const SORTABLE_FIELDS = [
 
 const querySchema = z
   .object({
+    mode: z.enum(CLASSIFY_MODES).default('default').optional(),
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
         settlement_ids: z.array(z.coerce.string()).optional(),
         marketplace_codes: z.array(z.string()).optional(),
+        // Reference mode filters
         class_codes: z.array(z.string()).optional(),
         subclass_codes: z.array(z.string()).optional(),
+        // CoA (default) mode filters
+        account_classifications: z.array(z.string()).optional(),
+        account_types: z.array(z.string()).optional(),
+        account_names: z.array(z.string()).optional(),
       })
       .strict(),
     time: z
@@ -75,14 +91,13 @@ const querySchema = z
     aggregation: z
       .object({
         group_by: z
-          .array(z.enum(GROUP_BY_OPTIONS))
-          .default(['class', 'subclass'])
+          .array(z.enum(ALL_GROUP_BY_OPTIONS))
           .optional(),
       })
       .optional(),
     sort: z
       .object({
-        field: z.enum(SORTABLE_FIELDS).default('class_code').optional(),
+        field: z.enum(ALL_SORTABLE_FIELDS).default('total_amount').optional(),
         direction: z.enum(['asc', 'desc']).default('asc').optional(),
       })
       .optional(),
@@ -104,7 +119,8 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
   registry: ToolRegistry,
 ) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const sqlPath = path.join(__dirname, 'query.sql');
+  const sqlPathReference = path.join(__dirname, 'query.sql');
+  const sqlPathCoa = path.join(__dirname, 'query_coa.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -118,7 +134,7 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
   registry.register({
     name: 'financials_classify_amazon_statement_transactions',
     description:
-      'Aggregates Amazon settlement transactions by NeonPanel accounting classification (class → subclass). Returns classified totals for reconciliation against an Amazon payments report.',
+      'Aggregates Amazon settlement transactions by classification. Supports two modes: default (CoA-based — maps service_name → accounts → account_types) and reference (NeonPanel class/subclass hierarchy).',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -126,6 +142,8 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
       const query = parsed.query as QueryInput;
+
+      const mode = query.mode ?? 'default';
 
       // ── Permission check ──────────────────────────────────────────────
       const permissions = [
@@ -173,33 +191,29 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
       const database = config.athena.tables.financialAccountingDatabase;
       const limitTopN = query.limit ?? 200;
       const sortDirection = query.sort?.direction ?? 'asc';
-      const sortField = query.sort?.field ?? 'class_code';
+      const sortField = query.sort?.field ?? 'total_amount';
 
       const settlementIds = (query.filters.settlement_ids ?? []).map((s) => s.trim()).filter(Boolean);
       const marketplaceCodes = (query.filters.marketplace_codes ?? []).map((s) => s.trim()).filter(Boolean);
-      const classCodes = (query.filters.class_codes ?? []).map((s) => s.trim()).filter(Boolean);
-      const subclassCodes = (query.filters.subclass_codes ?? []).map((s) => s.trim()).filter(Boolean);
 
-      const groupBy = query.aggregation?.group_by ?? ['class', 'subclass'];
+      // Mode-specific defaults for group_by
+      const defaultGroupBy = mode === 'reference'
+        ? ['class', 'subclass'] as const
+        : ['account_classification', 'account_type', 'account_name'] as const;
+      const groupBy = query.aggregation?.group_by ?? [...defaultGroupBy];
 
       // Default time range: last 3 months.
-      // All date arithmetic uses America/Los_Angeles so that "today" and
-      // month boundaries match the business day in LA, even when the
-      // server runs on UTC (ECS).
       let startDate = query.time?.start_date;
       let endDate = query.time?.end_date;
       if (!startDate && !endDate) {
-        const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+        const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
         const [y, m] = todayLA.split('-').map(Number);
-        const threeMonthsAgo = new Date(y, m - 1 - 3, 1); // JS months 0-indexed
+        const threeMonthsAgo = new Date(y, m - 1 - 3, 1);
         startDate = `${threeMonthsAgo.getFullYear()}-${String(threeMonthsAgo.getMonth() + 1).padStart(2, '0')}-01`;
         endDate = todayLA;
       }
 
       // Partition bounds for pruning.
-      // Settlements span ~14 days, so a settlement_month can contain
-      // transactions from the prior or next calendar month.
-      // Buffer: -1 month on start, +1 month on end.
       const startD = startDate ? new Date(startDate) : new Date();
       const endD = endDate ? new Date(endDate) : new Date();
       const bufStart = new Date(startD.getFullYear(), startD.getMonth() - 1, 1);
@@ -209,9 +223,12 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
       const partYearEnd = String(bufEnd.getFullYear());
       const partMonthEnd = `${bufEnd.getFullYear()}-${String(bufEnd.getMonth() + 1).padStart(2, '0')}`;
 
-      // ── Render & execute SQL ──────────────────────────────────────────
+      // ── Build & execute mode-specific SQL ─────────────────────────────
+      const sqlPath = mode === 'reference' ? sqlPathReference : sqlPathCoa;
       const template = await loadTextFile(sqlPath);
-      const rendered = renderSqlTemplate(template, {
+
+      // Common template variables shared by both modes
+      const commonVars: Record<string, string | number> = {
         catalog,
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlDateExpr(startDate),
@@ -221,8 +238,6 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
         // Filters
         settlement_ids_array: sqlVarcharArrayExpr(settlementIds),
         marketplace_codes_array: sqlVarcharArrayExpr(marketplaceCodes),
-        class_codes_array: sqlVarcharArrayExpr(classCodes),
-        subclass_codes_array: sqlVarcharArrayExpr(subclassCodes),
 
         // Partition pruning
         partition_year_start: Number(partYearStart),
@@ -234,13 +249,42 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
         sort_column: sortField,
         sort_direction: sortDirection.toUpperCase(),
 
-        // Group-by flags
-        group_by_class: groupBy.includes('class') ? 1 : 0,
-        group_by_subclass: groupBy.includes('subclass') ? 1 : 0,
+        // Group-by flags (common)
         group_by_service_name: groupBy.includes('service_name') ? 1 : 0,
         group_by_marketplace: groupBy.includes('marketplace') ? 1 : 0,
         group_by_settlement: groupBy.includes('settlement') ? 1 : 0,
-      });
+      };
+
+      let rendered: string;
+
+      if (mode === 'reference') {
+        // Reference mode: use class/subclass filters and group-by
+        const classCodes = (query.filters.class_codes ?? []).map((s) => s.trim()).filter(Boolean);
+        const subclassCodes = (query.filters.subclass_codes ?? []).map((s) => s.trim()).filter(Boolean);
+
+        rendered = renderSqlTemplate(template, {
+          ...commonVars,
+          class_codes_array: sqlVarcharArrayExpr(classCodes),
+          subclass_codes_array: sqlVarcharArrayExpr(subclassCodes),
+          group_by_class: groupBy.includes('class') ? 1 : 0,
+          group_by_subclass: groupBy.includes('subclass') ? 1 : 0,
+        });
+      } else {
+        // CoA (default) mode: use account filters and group-by
+        const accountClassifications = (query.filters.account_classifications ?? []).map((s) => s.trim()).filter(Boolean);
+        const accountTypes = (query.filters.account_types ?? []).map((s) => s.trim()).filter(Boolean);
+        const accountNames = (query.filters.account_names ?? []).map((s) => s.trim()).filter(Boolean);
+
+        rendered = renderSqlTemplate(template, {
+          ...commonVars,
+          account_classifications_array: sqlVarcharArrayExpr(accountClassifications),
+          account_types_array: sqlVarcharArrayExpr(accountTypes),
+          account_names_array: sqlVarcharArrayExpr(accountNames),
+          group_by_account_classification: groupBy.includes('account_classification') ? 1 : 0,
+          group_by_account_type: groupBy.includes('account_type') ? 1 : 0,
+          group_by_account_name: groupBy.includes('account_name') ? 1 : 0,
+        });
+      }
 
       const athenaResult = await runAthenaQuery({
         query: rendered,

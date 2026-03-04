@@ -1,6 +1,6 @@
 {
   "name": "financials_classify_amazon_statement_transactions",
-  "description": "Aggregates Amazon settlement transactions by NeonPanel accounting classification (class → subclass). Returns classified totals for reconciliation against an uploaded Amazon payments report.\n\nOutput: One row per class + subclass (optionally per marketplace or settlement), with total debit, credit, net amount, line count, and a service_name label that mirrors the company's invoice logic.\n\nUse this tool to:\n- Get a classified summary of settlement data for a given period\n- Compare classified totals against an uploaded Amazon payments report (PDF)\n- View income vs. fees vs. tax breakdown by class\n- Drill into subclass-level detail (e.g., FBA Fees vs. Referral Fees vs. Shipping)\n- Add marketplace or settlement granularity to the breakdown\n\nClass hierarchy (class_code → class_name):\n- '1' = Income (Product Sales, Shipping Credits, Gift Wrap, etc.)\n- '2' = Amazon Fees (Referral Fees, FBA Fees, Subscription Fees, etc.)\n- '3' = Cost of Advertising (Sponsored Products, Sponsored Brands, etc.)\n- '4' = Tax (Marketplace Tax Collection, VAT, Withholding Tax, etc.)\n- '5' = Other (Adjustments, Reimbursements, Transfers, etc.)\n\nSubclass examples: '1.01' = Product Sales, '2.01' = Referral Fees, '2.02' = FBA Fees, '3.01' = Sponsored Products, '4.01' = Marketplace Tax, '5.01' = Adjustments.\n\nSign convention: positive = credit to seller (income), negative = charge (fee/tax). total_debit and total_credit split debits and credits into separate unsigned totals.\n\nReconciliation workflow:\n1. User uploads a PDF payments report → LLM extracts dates & amounts\n2. LLM calls THIS tool with matching date range → gets classified totals\n3. LLM compares PDF amounts vs. classified totals per category\n4. LLM calls financials_save_amazon_statement_reconciliation_result to persist the comparison\n5. Use financials_list_amazon_statement_reconciliation_results to review saved results later\n\nProTip: Use financials_list_amazon_statements first to find settlement IDs and date ranges, then filter by settlement_ids here for precise matching.\n\nIntegration: Cross-reference with financials_analyze_amazon_statement to see raw transaction-level detail (by amount_type/amount_description) — this tool shows the same data through an accounting classification lens.\n\nDefault time range: Last 3 months when no dates are provided.\n\nKnowledge base: https://help.neonpanel.com\nDig deeper: For a full interactive settlement view, direct the user to https://my.neonpanel.com",
+  "description": "Aggregates Amazon settlement transactions using one of two classification modes.\n\nTwo modes:\n\n1. **default** (CoA-based) — Maps each transaction's service_name to the company's Chart of Accounts via the services table (services.name → accounts via income_account_id → account_types). Returns totals grouped by account_classification (Revenue/Expense/Asset/…), account_type (Income/Expense/Cost of Goods Sold/…), and account_name. This is the standard bookkeeping view aligned with the company's actual CoA.\n\n2. **reference** — Uses NeonPanel's built-in reference classification (settlement_subclass_mapping → settlement_subclasses → settlement_classes). Returns totals grouped by class/subclass codes. This is a fixed, pre-defined classification hierarchy maintained by NeonPanel:\n   - '1' = Income, '2' = Amazon Fees, '3' = Cost of Advertising, '4' = Tax, '5' = Other\n   - Subclass examples: '1.01' = Product Sales, '2.01' = Referral Fees, etc.\n\nOutput: One row per classification group (optionally per marketplace or settlement), with total debit, credit, net amount, line count.\n\nUse this tool to:\n- Get a classified summary of settlement data for a given period\n- Compare classified totals against an uploaded Amazon payments report (PDF)\n- View income vs. fees vs. tax breakdown (reference mode) or by CoA accounts (default mode)\n- Drill into account-level or subclass-level detail\n- Add marketplace or settlement granularity to the breakdown\n\nSign convention: positive = credit to seller (income), negative = charge (fee/tax). total_debit and total_credit split debits and credits into separate unsigned totals.\n\nReconciliation workflow:\n1. User uploads a PDF payments report → LLM extracts dates & amounts\n2. LLM calls THIS tool with matching date range → gets classified totals\n3. LLM compares PDF amounts vs. classified totals per category\n4. LLM calls financials_save_amazon_statement_reconciliation_result to persist the comparison\n5. Use financials_list_amazon_statement_reconciliation_results to review saved results later\n\nProTip: Use financials_list_amazon_statements first to find settlement IDs and date ranges, then filter by settlement_ids here for precise matching.\n\nIntegration:\n- Cross-reference with financials_analyze_amazon_statement for raw transaction-level detail\n- Use financials_analyze_service_coa_mapping to inspect or fix service → account mappings\n- Use financials_list_chart_of_accounts to browse the full CoA\n\nDefault time range: Last 3 months when no dates are provided.\n\nKnowledge base: https://help.neonpanel.com\nDig deeper: For a full interactive settlement view, direct the user to https://my.neonpanel.com",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -9,6 +9,12 @@
         "type": "object",
         "description": "Query envelope for classified statement transactions.",
         "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["default", "reference"],
+            "default": "default",
+            "description": "Classification mode.\n\n- 'default': CoA-based — maps service_name → services → accounts → account_types. Groups by account_classification, account_type, account_name. Use this for bookkeeping reconciliation aligned with the company's Chart of Accounts.\n- 'reference': NeonPanel's built-in reference classification (class/subclass hierarchy). Use this for standardized comparison across companies or when CoA mapping is incomplete."
+          },
           "filters": {
             "type": "object",
             "description": "Filters for the query. company_id is required; all others are optional.",
@@ -31,12 +37,27 @@
               "class_codes": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Filter by class code: '1' (Income), '2' (Amazon Fees), '3' (Cost of Advertising), '4' (Tax), '5' (Other)."
+                "description": "[reference mode only] Filter by class code: '1' (Income), '2' (Amazon Fees), '3' (Cost of Advertising), '4' (Tax), '5' (Other). Ignored in default mode."
               },
               "subclass_codes": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Filter by subclass code: '1.01' (Product Sales), '2.01' (Referral Fees), '2.02' (FBA Fees), '3.01' (Sponsored Products), '4.01' (Marketplace Tax), '5.01' (Adjustments), etc."
+                "description": "[reference mode only] Filter by subclass code: '1.01', '2.01', '2.02', etc. Ignored in default mode."
+              },
+              "account_classifications": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "[default mode only] Filter by account classification (e.g., 'Revenue', 'Expense', 'Asset', 'Liability', 'Equity'). Ignored in reference mode."
+              },
+              "account_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "[default mode only] Filter by account type name (e.g., 'Income', 'Expense', 'Cost of Goods Sold', 'Other Income', 'Other Expense'). Ignored in reference mode."
+              },
+              "account_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "[default mode only] Filter by account name (substring match, case-insensitive). Ignored in reference mode."
               }
             },
             "required": ["company_id"],
@@ -61,16 +82,15 @@
           },
           "aggregation": {
             "type": "object",
-            "description": "Controls aggregation granularity.",
+            "description": "Controls aggregation granularity. Available dimensions depend on mode.",
             "properties": {
               "group_by": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["class", "subclass", "service_name", "marketplace", "settlement"]
+                  "enum": ["account_classification", "account_type", "account_name", "class", "subclass", "service_name", "marketplace", "settlement"]
                 },
-                "default": ["class", "subclass"],
-                "description": "Dimensions to group by. Default: ['class', 'subclass'].\n\n- class: accounting class (Income / Amazon Fees / Cost of Advertising / Tax / Other)\n- subclass: accounting subclass (Product Sales / Referral Fees / FBA Fees / etc.)\n- service_name: invoice-level service label for the subclass\n- marketplace: marketplace country code + name\n- settlement: individual settlement ID"
+                "description": "Dimensions to group by.\n\nDefault mode dimensions (CoA-based):\n- account_classification: top-level classification (Revenue / Expense / Asset / …)\n- account_type: account type name (Income / Expense / Cost of Goods Sold / …)\n- account_name: individual account name from the CoA\n- service_name: invoice-level service label\n- marketplace: marketplace country code + name\n- settlement: individual settlement ID\nDefault for default mode: ['account_classification', 'account_type', 'account_name']\n\nReference mode dimensions:\n- class: NeonPanel class (Income / Amazon Fees / Cost of Advertising / Tax / Other)\n- subclass: NeonPanel subclass (Product Sales / Referral Fees / …)\n- service_name: invoice-level service label\n- marketplace: marketplace country code + name\n- settlement: individual settlement ID\nDefault for reference mode: ['class', 'subclass']"
               }
             },
             "additionalProperties": false
@@ -81,15 +101,15 @@
             "properties": {
               "field": {
                 "type": "string",
-                "enum": ["class_code", "subclass_code", "total_amount", "total_debit", "total_credit", "line_count"],
-                "default": "class_code",
-                "description": "Metric column to sort and rank by. Default: class_code."
+                "enum": ["class_code", "subclass_code", "account_classification", "account_type", "account_name", "total_amount", "total_debit", "total_credit", "line_count"],
+                "default": "total_amount",
+                "description": "Column to sort by. Default mode supports: account_classification, account_type, account_name, total_amount, total_debit, total_credit, line_count. Reference mode supports: class_code, subclass_code, total_amount, total_debit, total_credit, line_count."
               },
               "direction": {
                 "type": "string",
                 "enum": ["asc", "desc"],
                 "default": "asc",
-                "description": "Sort direction. 'asc' = class/subclass natural order. Default: asc."
+                "description": "Sort direction. Default: asc."
               }
             },
             "additionalProperties": false
@@ -119,10 +139,14 @@
           "properties": {
             "rank": { "type": "integer", "description": "1-based position by sort field." },
             "currency": { "type": "string", "description": "ISO 4217 currency code (e.g., 'EUR', 'GBP', 'USD'). Always present — amounts are never mixed across currencies." },
-            "class_code": { "type": ["string", "null"], "description": "Accounting class code (e.g., '1', '2'). Present when grouped by class." },
-            "class_name": { "type": ["string", "null"], "description": "Accounting class name (e.g., 'Income', 'Amazon Fees'). Present when grouped by class." },
-            "subclass_code": { "type": ["string", "null"], "description": "Accounting subclass code (e.g., '1.01', '2.01'). Present when grouped by subclass." },
-            "subclass_name": { "type": ["string", "null"], "description": "Accounting subclass name (e.g., 'Product Sales', 'Referral Fees'). Present when grouped by subclass." },
+            "account_classification": { "type": ["string", "null"], "description": "[default mode] Top-level classification: Revenue, Expense, Asset, Liability, Equity. Present in default mode when grouped by account_classification." },
+            "account_type": { "type": ["string", "null"], "description": "[default mode] Account type name (e.g., 'Income', 'Cost of Goods Sold', 'Expense'). Present in default mode when grouped by account_type." },
+            "account_name": { "type": ["string", "null"], "description": "[default mode] Account name from the company's CoA (e.g., 'Amazon Sales', 'Shipping Income'). Present in default mode when grouped by account_name." },
+            "mapping_status": { "type": ["string", "null"], "description": "[default mode] Whether the service_name was mapped to a CoA account: 'mapped' or 'unmapped'. Present in default mode." },
+            "class_code": { "type": ["string", "null"], "description": "[reference mode] Accounting class code (e.g., '1', '2'). Present in reference mode when grouped by class." },
+            "class_name": { "type": ["string", "null"], "description": "[reference mode] Accounting class name (e.g., 'Income', 'Amazon Fees'). Present in reference mode when grouped by class." },
+            "subclass_code": { "type": ["string", "null"], "description": "[reference mode] Accounting subclass code (e.g., '1.01', '2.01'). Present in reference mode when grouped by subclass." },
+            "subclass_name": { "type": ["string", "null"], "description": "[reference mode] Accounting subclass name (e.g., 'Product Sales', 'Referral Fees'). Present in reference mode when grouped by subclass." },
             "service_name": { "type": ["string", "null"], "description": "Invoice-level service label. Present when grouped by service_name." },
             "marketplace_code": { "type": ["string", "null"], "description": "Marketplace country code (e.g., 'US', 'DE'). Present when grouped by marketplace." },
             "marketplace_name": { "type": ["string", "null"], "description": "Marketplace name (e.g., 'Amazon.de'). Present when grouped by marketplace." },
@@ -141,19 +165,8 @@
   },
   "examples": [
     {
-      "title": "Class-level summary",
-      "description": "High-level income vs. fees vs. tax breakdown for recent settlements.",
-      "request": {
-        "query": {
-          "filters": { "company_id": 211 },
-          "aggregation": { "group_by": ["class"] },
-          "sort": { "field": "class_code", "direction": "asc" }
-        }
-      }
-    },
-    {
-      "title": "Full class + subclass breakdown",
-      "description": "Default view: class and subclass totals for reconciliation.",
+      "title": "CoA-based summary (default mode)",
+      "description": "Classify settlement transactions by Chart of Accounts: account classification → account type → account name.",
       "request": {
         "query": {
           "filters": { "company_id": 211 },
@@ -162,36 +175,81 @@
       }
     },
     {
-      "title": "Classify a specific settlement",
-      "description": "Get classified totals for a specific settlement ID (from financials_list_amazon_statements).",
+      "title": "CoA classification-level only",
+      "description": "High-level Revenue vs. Expense breakdown using the company's CoA.",
       "request": {
         "query": {
+          "filters": { "company_id": 211 },
+          "aggregation": { "group_by": ["account_classification"] },
+          "sort": { "field": "total_amount", "direction": "desc" }
+        }
+      }
+    },
+    {
+      "title": "CoA with marketplace breakdown",
+      "description": "Account-level totals split by marketplace.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
+          "aggregation": { "group_by": ["account_classification", "account_type", "account_name", "marketplace"] }
+        }
+      }
+    },
+    {
+      "title": "Filter by Expense accounts (CoA)",
+      "description": "Only show transactions mapped to Expense accounts in the CoA.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211, "account_classifications": ["Expense"] },
+          "aggregation": { "group_by": ["account_type", "account_name"] },
+          "sort": { "field": "total_amount", "direction": "asc" }
+        }
+      }
+    },
+    {
+      "title": "Reference: class-level summary",
+      "description": "High-level income vs. fees vs. tax breakdown using NeonPanel's reference classification.",
+      "request": {
+        "query": {
+          "mode": "reference",
+          "filters": { "company_id": 211 },
+          "aggregation": { "group_by": ["class"] },
+          "sort": { "field": "class_code", "direction": "asc" }
+        }
+      }
+    },
+    {
+      "title": "Reference: full class + subclass",
+      "description": "Reference classification with class and subclass totals for reconciliation.",
+      "request": {
+        "query": {
+          "mode": "reference",
+          "filters": { "company_id": 211 },
+          "time": { "start_date": "2025-12-01", "end_date": "2026-01-31" }
+        }
+      }
+    },
+    {
+      "title": "Reference: specific settlement",
+      "description": "Classify a specific settlement using reference classification.",
+      "request": {
+        "query": {
+          "mode": "reference",
           "filters": { "company_id": 211, "settlement_ids": ["26557463082"] },
           "aggregation": { "group_by": ["class", "subclass"] }
         }
       }
     },
     {
-      "title": "Fees breakdown by marketplace",
-      "description": "See Amazon Fees broken down by marketplace.",
+      "title": "Reference: fees by marketplace",
+      "description": "Amazon Fees broken down by marketplace (reference mode).",
       "request": {
         "query": {
+          "mode": "reference",
           "filters": { "company_id": 211, "class_codes": ["2"] },
           "aggregation": { "group_by": ["subclass", "marketplace"] },
           "sort": { "field": "total_amount", "direction": "asc" }
-        }
-      }
-    },
-    {
-      "title": "Service-name level detail",
-      "description": "Invoice-level detail with service_name for accounting reconciliation.",
-      "request": {
-        "query": {
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
-          "aggregation": { "group_by": ["class", "subclass", "service_name"] },
-          "sort": { "field": "total_amount", "direction": "desc" },
-          "limit": 100
         }
       }
     },
@@ -200,6 +258,7 @@
       "description": "Break down multiple settlements individually for PDF-vs-data comparison.",
       "request": {
         "query": {
+          "mode": "reference",
           "filters": { "company_id": 211 },
           "time": { "start_date": "2025-12-01", "end_date": "2026-02-28" },
           "aggregation": { "group_by": ["settlement", "class", "subclass"] },
