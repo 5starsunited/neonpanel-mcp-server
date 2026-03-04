@@ -90,7 +90,7 @@ classified AS (
     AND (cardinality(p.settlement_ids) = 0 OR contains(p.settlement_ids, d.settlement_id))
 ),
 
--- ── Resolve subclass/class names and service_name ────────────────────
+-- ── Resolve subclass/class names + match service-name mapping rules ─
 classified_resolved AS (
   SELECT
     c.settlement_id,
@@ -110,38 +110,70 @@ classified_resolved AS (
     sc.subclass_name,
     sc.class_code,
     cl.class_name,
-    CONCAT(
-      CASE
-        WHEN c.order_id IS NOT NULL
-             AND c.merchant_order_id IS NOT NULL
-             AND c.order_id != c.merchant_order_id
-             AND NOT regexp_like(c.order_id, '^\d{3}-\d{7}-\d{7}$')
-        THEN 'Amazon MCF'
-        ELSE 'Amazon'
-      END,
-      ' ',
-      CASE
-        WHEN c.amount_description IN (
-                'FREE_REPLACEMENT_REFUND_ITEMS', 'WAREHOUSE_DAMAGE',
-                'WAREHOUSE_DAMAGE_EXCEPTION', 'WAREHOUSE_LOST_MANUAL',
-                'CS_ERROR_ITEMS', 'REVERSAL_REIMBURSEMENT',
-                'MISSING_FROM_INBOUND', 'REMOVAL_ORDER_LOST')
-             OR c.amount_type = 'FBA Inventory Reimbursement'
-             OR (c.amount_type = 'ItemPrice' AND c.amount_description = 'Principal')
-        THEN c.amount_description || ' ' || c.transaction_type
-        WHEN c.amount_type IN ('Tax', 'Promotion', 'CouponRedemptionFee', 'Grade and Resell Charge')
-        THEN c.amount_type || ' ' || c.transaction_type
-        WHEN c.amount_description = 'Transaction Total Amount'
-        THEN 'Cost of Advertising ' || c.transaction_type
-        ELSE c.amount_description || ' ' || c.transaction_type
-      END
-    ) AS service_name
+    -- Service-name mapping flags (from logic_amazon_service_mapping view)
+    lm.is_special_reimbursement,
+    lm.is_tax_promo,
+    lm.is_ad,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.settlement_id, c.posted_date_time_raw,
+                   c.transaction_type, c.amount_type,
+                   c.amount_description, c.order_id, c.sku, c.amount
+      ORDER BY
+        CASE WHEN lm.amount_description IS NOT NULL AND lm.amount_description != 'Any' THEN 0 ELSE 1 END,
+        CASE WHEN lm.amount_type IS NOT NULL AND lm.amount_type != 'Any' THEN 0 ELSE 1 END
+    ) AS sn_rn
   FROM classified c
   LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_subclasses" sc
     ON sc.subclass_code = COALESCE(c.mapped_subclass_code, '9.99')
   LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_classes" cl
     ON sc.class_code = cl.class_code
+  LEFT JOIN "{{catalog}}"."financial_accounting"."logic_amazon_service_mapping" lm
+    ON (lm.amount_description = c.amount_description OR lm.amount_description = 'Any')
+   AND (lm.amount_type = c.amount_type OR lm.amount_type = 'Any')
   WHERE c.rn = 1
+),
+
+-- ── Compute service_name from mapping flags ──────────────────────────
+-- Single source of truth: financial_accounting.logic_amazon_service_mapping
+service_named AS (
+  SELECT
+    cr.settlement_id,
+    cr.company_id,
+    cr.amazon_seller_id,
+    cr.currency,
+    cr.transaction_type,
+    cr.amount_type,
+    cr.amount_description,
+    cr.transaction_date,
+    cr.amount,
+    cr.quantity,
+    cr.order_id,
+    cr.merchant_order_id,
+    cr.fulfillment_id,
+    cr.subclass_code,
+    cr.subclass_name,
+    cr.class_code,
+    cr.class_name,
+    -- service_name = sales_channel + description (logic from logic_amazon_service_mapping)
+    CONCAT(
+      CASE
+        WHEN cr.order_id IS NOT NULL
+             AND cr.merchant_order_id IS NOT NULL
+             AND cr.order_id != cr.merchant_order_id
+             AND NOT regexp_like(cr.order_id, '^\d{3}-\d{7}-\d{7}$')
+        THEN 'Amazon MCF'
+        ELSE 'Amazon'
+      END,
+      ' ',
+      CASE
+        WHEN cr.is_special_reimbursement THEN cr.amount_description || ' ' || cr.transaction_type
+        WHEN cr.is_tax_promo             THEN cr.amount_type || ' ' || cr.transaction_type
+        WHEN cr.is_ad                    THEN 'Cost of Advertising ' || cr.transaction_type
+        ELSE cr.amount_description || ' ' || cr.transaction_type
+      END
+    ) AS service_name
+  FROM classified_resolved cr
+  WHERE cr.sn_rn = 1
 ),
 
 -- ── Filtered classified rows ─────────────────────────────────────────
@@ -172,7 +204,7 @@ filtered AS (
     CASE WHEN cv.amount >= 0 THEN cv.amount ELSE 0 END AS credit_amount,
     CASE WHEN cv.amount < 0  THEN ABS(cv.amount) ELSE 0 END AS debit_amount
 
-  FROM classified_resolved cv
+  FROM service_named cv
 
   LEFT JOIN seller_marketplace sm
     ON sm.amazon_seller_id = cv.amazon_seller_id

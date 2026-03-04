@@ -92,7 +92,7 @@ classified AS (
     AND (cardinality(p.settlement_ids) = 0 OR contains(p.settlement_ids, d.settlement_id))
 ),
 
--- ── Resolve service_name (same logic as reference mode) ──────────────
+-- ── Resolve service_name via mapping view ────────────────────────────
 classified_resolved AS (
   SELECT
     c.settlement_id,
@@ -108,34 +108,62 @@ classified_resolved AS (
     c.order_id,
     c.merchant_order_id,
     c.fulfillment_id,
+    -- Service-name mapping flags (from logic_amazon_service_mapping view)
+    lm.is_special_reimbursement,
+    lm.is_tax_promo,
+    lm.is_ad,
+    ROW_NUMBER() OVER (
+      PARTITION BY c.settlement_id, c.posted_date_time_raw,
+                   c.transaction_type, c.amount_type,
+                   c.amount_description, c.order_id, c.sku, c.amount
+      ORDER BY
+        CASE WHEN lm.amount_description IS NOT NULL AND lm.amount_description != 'Any' THEN 0 ELSE 1 END,
+        CASE WHEN lm.amount_type IS NOT NULL AND lm.amount_type != 'Any' THEN 0 ELSE 1 END
+    ) AS sn_rn
+  FROM classified c
+  LEFT JOIN "{{catalog}}"."financial_accounting"."logic_amazon_service_mapping" lm
+    ON (lm.amount_description = c.amount_description OR lm.amount_description = 'Any')
+   AND (lm.amount_type = c.amount_type OR lm.amount_type = 'Any')
+  WHERE c.rn = 1
+),
+
+-- ── Compute service_name from mapping flags ──────────────────────────
+-- Single source of truth: financial_accounting.logic_amazon_service_mapping
+service_named AS (
+  SELECT
+    cr.settlement_id,
+    cr.company_id,
+    cr.amazon_seller_id,
+    cr.currency,
+    cr.transaction_type,
+    cr.amount_type,
+    cr.amount_description,
+    cr.transaction_date,
+    cr.amount,
+    cr.quantity,
+    cr.order_id,
+    cr.merchant_order_id,
+    cr.fulfillment_id,
+    -- service_name = sales_channel + description (logic from logic_amazon_service_mapping)
     CONCAT(
       CASE
-        WHEN c.order_id IS NOT NULL
-             AND c.merchant_order_id IS NOT NULL
-             AND c.order_id != c.merchant_order_id
-             AND NOT regexp_like(c.order_id, '^\d{3}-\d{7}-\d{7}$')
+        WHEN cr.order_id IS NOT NULL
+             AND cr.merchant_order_id IS NOT NULL
+             AND cr.order_id != cr.merchant_order_id
+             AND NOT regexp_like(cr.order_id, '^\d{3}-\d{7}-\d{7}$')
         THEN 'Amazon MCF'
         ELSE 'Amazon'
       END,
       ' ',
       CASE
-        WHEN c.amount_description IN (
-                'FREE_REPLACEMENT_REFUND_ITEMS', 'WAREHOUSE_DAMAGE',
-                'WAREHOUSE_DAMAGE_EXCEPTION', 'WAREHOUSE_LOST_MANUAL',
-                'CS_ERROR_ITEMS', 'REVERSAL_REIMBURSEMENT',
-                'MISSING_FROM_INBOUND', 'REMOVAL_ORDER_LOST')
-             OR c.amount_type = 'FBA Inventory Reimbursement'
-             OR (c.amount_type = 'ItemPrice' AND c.amount_description = 'Principal')
-        THEN c.amount_description || ' ' || c.transaction_type
-        WHEN c.amount_type IN ('Tax', 'Promotion', 'CouponRedemptionFee', 'Grade and Resell Charge')
-        THEN c.amount_type || ' ' || c.transaction_type
-        WHEN c.amount_description = 'Transaction Total Amount'
-        THEN 'Cost of Advertising ' || c.transaction_type
-        ELSE c.amount_description || ' ' || c.transaction_type
+        WHEN cr.is_special_reimbursement THEN cr.amount_description || ' ' || cr.transaction_type
+        WHEN cr.is_tax_promo             THEN cr.amount_type || ' ' || cr.transaction_type
+        WHEN cr.is_ad                    THEN 'Cost of Advertising ' || cr.transaction_type
+        ELSE cr.amount_description || ' ' || cr.transaction_type
       END
     ) AS service_name
-  FROM classified c
-  WHERE c.rn = 1
+  FROM classified_resolved cr
+  WHERE cr.sn_rn = 1
 ),
 
 -- ── Map service_name → CoA via services → accounts → account_types ───
@@ -153,14 +181,11 @@ coa_mapped AS (
     cv.quantity,
     cv.service_name,
 
-    -- CoA mapping status (3 states)
-    -- mapped:          service found + account found → full CoA classification
-    -- account_missing: service found + income_account_id set, but account row missing (dangling FK)
-    -- unmapped:        no matching service found for this service_name + company
+    -- CoA mapping status
+    -- mapped:   service found + account resolved → full CoA classification
+    -- unmapped: no matching service or no income_account_id set
     CASE
-      WHEN s.income_account_id IS NOT NULL AND a.name IS NOT NULL THEN 'mapped'
-      WHEN s.income_account_id IS NOT NULL AND a.name IS NULL     THEN 'account_missing'
-      WHEN s.id IS NOT NULL AND s.income_account_id IS NULL       THEN 'unmapped'
+      WHEN s.id IS NOT NULL AND a.name IS NOT NULL THEN 'mapped'
       ELSE 'unmapped'
     END AS mapping_status,
     a.name              AS account_name,
@@ -178,7 +203,7 @@ coa_mapped AS (
     CASE WHEN cv.amount >= 0 THEN cv.amount ELSE 0 END AS credit_amount,
     CASE WHEN cv.amount < 0  THEN ABS(cv.amount) ELSE 0 END AS debit_amount
 
-  FROM classified_resolved cv
+  FROM service_named cv
 
   -- Service → Account → Account Type (direct join, no dedup needed)
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."services" s

@@ -1,7 +1,7 @@
 -- Classified Statement Details View — Run in Athena (neonpanel-prod workgroup)
 -- Joins amazon_statement_details with mapping table to assign class/subclass per row.
 -- Uses ROW_NUMBER to pick the single best-matching rule (lowest priority = first match wins).
--- Generates service_name = sales_channel + description (matching PHP invoice logic).
+-- Generates service_name using logic_amazon_service_mapping view (single source of truth).
 -- ============================================================
 
 CREATE OR REPLACE VIEW financial_accounting.amazon_statement_details_classified AS
@@ -28,6 +28,27 @@ WITH classified AS (
        AND (m.amount_sign IS NULL
             OR (m.amount_sign = 'non_negative' AND d.amount >= 0)
             OR (m.amount_sign = 'negative'     AND d.amount < 0))
+),
+-- Match service-name mapping rules (dedup by specificity)
+service_matched AS (
+    SELECT
+        c.*,
+        lm.is_special_reimbursement,
+        lm.is_tax_promo,
+        lm.is_ad,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.settlement_id, c.posted_date_time_raw,
+                         c.transaction_type, c.amount_type,
+                         c.amount_description, c.order_id, c.sku, c.amount
+            ORDER BY
+                CASE WHEN lm.amount_description IS NOT NULL AND lm.amount_description != 'Any' THEN 0 ELSE 1 END,
+                CASE WHEN lm.amount_type IS NOT NULL AND lm.amount_type != 'Any' THEN 0 ELSE 1 END
+        ) AS sn_rn
+    FROM classified c
+    LEFT JOIN financial_accounting.logic_amazon_service_mapping lm
+        ON (lm.amount_description = c.amount_description OR lm.amount_description = 'Any')
+       AND (lm.amount_type = c.amount_type OR lm.amount_type = 'Any')
+    WHERE c.rn = 1
 )
 SELECT
     c.settlement_id,
@@ -55,9 +76,9 @@ SELECT
     sc.subclass_name,
     sc.class_code,
     cl.class_name,
-    -- service_name: sales_channel + description (mirrors PHP invoice logic)
+    -- service_name: sales_channel + description
+    -- Single source of truth: financial_accounting.logic_amazon_service_mapping
     CONCAT(
-        -- Sales channel: 'Amazon MCF' when order_id != merchant_order_id and order_id is non-Amazon format
         CASE
             WHEN c.order_id IS NOT NULL
                  AND c.merchant_order_id IS NOT NULL
@@ -67,33 +88,19 @@ SELECT
             ELSE 'Amazon'
         END,
         ' ',
-        -- Description part
         CASE
-            -- Reimbursement descriptions or (ItemPrice + Principal): amount_description + transaction_type
-            WHEN c.amount_description IN (
-                    'FREE_REPLACEMENT_REFUND_ITEMS', 'WAREHOUSE_DAMAGE',
-                    'WAREHOUSE_DAMAGE_EXCEPTION', 'WAREHOUSE_LOST_MANUAL',
-                    'CS_ERROR_ITEMS', 'REVERSAL_REIMBURSEMENT',
-                    'MISSING_FROM_INBOUND', 'REMOVAL_ORDER_LOST')
-                 OR c.amount_type = 'FBA Inventory Reimbursement'
-                 OR (c.amount_type = 'ItemPrice' AND c.amount_description = 'Principal')
-            THEN c.amount_description || ' ' || c.transaction_type
-            -- Tax / Promotion / CouponRedemptionFee / Grade and Resell: amount_type + transaction_type
-            WHEN c.amount_type IN ('Tax', 'Promotion', 'CouponRedemptionFee', 'Grade and Resell Charge')
-            THEN c.amount_type || ' ' || c.transaction_type
-            -- Cost of Advertising: special description
-            WHEN c.amount_description = 'Transaction Total Amount'
-            THEN 'Cost of Advertising ' || c.transaction_type
-            -- Default: amount_description + transaction_type
+            WHEN c.is_special_reimbursement THEN c.amount_description || ' ' || c.transaction_type
+            WHEN c.is_tax_promo             THEN c.amount_type || ' ' || c.transaction_type
+            WHEN c.is_ad                    THEN 'Cost of Advertising ' || c.transaction_type
             ELSE c.amount_description || ' ' || c.transaction_type
         END
     ) AS service_name,
     c.ingest_ts_utc,
     c.settlement_year,
     c.settlement_month
-FROM classified c
+FROM service_matched c
 LEFT JOIN financial_accounting.settlement_subclasses sc
     ON sc.subclass_code = COALESCE(c.mapped_subclass_code, '9.99')
 LEFT JOIN financial_accounting.settlement_classes cl
     ON sc.class_code = cl.class_code
-WHERE c.rn = 1;
+WHERE c.sn_rn = 1;
