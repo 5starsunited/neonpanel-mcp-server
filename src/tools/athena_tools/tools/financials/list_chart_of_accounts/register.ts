@@ -1,0 +1,201 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { z } from 'zod';
+import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
+import { config } from '../../../../../config';
+import type { ToolRegistry, ToolSpecJson } from '../../../../types';
+import { loadTextFile } from '../../../runtime/load-assets';
+import { renderSqlTemplate } from '../../../runtime/render-sql';
+
+type CompaniesWithPermissionResponse = {
+  companies?: Array<{
+    company_id?: number;
+    companyId?: number;
+    id?: number;
+    uuid?: string;
+    name?: string;
+    short_name?: string;
+  }>;
+};
+
+function sqlEscapeString(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function sqlStringLiteral(value: string): string {
+  return `'${sqlEscapeString(value)}'`;
+}
+
+function sqlVarcharArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
+  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+}
+
+function sqlBigintArrayExpr(values: number[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
+  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+}
+
+function sqlNullableInt(value?: number | null): string {
+  if (value === undefined || value === null) return 'CAST(NULL AS INTEGER)';
+  return String(Math.trunc(value));
+}
+
+// ── Schemas ────────────────────────────────────────────────────────────────────
+
+const querySchema = z
+  .object({
+    filters: z
+      .object({
+        company_id: z.coerce.number().int().min(1),
+        account_numbers: z.array(z.string()).optional(),
+        account_names: z.array(z.string()).optional(),
+        account_name_match_type: z
+          .enum(['exact', 'contains', 'starts_with'])
+          .default('contains')
+          .optional(),
+        account_types: z.array(z.string()).optional(),
+        classifications: z
+          .array(z.enum(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']))
+          .optional(),
+        statements: z.array(z.enum(['PL', 'BS'])).optional(),
+        sde: z.coerce.number().int().min(0).max(1).optional(),
+        ebitda: z.coerce.number().int().min(0).max(1).optional(),
+        pnl: z.coerce.number().int().min(0).max(1).optional(),
+        active: z.coerce.number().int().min(0).max(1).optional(),
+      })
+      .strict(),
+    limit: z.coerce.number().int().min(1).max(500).default(200).optional(),
+  })
+  .strict();
+
+type QueryInput = z.infer<typeof querySchema>;
+
+const inputSchema = z
+  .object({
+    query: querySchema,
+  })
+  .strict();
+
+// ── Registration ───────────────────────────────────────────────────────────────
+
+export function registerFinancialsListChartOfAccountsTool(registry: ToolRegistry) {
+  const toolJsonPath = path.join(__dirname, 'tool.json');
+  const sqlPath = path.join(__dirname, 'query.sql');
+
+  let specJson: ToolSpecJson | undefined;
+  try {
+    if (fs.existsSync(toolJsonPath)) {
+      specJson = JSON.parse(fs.readFileSync(toolJsonPath, 'utf8')) as ToolSpecJson;
+    }
+  } catch {
+    specJson = undefined;
+  }
+
+  registry.register({
+    name: 'financials_list_chart_of_accounts',
+    description:
+      'Lists the Chart of Accounts (COA) for a company – the master account register with type, classification, hierarchy, and reporting flags.',
+    isConsequential: false,
+    inputSchema,
+    outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
+    specJson,
+    execute: async (args, context) => {
+      const parsed = inputSchema.parse(args);
+      const query = parsed.query as QueryInput;
+
+      // ── Permission check – user needs at least ONE of these permissions ──
+      const permissions = [
+        'view:quicksight_group.bookkeeping',
+        'view:quicksight_group.audit_and_comliance_new',
+        'view:quicksight_group.finance-new',
+      ];
+
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+
+          const permittedCompanies = (permissionResponse.companies ?? []).filter(
+            (c): c is { company_id?: number; companyId?: number; id?: number } =>
+              c !== null && typeof c === 'object',
+          );
+
+          permittedCompanies.forEach((c) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch {
+          // Continue if one permission check fails
+        }
+      }
+
+      const permittedCompanyIds = Array.from(allPermittedCompanyIds);
+
+      const requestedCompanyIds = [query.filters.company_id];
+      const allowedCompanyIds = requestedCompanyIds.filter((id) =>
+        permittedCompanyIds.includes(id),
+      );
+
+      if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
+        return { items: [] };
+      }
+
+      // ── Extract filter values ─────────────────────────────────────────────
+      const catalog = config.athena.catalog;
+      const database = 'neonpanel_iceberg';
+
+      const accountNumbers = (query.filters.account_numbers ?? []).map((s) => s.trim()).filter(Boolean);
+      const accountNames = (query.filters.account_names ?? []).map((s) => s.trim()).filter(Boolean);
+      const accountNameMatchType = query.filters.account_name_match_type ?? 'contains';
+      const accountTypes = (query.filters.account_types ?? []).map((s) => s.trim()).filter(Boolean);
+      const classifications = (query.filters.classifications ?? []).map((s) => s.trim()).filter(Boolean);
+      const statements = (query.filters.statements ?? []).map((s) => s.trim()).filter(Boolean);
+
+      const sdeFilter = query.filters.sde ?? null;
+      const ebitdaFilter = query.filters.ebitda ?? null;
+      const pnlFilter = query.filters.pnl ?? null;
+      const activeFilter = query.filters.active ?? null;
+
+      const limitTopN = query.limit ?? 200;
+
+      // ── Render & execute SQL ──────────────────────────────────────────────
+      const template = await loadTextFile(sqlPath);
+      const rendered = renderSqlTemplate(template, {
+        catalog,
+        limit_top_n: Number(limitTopN),
+        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
+
+        // Account filters
+        account_numbers_array: sqlVarcharArrayExpr(accountNumbers),
+        account_names_array: sqlVarcharArrayExpr(accountNames),
+        account_name_match_type_sql: sqlStringLiteral(accountNameMatchType),
+        account_types_array: sqlVarcharArrayExpr(accountTypes),
+        classifications_array: sqlVarcharArrayExpr(classifications),
+        statements_array: sqlVarcharArrayExpr(statements),
+
+        // Boolean flag filters
+        sde_filter: sqlNullableInt(sdeFilter),
+        ebitda_filter: sqlNullableInt(ebitdaFilter),
+        pnl_filter: sqlNullableInt(pnlFilter),
+        active_filter: sqlNullableInt(activeFilter),
+      });
+
+      const athenaResult = await runAthenaQuery({
+        query: rendered,
+        database,
+        workGroup: config.athena.workgroup,
+        outputLocation: config.athena.outputLocation,
+        maxRows: limitTopN,
+      });
+
+      return { items: athenaResult.rows ?? [] };
+    },
+  });
+}

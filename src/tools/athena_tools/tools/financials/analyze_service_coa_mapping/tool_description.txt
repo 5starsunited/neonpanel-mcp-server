@@ -1,0 +1,8 @@
+in this tool user should be able to analyze service items - Chart of Accounts mapping
+Each service must be mapped to an account. 
+neonpanel_iceberg.services table has income_account_id relation to accounts
+Typical questions user may have: 
+1. List all unmapped services
+2. What account service xxx mapped to?
+3. Which services are mapped to the account 23455 (or account name )
+4. Whch account would you reccomend to map this service

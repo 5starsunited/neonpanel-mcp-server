@@ -1,0 +1,196 @@
+{
+  "name": "financials_list_chart_of_accounts",
+  "description": "Lists the Chart of Accounts (COA) for a company – the master account register. Returns each account with its number, name, type, classification, statement assignment, hierarchy (parent/grandparent), breadcrumb path, and reporting flags.\n\nUse this tool to:\n- Browse the full chart of accounts\n- Look up a specific account by number or name\n- Filter accounts by type (e.g., 'Income', 'Expense', 'Cost of Goods Sold', 'Bank')\n- Filter by classification (Asset, Liability, Equity, Revenue, Expense)\n- Filter by financial statement (PL or BS)\n- See the account hierarchy (parent → grandparent → account path)\n- Identify which accounts are SDE / EBITDA / P&L relevant\n- Find active vs. inactive accounts\n\nThis is a reference-data tool – no date range is needed. It returns the current state of the COA.\n\naccount_type comes from the account_types table (the authoritative source for type names and classifications).\n\nDig deeper: For the full interactive COA management, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/chart-of-accounts\n\nKnowledge base: https://help.neonpanel.com/en/articles/chart-of-accounts",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope for chart of accounts listing.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for the COA. company_id is required.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "account_numbers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by account number (exact match). E.g., ['40100', '51030']."
+              },
+              "account_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by account name. Use account_name_match_type to control matching."
+              },
+              "account_name_match_type": {
+                "type": "string",
+                "enum": ["exact", "contains", "starts_with"],
+                "default": "contains",
+                "description": "How to match account_names: 'exact', 'contains' (default), 'starts_with'."
+              },
+              "account_types": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by account type (from account_types table). Common values: 'Bank', 'Expense', 'Income', 'Cost of Goods Sold', 'Other Income', 'Other Expense', 'Accounts Receivable', 'Accounts Payable', 'Fixed Asset', 'Other Current Asset', 'Other Current Liability', 'Long Term Liability', 'Equity'. Case-insensitive."
+              },
+              "classifications": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["Asset", "Liability", "Equity", "Revenue", "Expense"]
+                },
+                "description": "Filter by classification: Asset, Liability, Equity, Revenue, Expense."
+              },
+              "statements": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["PL", "BS"] },
+                "description": "Filter by financial statement: 'PL' (Profit & Loss) or 'BS' (Balance Sheet)."
+              },
+              "sde": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by SDE flag: 1 = SDE accounts only, 0 = non-SDE. Omit for no filter."
+              },
+              "ebitda": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by EBITDA flag: 1 = EBITDA-relevant only. Omit for no filter."
+              },
+              "pnl": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by P&L flag. Omit for no filter."
+              },
+              "active": {
+                "type": "integer",
+                "enum": [0, 1],
+                "description": "Filter by active status: 1 = active accounts only. Omit for all."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 200,
+            "description": "Maximum rows to return (default 200, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "row_num": { "type": "integer", "description": "Sequential row number." },
+            "account_id": { "type": "integer", "description": "Account ID." },
+            "account_number": { "type": ["string", "null"], "description": "Account number (e.g., '40100')." },
+            "account_name": { "type": "string", "description": "Account name." },
+            "account_full_name": { "type": ["string", "null"], "description": "Full account name with number prefix." },
+            "account_description": { "type": ["string", "null"], "description": "Account description." },
+            "account_type": { "type": ["string", "null"], "description": "Account type from account_types table (e.g., 'Income', 'Expense', 'Cost of Goods Sold')." },
+            "classification": { "type": ["string", "null"], "description": "Classification from account_types (Asset, Liability, Equity, Revenue, Expense)." },
+            "account_type_description": { "type": ["string", "null"], "description": "Description of the account type." },
+            "statement": { "type": ["string", "null"], "description": "Financial statement: PL or BS." },
+            "report_chart": { "type": ["string", "null"], "description": "Report chart category (e.g., 'Legal & Professional Fees', 'Interest')." },
+            "sde": { "type": ["integer", "null"], "description": "SDE flag: 1 = included in Seller's Discretionary Earnings." },
+            "ebitda": { "type": ["integer", "null"], "description": "EBITDA flag: 1 = included in EBITDA calculation." },
+            "pnl": { "type": ["integer", "null"], "description": "P&L flag: 1 = included in P&L." },
+            "active": { "type": "integer", "description": "1 = active, 0 = inactive." },
+            "parent_account_name": { "type": ["string", "null"], "description": "Parent account name. NULL if top-level." },
+            "grandparent_account_name": { "type": ["string", "null"], "description": "Grandparent account name. NULL if no grandparent." },
+            "account_path": { "type": ["string", "null"], "description": "Full breadcrumb path: 'Number Grandparent: Parent: Account'." },
+            "company_name": { "type": "string", "description": "Company name." },
+            "main_currency": { "type": "string", "description": "Company's main currency code (e.g., 'USD')." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Full chart of accounts",
+      "description": "List all active accounts ordered by account number.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "active": 1 },
+          "limit": 500
+        }
+      }
+    },
+    {
+      "title": "Look up account by number",
+      "description": "Find a specific account by its number.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_numbers": ["60031"] }
+        }
+      }
+    },
+    {
+      "title": "Search accounts by name",
+      "description": "Find all accounts with 'FBA' in the name.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_names": ["FBA"], "account_name_match_type": "contains", "active": 1 }
+        }
+      }
+    },
+    {
+      "title": "Income accounts only",
+      "description": "List all active Income-type accounts.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "account_types": ["Income"], "active": 1 }
+        }
+      }
+    },
+    {
+      "title": "P&L expense accounts",
+      "description": "List all active expense accounts on the Profit & Loss statement.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "classifications": ["Expense"], "statements": ["PL"], "active": 1 }
+        }
+      }
+    },
+    {
+      "title": "Balance Sheet accounts",
+      "description": "List all active Balance Sheet accounts.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "statements": ["BS"], "active": 1 },
+          "limit": 500
+        }
+      }
+    },
+    {
+      "title": "SDE-relevant accounts",
+      "description": "List accounts included in Seller's Discretionary Earnings.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 85, "sde": 1, "active": 1 }
+        }
+      }
+    }
+  ]
+}
