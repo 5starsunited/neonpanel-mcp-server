@@ -195,9 +195,14 @@ coa_mapped AS (
     cv.quantity,
     cv.service_name,
 
-    -- CoA mapping
+    -- CoA mapping status (3 states)
+    -- mapped:          service found + account found → full CoA classification
+    -- account_missing:  service found + income_account_id set, but account row missing from accounts table (dangling FK)
+    -- unmapped:         no matching service found for this service_name + company
     CASE
       WHEN sam.income_account_id IS NOT NULL AND sam.account_name IS NOT NULL THEN 'mapped'
+      WHEN sam.income_account_id IS NOT NULL AND sam.account_name IS NULL    THEN 'account_missing'
+      WHEN sam.service_name_lower IS NOT NULL AND sam.income_account_id IS NULL THEN 'unmapped'
       ELSE 'unmapped'
     END AS mapping_status,
     sam.account_name,
