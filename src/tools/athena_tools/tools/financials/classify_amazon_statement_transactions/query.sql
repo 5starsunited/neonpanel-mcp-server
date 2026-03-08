@@ -1,13 +1,12 @@
--- Tool: financials_classify_amazon_statement_transactions
+-- Tool: financials_classify_amazon_statement_transactions (reference / standard-class mode)
 -- Purpose: Aggregate classified settlement transactions by class/subclass for reconciliation.
 -- Source: sp_api_iceberg.amazon_statement_details (base table, partitioned)
---         + financial_accounting.settlement_subclass_mapping (classification rules)
+--         + financial_accounting.settlement_flat_mapping (classification + service_name rules)
 --         + financial_accounting.settlement_subclasses / settlement_classes (lookups)
---         + amazon_statements (marketplace_name per settlement)
---         + amazon_marketplaces (marketplace code/country lookup)
--- NOTE: We inline the view logic instead of querying the view so Athena can
---       push partition filters (settlement_year, settlement_month) directly
---       to the Iceberg base table scan.
+--         + sp_api_iceberg.amazon_statements (marketplace_name per settlement)
+--         + neonpanel_iceberg.amazon_marketplaces (marketplace code/country lookup)
+--         + neonpanel_iceberg.currency_rates (FX conversion)
+--         + neonpanel_iceberg.app_companies (main currency)
 
 WITH params AS (
   SELECT
@@ -35,11 +34,12 @@ statement_marketplace AS (
   SELECT
     s.settlement_id,
     s.company_id,
+    COALESCE(m.currency_iso, m_cur.currency_iso)                           AS marketplace_currency,
     COALESCE(s.marketplace_name, m_cur.name,
-             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)   AS marketplace_name,
-    COALESCE(m.code, m_cur.code)                               AS marketplace_code,
+             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)              AS marketplace_name,
+    COALESCE(m.code, m_cur.code)                                           AS marketplace_code,
     COALESCE(m.country, m_cur.country,
-             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)   AS marketplace_country
+             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)              AS marketplace_country
   FROM "{{catalog}}"."sp_api_iceberg"."amazon_statements" s
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
     ON m.name = s.marketplace_name
@@ -53,32 +53,25 @@ statement_marketplace AS (
     ON s.marketplace_name IS NULL AND m_cur.currency_iso = s.currency
 ),
 
--- ── Classify: inline the view logic against the base table ───────────
--- This matches financial_accounting.amazon_statement_details_classified
--- but lets Athena prune partitions on the base table scan.
-classified AS (
+-- ── Normalize amount_type / amount_description before mapping ────────
+normalized AS (
   SELECT
     d.*,
-    m.subclass_code AS mapped_subclass_code,
-    ROW_NUMBER() OVER (
-      PARTITION BY d.settlement_id, d.posted_date_time_raw,
-                   d.transaction_type, d.amount_type,
-                   d.amount_description, d.order_id, d.sku, d.amount
-      ORDER BY m.rule_priority
-    ) AS rn
+    CASE
+      WHEN d.amount_type LIKE 'FBA Customer Returns Fee%for ASIN:%'
+      THEN 'FBA Customer Returns Fee'
+      ELSE d.amount_type
+    END AS amount_type_norm,
+    CASE
+      WHEN d.transaction_type = 'CouponRedemptionFee' THEN '*'
+      WHEN d.transaction_type LIKE 'Grade and Resell%' THEN '*'
+      WHEN d.transaction_type = 'Debt Adjustment' THEN '*'
+      WHEN d.amount_type LIKE 'Inbound Defect Fee%' THEN '*'
+      WHEN d.amount_description LIKE 'Transfer of funds unsuccessful%' THEN 'Transfer of funds unsuccessful'
+      ELSE TRIM(d.amount_description)
+    END AS amount_description_norm
   FROM "{{catalog}}"."sp_api_iceberg"."amazon_statement_details" d
   CROSS JOIN params p
-  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_subclass_mapping" m
-    ON (m.transaction_type IS NULL OR d.transaction_type = m.transaction_type)
-   AND (m.amount_type IS NULL OR d.amount_type = m.amount_type)
-   AND (m.amount_description IS NULL
-        OR (m.match_mode = 'exact' AND d.amount_description = m.amount_description)
-        OR (m.match_mode = 'like'  AND d.amount_description LIKE m.amount_description)
-        OR (m.match_mode = 'regex' AND regexp_like(d.amount_description, m.amount_description)))
-   AND (m.fulfillment_id IS NULL OR d.fulfillment_id = m.fulfillment_id)
-   AND (m.amount_sign IS NULL
-        OR (m.amount_sign = 'non_negative' AND d.amount >= 0)
-        OR (m.amount_sign = 'negative'     AND d.amount < 0))
   WHERE
     -- Authorization
     contains(p.company_ids_str, d.company_id)
@@ -94,90 +87,65 @@ classified AS (
     AND (cardinality(p.settlement_ids) = 0 OR contains(p.settlement_ids, d.settlement_id))
 ),
 
--- ── Resolve subclass/class names + match service-name mapping rules ─
-classified_resolved AS (
+-- ── Map via settlement_flat_mapping → subclass + service_name ────────
+service_name_builder AS (
   SELECT
-    c.settlement_id,
-    c.company_id,
-    c.amazon_seller_id,
-    c.currency,
-    c.transaction_type,
-    c.amount_type,
-    c.amount_description,
-    c.transaction_date,
-    c.amount,
-    c.quantity,
-    c.order_id,
-    c.merchant_order_id,
-    c.fulfillment_id,
-    COALESCE(c.mapped_subclass_code, '9.99') AS subclass_code,
-    sc.subclass_name,
-    sc.class_code,
-    cl.class_name,
-    -- Service-name mapping flags (from logic_amazon_service_mapping view)
-    lm.is_special_reimbursement,
-    lm.is_tax_promo,
-    lm.is_ad,
-    ROW_NUMBER() OVER (
-      PARTITION BY c.settlement_id, c.posted_date_time_raw,
-                   c.transaction_type, c.amount_type,
-                   c.amount_description, c.order_id, c.sku, c.amount
-      ORDER BY
-        CASE WHEN lm.amount_description IS NOT NULL AND lm.amount_description != 'Any' THEN 0 ELSE 1 END,
-        CASE WHEN lm.amount_type IS NOT NULL AND lm.amount_type != 'Any' THEN 0 ELSE 1 END
-    ) AS sn_rn
-  FROM classified c
-  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_subclasses" sc
-    ON sc.subclass_code = COALESCE(c.mapped_subclass_code, '9.99')
-  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_classes" cl
-    ON sc.class_code = cl.class_code
-  LEFT JOIN "{{catalog}}"."financial_accounting"."logic_amazon_service_mapping" lm
-    ON (lm.amount_description = c.amount_description OR lm.amount_description = 'Any')
-   AND (lm.amount_type = c.amount_type OR lm.amount_type = 'Any')
-  WHERE c.rn = 1
-),
-
--- ── Compute service_name from mapping flags ──────────────────────────
--- Single source of truth: financial_accounting.logic_amazon_service_mapping
-service_named AS (
-  SELECT
-    cr.settlement_id,
-    cr.company_id,
-    cr.amazon_seller_id,
-    cr.currency,
-    cr.transaction_type,
-    cr.amount_type,
-    cr.amount_description,
-    cr.transaction_date,
-    cr.amount,
-    cr.quantity,
-    cr.order_id,
-    cr.merchant_order_id,
-    cr.fulfillment_id,
-    cr.subclass_code,
-    cr.subclass_name,
-    cr.class_code,
-    cr.class_name,
-    -- service_name = sales_channel + description (logic from logic_amazon_service_mapping)
+    n.settlement_id,
+    n.company_id,
+    n.amazon_seller_id,
+    n.currency,
+    n.transaction_type,
+    n.amount_type,
+    n.amount_description,
+    n.transaction_date,
+    n.amount,
+    n.quantity,
+    n.order_id,
+    n.merchant_order_id,
+    n.fulfillment_id,
+    -- Transaction date in LA timezone
+    CAST(AT_TIMEZONE(n.transaction_date, 'America/Los_Angeles') AS DATE)   AS transaction_date_tz,
+    -- Raw subclass from flat mapping
+    m.subclass_code                                                        AS raw_subclass_code,
+    -- Derived service name
     CONCAT(
       CASE
-        WHEN cr.order_id IS NOT NULL
-             AND cr.merchant_order_id IS NOT NULL
-             AND cr.order_id != cr.merchant_order_id
-             AND NOT regexp_like(cr.order_id, '^\d{3}-\d{7}-\d{7}$')
-        THEN 'Amazon MCF'
+        WHEN n.order_id IS NOT NULL
+             AND n.merchant_order_id IS NOT NULL
+             AND n.order_id != n.merchant_order_id
+             AND NOT regexp_like(n.order_id, '^\d{3}-\d{7}-\d{7}$')
+        THEN 'Non-Amazon'
         ELSE 'Amazon'
       END,
       ' ',
-      CASE
-        WHEN cr.is_special_reimbursement THEN cr.amount_description || ' ' || cr.transaction_type
-        WHEN cr.is_tax_promo             THEN cr.amount_type || ' ' || cr.transaction_type
-        WHEN cr.is_ad                    THEN 'Cost of Advertising ' || cr.transaction_type
-        ELSE cr.amount_description || ' ' || cr.transaction_type
-      END
+      COALESCE(m.service_name_suffix, n.amount_description || ' ' || n.transaction_type)
     ) AS service_name
-  FROM classified_resolved cr
-  WHERE cr.sn_rn = 1
+  FROM normalized n
+  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_flat_mapping" m
+    ON n.transaction_type = m.transaction_type
+   AND n.amount_type_norm = m.amount_type_normalized
+   AND n.amount_description_norm = m.amount_description_normalized
+),
+
+-- ── Apply subclass override rules ────────────────────────────────────
+classified AS (
+  SELECT
+    sb.*,
+    CASE
+      WHEN sb.raw_subclass_code = '1.03' AND sb.fulfillment_id = 'MFN'
+      THEN '1.01'
+      WHEN sb.raw_subclass_code = '1.04' AND sb.fulfillment_id = 'MFN'
+           AND sb.transaction_type = 'Refund'
+           AND sb.amount_type = 'ItemPrice'
+           AND sb.amount_description = 'Principal'
+      THEN '1.02'
+      WHEN sb.raw_subclass_code = '1.05'
+           AND sb.amount_type = 'FBA Inventory Reimbursement'
+           AND sb.amount < 0
+      THEN '2.14'
+      ELSE COALESCE(sb.raw_subclass_code, '9.99')
+    END AS subclass_code
+  FROM service_name_builder sb
 ),
 
 -- ── Filtered classified rows ─────────────────────────────────────────
@@ -185,18 +153,14 @@ filtered AS (
   SELECT
     cv.settlement_id,
     cv.company_id,
-    cv.amazon_seller_id,
     cv.currency,
-    cv.transaction_type,
-    cv.amount_type,
-    cv.amount_description,
-    cv.transaction_date,
+    cv.transaction_date_tz,
     cv.amount,
     cv.quantity,
     cv.subclass_code,
-    cv.subclass_name,
-    cv.class_code,
-    cv.class_name,
+    sc.subclass_name,
+    sc.class_code,
+    cl.class_name,
     cv.service_name,
 
     -- Marketplace from statement header
@@ -205,14 +169,38 @@ filtered AS (
     sm.marketplace_country,
 
     -- Debit / credit split
-    CASE WHEN cv.amount >= 0 THEN cv.amount ELSE 0 END AS credit_amount,
-    CASE WHEN cv.amount < 0  THEN ABS(cv.amount) ELSE 0 END AS debit_amount
+    CASE WHEN cv.amount >= 0 THEN cv.amount ELSE 0 END                    AS credit_amount,
+    CASE WHEN cv.amount < 0  THEN ABS(cv.amount) ELSE 0 END               AS debit_amount,
 
-  FROM service_named cv
+    -- Currency conversion
+    cv.amount * COALESCE(cr.rate, 0.00)                                    AS amount_usd,
+    CASE WHEN crm.rate IS NOT NULL AND crm.rate != 0
+         THEN cv.amount * COALESCE(cr.rate, 0.00) / crm.rate
+         ELSE NULL
+    END                                                                    AS amount_main,
+    comp.currency                                                          AS main_currency
+
+  FROM classified cv
+
+  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_subclasses" sc
+    ON sc.subclass_code = cv.subclass_code
+  LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_classes" cl
+    ON sc.class_code = cl.class_code
 
   LEFT JOIN statement_marketplace sm
     ON sm.settlement_id = cv.settlement_id
     AND sm.company_id = cv.company_id
+
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" comp
+    ON comp.id = CAST(cv.company_id AS BIGINT)
+
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."currency_rates" cr
+    ON cr.currency = COALESCE(sm.marketplace_currency, cv.currency)
+    AND cr.date = cv.transaction_date_tz
+
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."currency_rates" crm
+    ON crm.currency = comp.currency
+    AND crm.date = cv.transaction_date_tz
 
   CROSS JOIN params p
 
@@ -222,13 +210,11 @@ filtered AS (
       cardinality(p.marketplace_codes) = 0
       OR any_match(p.marketplace_codes, mc -> lower(mc) = lower(sm.marketplace_code))
     )
-
     -- Class code filter
     AND (
       cardinality(p.class_codes) = 0
-      OR contains(p.class_codes, cv.class_code)
+      OR contains(p.class_codes, sc.class_code)
     )
-
     -- Subclass code filter
     AND (
       cardinality(p.subclass_codes) = 0
@@ -241,6 +227,7 @@ aggregated AS (
   SELECT
     -- Currency is ALWAYS grouped to prevent mixing different currencies
     f.currency,
+    f.main_currency,
 
     -- Classification keys (conditional group-by)
     CASE WHEN p.group_by_class = 1 THEN f.class_code ELSE NULL END             AS class_code,
@@ -257,12 +244,15 @@ aggregated AS (
     SUM(f.debit_amount)    AS total_debit,
     SUM(f.credit_amount)   AS total_credit,
     COUNT(*)               AS line_count,
-    SUM(f.quantity)         AS total_quantity
+    SUM(f.quantity)        AS total_quantity,
+    SUM(f.amount_usd)      AS total_amount_usd,
+    SUM(f.amount_main)     AS total_amount_main
 
   FROM filtered f
   CROSS JOIN params p
   GROUP BY
     f.currency,
+    f.main_currency,
     CASE WHEN p.group_by_class = 1 THEN f.class_code ELSE NULL END,
     CASE WHEN p.group_by_class = 1 THEN f.class_name ELSE NULL END,
     CASE WHEN p.group_by_subclass = 1 THEN f.subclass_code ELSE NULL END,
@@ -285,11 +275,14 @@ SELECT
   a.marketplace_code,
   a.marketplace_name,
   a.settlement_id,
-  ROUND(a.total_amount, 2)  AS total_amount,
-  ROUND(a.total_debit, 2)   AS total_debit,
-  ROUND(a.total_credit, 2)  AS total_credit,
+  ROUND(a.total_amount, 2)       AS total_amount,
+  ROUND(a.total_debit, 2)        AS total_debit,
+  ROUND(a.total_credit, 2)       AS total_credit,
   a.line_count,
-  a.total_quantity
+  a.total_quantity,
+  ROUND(a.total_amount_usd, 2)   AS total_amount_usd,
+  ROUND(a.total_amount_main, 2)  AS total_amount_main,
+  a.main_currency
 FROM aggregated a
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
 LIMIT {{limit_top_n}}

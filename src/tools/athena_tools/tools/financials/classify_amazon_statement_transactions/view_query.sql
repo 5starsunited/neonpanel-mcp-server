@@ -1,106 +1,110 @@
 -- Classified Statement Details View — Run in Athena (neonpanel-prod workgroup)
--- Joins amazon_statement_details with mapping table to assign class/subclass per row.
--- Uses ROW_NUMBER to pick the single best-matching rule (lowest priority = first match wins).
--- Generates service_name using logic_amazon_service_mapping view (single source of truth).
+-- Joins amazon_statement_details with settlement_flat_mapping to assign
+-- class/subclass + service_name per row.
+-- Uses normalized amount_type / amount_description for exact-match mapping.
+-- Applies subclass override rules (MFN, Refund/Principal, FBA Reimbursement).
 -- ============================================================
 
 CREATE OR REPLACE VIEW financial_accounting.amazon_statement_details_classified AS
-WITH classified AS (
-    SELECT
-        d.*,
-        m.subclass_code AS mapped_subclass_code,
-        m.rule_priority,
-        ROW_NUMBER() OVER (
-            PARTITION BY d.settlement_id, d.posted_date_time_raw,
-                         d.transaction_type, d.amount_type,
-                         d.amount_description, d.order_id, d.sku, d.amount
-            ORDER BY m.rule_priority
-        ) AS rn
-    FROM sp_api_iceberg.amazon_statement_details d
-    LEFT JOIN financial_accounting.settlement_subclass_mapping m
-        ON (m.transaction_type IS NULL OR d.transaction_type = m.transaction_type)
-       AND (m.amount_type IS NULL OR d.amount_type = m.amount_type)
-       AND (m.amount_description IS NULL
-            OR (m.match_mode = 'exact' AND d.amount_description = m.amount_description)
-            OR (m.match_mode = 'like'  AND d.amount_description LIKE m.amount_description)
-            OR (m.match_mode = 'regex' AND regexp_like(d.amount_description, m.amount_description)))
-       AND (m.fulfillment_id IS NULL OR d.fulfillment_id = m.fulfillment_id)
-       AND (m.amount_sign IS NULL
-            OR (m.amount_sign = 'non_negative' AND d.amount >= 0)
-            OR (m.amount_sign = 'negative'     AND d.amount < 0))
+WITH
+-- ── Normalize amount_type / amount_description before mapping ────────
+normalized AS (
+  SELECT
+    d.*,
+    CASE
+      WHEN d.amount_type LIKE 'FBA Customer Returns Fee%for ASIN:%'
+      THEN 'FBA Customer Returns Fee'
+      ELSE d.amount_type
+    END AS amount_type_norm,
+    CASE
+      WHEN d.transaction_type = 'CouponRedemptionFee' THEN '*'
+      WHEN d.transaction_type LIKE 'Grade and Resell%' THEN '*'
+      WHEN d.transaction_type = 'Debt Adjustment' THEN '*'
+      WHEN d.amount_type LIKE 'Inbound Defect Fee%' THEN '*'
+      WHEN d.amount_description LIKE 'Transfer of funds unsuccessful%' THEN 'Transfer of funds unsuccessful'
+      ELSE TRIM(d.amount_description)
+    END AS amount_description_norm
+  FROM sp_api_iceberg.amazon_statement_details d
 ),
--- Match service-name mapping rules (dedup by specificity)
-service_matched AS (
-    SELECT
-        c.*,
-        lm.is_special_reimbursement,
-        lm.is_tax_promo,
-        lm.is_ad,
-        ROW_NUMBER() OVER (
-            PARTITION BY c.settlement_id, c.posted_date_time_raw,
-                         c.transaction_type, c.amount_type,
-                         c.amount_description, c.order_id, c.sku, c.amount
-            ORDER BY
-                CASE WHEN lm.amount_description IS NOT NULL AND lm.amount_description != 'Any' THEN 0 ELSE 1 END,
-                CASE WHEN lm.amount_type IS NOT NULL AND lm.amount_type != 'Any' THEN 0 ELSE 1 END
-        ) AS sn_rn
-    FROM classified c
-    LEFT JOIN financial_accounting.logic_amazon_service_mapping lm
-        ON (lm.amount_description = c.amount_description OR lm.amount_description = 'Any')
-       AND (lm.amount_type = c.amount_type OR lm.amount_type = 'Any')
-    WHERE c.rn = 1
-)
-SELECT
-    c.settlement_id,
-    c.company_id,
-    c.amazon_seller_id,
-    c.currency,
-    c.sku,
-    c.order_id,
-    c.merchant_order_id,
-    c.adjustment_id,
-    c.shipment_id,
-    c.fulfillment_id,
-    c.merchant_order_item_id,
-    c.merchant_order_item_code,
-    c.merchant_adjustment_item_id,
-    c.promotion_id,
-    c.transaction_type,
-    c.amount_type,
-    c.amount_description,
-    c.posted_date_time_raw,
-    c.transaction_date,
-    c.quantity,
-    c.amount,
-    COALESCE(c.mapped_subclass_code, '9.99') AS subclass_code,
-    sc.subclass_name,
-    sc.class_code,
-    cl.class_name,
-    -- service_name: sales_channel + description
-    -- Single source of truth: financial_accounting.logic_amazon_service_mapping
+
+-- ── Map via settlement_flat_mapping → subclass + service_name ────────
+service_name_builder AS (
+  SELECT
+    n.*,
+    m.subclass_code AS raw_subclass_code,
     CONCAT(
-        CASE
-            WHEN c.order_id IS NOT NULL
-                 AND c.merchant_order_id IS NOT NULL
-                 AND c.order_id != c.merchant_order_id
-                 AND NOT regexp_like(c.order_id, '^\d{3}-\d{7}-\d{7}$')
-            THEN 'Amazon MCF'
-            ELSE 'Amazon'
-        END,
-        ' ',
-        CASE
-            WHEN c.is_special_reimbursement THEN c.amount_description || ' ' || c.transaction_type
-            WHEN c.is_tax_promo             THEN c.amount_type || ' ' || c.transaction_type
-            WHEN c.is_ad                    THEN 'Cost of Advertising ' || c.transaction_type
-            ELSE c.amount_description || ' ' || c.transaction_type
-        END
-    ) AS service_name,
-    c.ingest_ts_utc,
-    c.settlement_year,
-    c.settlement_month
-FROM service_matched c
+      CASE
+        WHEN n.order_id IS NOT NULL
+             AND n.merchant_order_id IS NOT NULL
+             AND n.order_id != n.merchant_order_id
+             AND NOT regexp_like(n.order_id, '^\d{3}-\d{7}-\d{7}$')
+        THEN 'Non-Amazon'
+        ELSE 'Amazon'
+      END,
+      ' ',
+      COALESCE(m.service_name_suffix, n.amount_description || ' ' || n.transaction_type)
+    ) AS service_name
+  FROM normalized n
+  LEFT JOIN financial_accounting.settlement_flat_mapping m
+    ON n.transaction_type = m.transaction_type
+   AND n.amount_type_norm = m.amount_type_normalized
+   AND n.amount_description_norm = m.amount_description_normalized
+)
+
+SELECT
+  sb.settlement_id,
+  sb.company_id,
+  sb.amazon_seller_id,
+  sb.currency,
+  sb.sku,
+  sb.order_id,
+  sb.merchant_order_id,
+  sb.adjustment_id,
+  sb.shipment_id,
+  sb.fulfillment_id,
+  sb.merchant_order_item_id,
+  sb.merchant_order_item_code,
+  sb.merchant_adjustment_item_id,
+  sb.promotion_id,
+  sb.transaction_type,
+  sb.amount_type,
+  sb.amount_description,
+  sb.posted_date_time_raw,
+  sb.transaction_date,
+  sb.quantity,
+  sb.amount,
+  -- Subclass with override rules
+  CASE
+    WHEN sb.raw_subclass_code = '1.03' AND sb.fulfillment_id = 'MFN'
+    THEN '1.01'
+    WHEN sb.raw_subclass_code = '1.04' AND sb.fulfillment_id = 'MFN'
+         AND sb.transaction_type = 'Refund'
+         AND sb.amount_type = 'ItemPrice'
+         AND sb.amount_description = 'Principal'
+    THEN '1.02'
+    WHEN sb.raw_subclass_code = '1.05'
+         AND sb.amount_type = 'FBA Inventory Reimbursement'
+         AND sb.amount < 0
+    THEN '2.14'
+    ELSE COALESCE(sb.raw_subclass_code, '9.99')
+  END AS subclass_code,
+  sc.subclass_name,
+  sc.class_code,
+  cl.class_name,
+  sb.service_name,
+  sb.ingest_ts_utc,
+  sb.settlement_year,
+  sb.settlement_month
+FROM service_name_builder sb
 LEFT JOIN financial_accounting.settlement_subclasses sc
-    ON sc.subclass_code = COALESCE(c.mapped_subclass_code, '9.99')
+  ON sc.subclass_code = CASE
+    WHEN sb.raw_subclass_code = '1.03' AND sb.fulfillment_id = 'MFN' THEN '1.01'
+    WHEN sb.raw_subclass_code = '1.04' AND sb.fulfillment_id = 'MFN'
+         AND sb.transaction_type = 'Refund' AND sb.amount_type = 'ItemPrice' AND sb.amount_description = 'Principal'
+    THEN '1.02'
+    WHEN sb.raw_subclass_code = '1.05' AND sb.amount_type = 'FBA Inventory Reimbursement' AND sb.amount < 0
+    THEN '2.14'
+    ELSE COALESCE(sb.raw_subclass_code, '9.99')
+  END
 LEFT JOIN financial_accounting.settlement_classes cl
-    ON sc.class_code = cl.class_code
-WHERE c.sn_rn = 1;
+  ON sc.class_code = cl.class_code;
