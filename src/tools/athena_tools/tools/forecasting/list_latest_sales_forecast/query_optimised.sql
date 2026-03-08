@@ -247,7 +247,7 @@ t_core AS (
 
     sc.snapshot_date,
 
-    CAST(fp.run_period AS VARCHAR) AS forecast_run_period,
+    CAST(fp.run_calc_period AS VARCHAR) AS forecast_run_period,
     fp.run_updated_at AS forecast_run_updated_at
 
   FROM snapshot_core sc

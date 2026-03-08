@@ -9,7 +9,8 @@ INSERT INTO "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sal
   sales_amount,
   dataset,
   scenario_uuid,
-  period,
+  calc_period,
+  data_type,
   author_name,
   updated_at
 )
@@ -79,7 +80,10 @@ normalized AS (
     COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid,
 
     -- Partition key; use forecast_period by default.
-    NULLIF(TRIM(w.forecast_period), '') AS period,
+    NULLIF(TRIM(w.forecast_period), '') AS calc_period,
+
+    -- data_type distinguishes forecast vs actual rows.
+    'forecast' AS data_type,
 
     p.author_name,
     p.updated_at
@@ -111,7 +115,8 @@ SELECT
   sales_amount,
   dataset,
   scenario_uuid,
-  period,
+  calc_period,
+  data_type,
   author_name,
   updated_at
 FROM valid

@@ -83,6 +83,7 @@ const toolSpecificSchema = z
     horizon_months: z.coerce.number().int().min(1).max(24).default(12),
     include_plan_series: z.boolean().default(true),
     include_sales_history_signals: z.boolean().default(true),
+    include_actuals: z.boolean().default(false),
     aggregate: z.boolean().default(false),
     aggregate_by: z.enum(['parent_asin', 'product_family']).default('parent_asin'),
     include_item_sales_share: z.boolean().default(false),
@@ -243,6 +244,7 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         horizon_months: Number(toolSpecific.horizon_months ?? 12),
         include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
         include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
+        include_actuals_sql: toolSpecific.include_actuals ? 'TRUE' : 'FALSE',
 
         aggregate_sql: toolSpecific.aggregate ? 'TRUE' : 'FALSE',
         aggregate_by_sql: `'${toolSpecific.aggregate_by}'`,
@@ -335,6 +337,7 @@ LIMIT 25;`;
             horizon_months: Number(toolSpecific.horizon_months ?? 12),
             include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
             include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
+            include_actuals_sql: toolSpecific.include_actuals ? 'TRUE' : 'FALSE',
 
             aggregate_sql: toolSpecific.aggregate ? 'TRUE' : 'FALSE',
             aggregate_by_sql: `'${toolSpecific.aggregate_by}'`,

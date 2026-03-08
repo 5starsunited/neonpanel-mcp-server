@@ -325,7 +325,6 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         forecast_catalog: config.athena.catalog,
         forecast_database: config.athena.tables.forecastingDatabase,
         forecast_table_sales_forecast: config.athena.tables.salesForecast,
-        forecast_table_sales_history: config.athena.tables.salesHistory,
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
 

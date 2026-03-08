@@ -12,6 +12,7 @@ WITH params AS (
     CAST({{horizon_months}} AS INTEGER) AS horizon_months,
     {{include_plan_series_sql}} AS include_plan_series,
     {{include_sales_history_signals_sql}} AS include_sales_history_signals,
+    {{include_actuals_sql}} AS include_actuals,
     {{aggregate_sql}} AS aggregate,
     {{aggregate_by_sql}} AS aggregate_by,
     {{include_item_sales_share_sql}} AS include_item_sales_share,
@@ -46,22 +47,23 @@ forecast_latest_key AS (
   SELECT
     company_id,
     inventory_id,
-    period,
+    calc_period,
     updated_at
 
   FROM (
     SELECT
       f.company_id,
       f.inventory_id,
-      f.period,
+      f.calc_period,
       f.updated_at,
       row_number() OVER (
         PARTITION BY f.company_id, f.inventory_id
-        ORDER BY f.period DESC, f.updated_at DESC
+        ORDER BY f.calc_period DESC, f.updated_at DESC
       ) AS rn
     FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
     CROSS JOIN params p
     WHERE contains(p.company_ids, f.company_id)
+      AND f.dataset <> 'actual'
   ) ranked
   WHERE rn = 1
 ),
@@ -70,7 +72,7 @@ forecast_latest_rows AS (
   SELECT
     f.company_id,
     f.inventory_id,
-    f.period AS run_period,
+    f.calc_period AS run_calc_period,
     f.updated_at AS run_updated_at,
     f.forecast_period,
     f.units_sold,
@@ -85,7 +87,7 @@ forecast_latest_rows AS (
   INNER JOIN forecast_latest_key k
     ON k.company_id = f.company_id
     AND k.inventory_id = f.inventory_id
-    AND k.period = f.period
+    AND k.calc_period = f.calc_period
     AND k.updated_at = f.updated_at
 ),
 
@@ -93,7 +95,7 @@ forecast_item_plan AS (
   SELECT
     fr.company_id,
     fr.inventory_id,
-    MAX(fr.run_period) AS run_period,
+    MAX(fr.run_calc_period) AS run_calc_period,
     MAX(fr.run_updated_at) AS run_updated_at,
     MAX(fr.dataset) AS dataset,
     MAX(fr.scenario_uuid) AS scenario_uuid,
@@ -126,7 +128,58 @@ forecast_item_plan AS (
   CROSS JOIN params p
   GROUP BY 1, 2
 ),
+-- Actual (historical) data from the same forecast table where dataset='actual'
+actual_latest_key AS (
+  SELECT
+    company_id,
+    inventory_id,
+    calc_period,
+    updated_at
+  FROM (
+    SELECT
+      f.company_id,
+      f.inventory_id,
+      f.calc_period,
+      f.updated_at,
+      row_number() OVER (
+        PARTITION BY f.company_id, f.inventory_id
+        ORDER BY f.calc_period DESC, f.updated_at DESC
+      ) AS rn
+    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+    CROSS JOIN params p
+    WHERE contains(p.company_ids, f.company_id)
+      AND f.dataset = 'actual'
+      AND p.include_actuals
+  ) ranked
+  WHERE rn = 1
+),
 
+actual_latest_rows AS (
+  SELECT
+    f.company_id,
+    f.inventory_id,
+    f.forecast_period,
+    f.units_sold,
+    f.sales_amount,
+    f.currency
+  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+  INNER JOIN actual_latest_key ak
+    ON ak.company_id = f.company_id
+    AND ak.inventory_id = f.inventory_id
+    AND ak.calc_period = f.calc_period
+    AND ak.updated_at = f.updated_at
+),
+
+actual_item_series AS (
+  SELECT
+    ar.company_id,
+    ar.inventory_id,
+    array_agg(CAST(ar.forecast_period AS VARCHAR) ORDER BY ar.forecast_period) AS actual_periods_array,
+    array_agg(COALESCE(CAST(ar.units_sold AS DOUBLE), 0.0) ORDER BY ar.forecast_period) AS actual_units_array,
+    array_agg(COALESCE(CAST(ar.sales_amount AS DOUBLE), 0.0) ORDER BY ar.forecast_period) AS actual_sales_array
+  FROM actual_latest_rows ar
+  GROUP BY 1, 2
+),
 t_base AS (
   SELECT
     pil.company_id,
@@ -179,6 +232,11 @@ t_base AS (
     fp.forecast_plan_sales_array,
     fp.forecast_plan_currency_array,
 
+    -- actual (historical) series
+    ap.actual_periods_array,
+    ap.actual_units_array,
+    ap.actual_sales_array,
+
     -- sales share basis (used for item_sales_share when aggregate=false)
     CASE
       WHEN p.sales_share_basis = 'units_sold_last_30_days' THEN COALESCE(CAST(pil.units_sold_last_30_days AS DOUBLE), 0.0)
@@ -199,7 +257,7 @@ t_base AS (
       lpad(CAST(pil.day AS VARCHAR), 2, '0')
     ) AS snapshot_date,
 
-    CAST(fp.run_period AS VARCHAR) AS forecast_run_period,
+    CAST(fp.run_calc_period AS VARCHAR) AS forecast_run_period,
     fp.run_updated_at AS forecast_run_updated_at
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
@@ -208,6 +266,9 @@ t_base AS (
   LEFT JOIN forecast_item_plan fp
     ON fp.company_id = pil.company_id
     AND fp.inventory_id = pil.inventory_id
+  LEFT JOIN actual_item_series ap
+    ON ap.company_id = pil.company_id
+    AND ap.inventory_id = pil.inventory_id
 
   WHERE
     contains(p.company_ids, pil.company_id)
@@ -421,6 +482,32 @@ SELECT
     ELSE CAST(NULL AS VARCHAR)
   END AS forecast_series_json,
 
+  CASE
+    WHEN p.include_actuals AND t.actual_periods_array IS NOT NULL AND cardinality(t.actual_periods_array) > 0 THEN
+      json_format(
+        CAST(
+          transform(
+            sequence(1, cardinality(t.actual_periods_array)),
+            i -> CAST(ROW(
+              element_at(t.actual_periods_array, i),
+              CAST(ROUND(element_at(t.actual_units_array, i), 0) AS BIGINT),
+              ROUND(element_at(t.actual_sales_array, i), 2),
+              ROUND(IF(element_at(t.actual_units_array, i) > 0,
+                element_at(t.actual_sales_array, i) / element_at(t.actual_units_array, i),
+                CAST(NULL AS DOUBLE)
+              ), 3)
+            ) AS ROW(
+              period VARCHAR,
+              units_sold BIGINT,
+              sales_amount DOUBLE,
+              unit_price DOUBLE
+            ))
+          )
+        AS JSON)
+      )
+    ELSE CAST(NULL AS VARCHAR)
+  END AS actuals_series_json,
+
   CAST(p.horizon_months AS INTEGER) AS forecast_horizon_months
 
 FROM t_base t
@@ -487,6 +574,8 @@ SELECT
     WHEN p.include_plan_series THEN gp.forecast_series_json
     ELSE CAST(NULL AS VARCHAR)
   END AS forecast_series_json,
+
+  CAST(NULL AS VARCHAR) AS actuals_series_json,
 
   CAST(p.horizon_months AS INTEGER) AS forecast_horizon_months
 

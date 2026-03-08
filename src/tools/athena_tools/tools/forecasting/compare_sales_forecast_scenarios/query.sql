@@ -147,7 +147,8 @@ run_candidates AS (
         AND m.code = i.marketplace_key
       CROSS JOIN params p
       WHERE
-        (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
+        f.dataset <> 'actual'
+        AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
         AND (
           p.run_selector_type = 'latest_n'
           OR (
@@ -197,7 +198,8 @@ forecast_rows AS (
     AND lower(trim(m.code)) = i.normalized_marketplace_key
   CROSS JOIN params p
   WHERE
-    (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
+    f.dataset <> 'actual'
+    AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
     AND (p.compare_mode <> 'runs' OR cardinality(p.scenario_names) > 0)
 
     AND (
@@ -227,29 +229,30 @@ actual_rows AS (
     i.product_family,
     i.snapshot_date,
     'actual' AS series_type,
-    'sales_history' AS scenario_name,
+    'actual' AS scenario_name,
     CAST(NULL AS TIMESTAMP) AS run_updated_at,
-    h.period AS period,
-    CAST(ROUND(CAST(h.units_sold AS DOUBLE), 0) AS BIGINT) AS units_sold,
-    ROUND(CAST(h.sales_amount AS DOUBLE), 2) AS sales_amount,
+    f.forecast_period AS period,
+    CAST(ROUND(CAST(f.units_sold AS DOUBLE), 0) AS BIGINT) AS units_sold,
+    ROUND(CAST(f.sales_amount AS DOUBLE), 2) AS sales_amount,
     ROUND(
-      CASE WHEN CAST(h.units_sold AS DOUBLE) > 0 THEN CAST(h.sales_amount AS DOUBLE) / CAST(h.units_sold AS DOUBLE) ELSE CAST(NULL AS DOUBLE) END,
+      CASE WHEN CAST(f.units_sold AS DOUBLE) > 0 THEN CAST(f.sales_amount AS DOUBLE) / CAST(f.units_sold AS DOUBLE) ELSE CAST(NULL AS DOUBLE) END,
       3
     ) AS unit_price,
-    h.currency AS currency,
+    f.currency AS currency,
     CAST(1.0 AS DOUBLE) AS seasonality_index
-  FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_history}}" h
+  FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
   INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-    ON m.amazon_marketplace_id = h.amazon_marketplace_id
+    ON m.amazon_marketplace_id = f.amazon_marketplace_id
   INNER JOIN items i
-    ON CAST(h.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-    AND lower(trim(h.sku)) = i.normalized_sku
+    ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
+    AND lower(trim(f.sku)) = i.normalized_sku
     AND lower(trim(m.code)) = i.normalized_marketplace_key
   CROSS JOIN params p
   WHERE
     p.include_actuals
-    AND (p.period_start IS NULL OR h.period >= p.period_start)
-    AND (p.period_end IS NULL OR h.period <= p.period_end)
+    AND f.dataset = 'actual'
+    AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
+    AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
 ),
 
 base_rows AS (
