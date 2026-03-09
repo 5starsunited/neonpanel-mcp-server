@@ -80,9 +80,25 @@ normalized AS (
     AND d.settlement_year <= {{partition_year_end}}
     AND (d.settlement_year > {{partition_year_start}} OR d.settlement_month >= {{partition_month_start}})
     AND (d.settlement_year < {{partition_year_end}}   OR d.settlement_month <= {{partition_month_end}})
-    -- Date filter (LA timezone)
-    AND (p.start_date IS NULL OR CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) >= p.start_date)
-    AND (p.end_date   IS NULL OR CAST(AT_TIMEZONE(d.transaction_date, 'America/Los_Angeles') AS DATE) <= p.end_date)
+    -- Date filter (parsed posted_date_time_raw → LA timezone)
+    AND (p.start_date IS NULL OR CAST(
+      COALESCE(
+        TRY(DATE_PARSE(SUBSTR(d.posted_date_time_raw, 1, 19), '%d.%m.%Y %H:%i:%s')),
+        TRY(DATE_PARSE(REGEXP_REPLACE(d.posted_date_time_raw, ' UTC$', ''), '%Y-%m-%d %H:%i:%s')),
+        TRY(DATE_PARSE(SUBSTR(d.posted_date_time_raw, 1, 19), '%Y/%m/%d %H:%i:%s')),
+        TRY(DATE_PARSE(REGEXP_REPLACE(REGEXP_REPLACE(SUBSTR(d.posted_date_time_raw, 1, 19), 'T', ' '), '(Z|[+-][0-9]{2}:[0-9]{2})$', ''), '%Y-%m-%d %H:%i:%s')),
+        TIMESTAMP '2010-01-01 00:00:00'
+      ) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'
+    AS DATE) >= p.start_date)
+    AND (p.end_date   IS NULL OR CAST(
+      COALESCE(
+        TRY(DATE_PARSE(SUBSTR(d.posted_date_time_raw, 1, 19), '%d.%m.%Y %H:%i:%s')),
+        TRY(DATE_PARSE(REGEXP_REPLACE(d.posted_date_time_raw, ' UTC$', ''), '%Y-%m-%d %H:%i:%s')),
+        TRY(DATE_PARSE(SUBSTR(d.posted_date_time_raw, 1, 19), '%Y/%m/%d %H:%i:%s')),
+        TRY(DATE_PARSE(REGEXP_REPLACE(REGEXP_REPLACE(SUBSTR(d.posted_date_time_raw, 1, 19), 'T', ' '), '(Z|[+-][0-9]{2}:[0-9]{2})$', ''), '%Y-%m-%d %H:%i:%s')),
+        TIMESTAMP '2010-01-01 00:00:00'
+      ) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'
+    AS DATE) <= p.end_date)
     -- Settlement ID filter
     AND (cardinality(p.settlement_ids) = 0 OR contains(p.settlement_ids, d.settlement_id))
 ),
@@ -97,14 +113,21 @@ service_name_builder AS (
     n.transaction_type,
     n.amount_type,
     n.amount_description,
-    n.transaction_date,
     n.amount,
     n.quantity,
     n.order_id,
     n.merchant_order_id,
     n.fulfillment_id,
-    -- Transaction date in LA timezone
-    CAST(AT_TIMEZONE(n.transaction_date, 'America/Los_Angeles') AS DATE)   AS transaction_date_tz,
+    -- Transaction date in LA timezone (parsed from posted_date_time_raw)
+    CAST(
+      COALESCE(
+        TRY(DATE_PARSE(SUBSTR(n.posted_date_time_raw, 1, 19), '%d.%m.%Y %H:%i:%s')),
+        TRY(DATE_PARSE(REGEXP_REPLACE(n.posted_date_time_raw, ' UTC$', ''), '%Y-%m-%d %H:%i:%s')),
+        TRY(DATE_PARSE(SUBSTR(n.posted_date_time_raw, 1, 19), '%Y/%m/%d %H:%i:%s')),
+        TRY(DATE_PARSE(REGEXP_REPLACE(REGEXP_REPLACE(SUBSTR(n.posted_date_time_raw, 1, 19), 'T', ' '), '(Z|[+-][0-9]{2}:[0-9]{2})$', ''), '%Y-%m-%d %H:%i:%s')),
+        TIMESTAMP '2010-01-01 00:00:00'
+      ) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles'
+    AS DATE) AS transaction_date_tz,
     -- Raw subclass from flat mapping
     m.subclass_code                                                        AS raw_subclass_code,
     -- Derived service name
