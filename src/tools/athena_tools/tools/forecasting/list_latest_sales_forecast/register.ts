@@ -60,7 +60,7 @@ const sharedQuerySchema = z
     aggregation: z
       .object({
         group_by: z
-          .array(z.enum(['company', 'brand', 'product_family', 'parent_asin', 'asin']))
+          .array(z.enum(['company', 'brand', 'marketplace', 'product_family', 'parent_asin', 'asin']))
           .optional(),
       })
       .optional(),
@@ -172,6 +172,10 @@ function buildGroupByDimensions(groupBy: string[]): DimColumn[] {
       case 'parent_asin':
         dims.push({ baseExpr: "COALESCE(t.parent_asin, '__UNKNOWN__')", alias: 'parent_asin' });
         break;
+      case 'marketplace':
+        dims.push({ baseExpr: "COALESCE(t.country_code, '__UNKNOWN__')", alias: 'country_code' });
+        dims.push({ baseExpr: "COALESCE(t.country, '__UNKNOWN__')", alias: 'country' });
+        break;
       case 'asin':
         dims.push({ baseExpr: "COALESCE(t.child_asin, '__UNKNOWN__')", alias: 'child_asin' });
         break;
@@ -248,7 +252,7 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
       }
 
       // ---- Determine aggregation mode from query.aggregation.group_by ----
-      const validGroupByKeys = new Set(['company', 'brand', 'product_family', 'parent_asin', 'asin']);
+      const validGroupByKeys = new Set(['company', 'brand', 'marketplace', 'product_family', 'parent_asin', 'asin']);
       const groupBy = [...new Set((query.aggregation?.group_by ?? []).filter((g) => validGroupByKeys.has(g)))];
       const isAggregated = groupBy.length > 0;
 
@@ -301,7 +305,7 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         parent_asins_array: sqlVarcharArrayExpr((filters.parent_asin ?? []).map(String)),
         brands_array: sqlVarcharArrayExpr((filters.brand ?? []).map(String)),
         product_families_array: sqlVarcharArrayExpr((filters.product_family ?? []).map(String)),
-        marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map(String)),
+        marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map((m: any) => String(m).trim().toLowerCase())),
         revenue_abcd_classes_array: sqlVarcharArrayExpr((filters.revenue_abcd_class ?? []).map(String)),
       };
 

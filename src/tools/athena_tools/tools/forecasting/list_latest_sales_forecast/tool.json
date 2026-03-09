@@ -50,8 +50,8 @@
             "properties": {
               "group_by": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["company", "brand", "product_family", "parent_asin", "asin"] },
-                "description": "Dimensions to group by. Returns one row per unique combination. company_id is always included for authorization. Example: [\"brand\",\"product_family\"]."
+                "items": { "type": "string", "enum": ["company", "brand", "marketplace", "product_family", "parent_asin", "asin"] },
+                "description": "Dimensions to group by. Returns one row per unique combination. company_id is always included for authorization. Example: [\"brand\",\"marketplace\"]."
               }
             },
             "additionalProperties": false

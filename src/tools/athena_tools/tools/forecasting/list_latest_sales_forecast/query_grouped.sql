@@ -245,7 +245,7 @@ t_base AS (
     AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
     AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
     AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
-    AND (cardinality(p.marketplaces) = 0 OR contains(p.marketplaces, pil.country_code))
+    AND (cardinality(p.marketplaces) = 0 OR contains(p.marketplaces, lower(trim(pil.country_code))))
     AND (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, pil.revenue_abcd_class))
 ),
 
