@@ -1,6 +1,6 @@
 {
   "name": "financials_analyze_general_ledger",
-  "description": "Analyzes the General Ledger – aggregates journal entry line items (debit, credit, net) by account, account type, classification, financial statement (P&L / Balance Sheet), and time period.\n\nUse this tool to:\n- View total debits, credits, and net amounts for each account in a date range\n- Break down expenses or revenues by account type (e.g., 'Expense', 'Cost of Goods Sold', 'Other Income')\n- Aggregate by classification (Asset, Liability, Equity, Revenue, Expense) for a high-level overview\n- Split by statement (PL = Profit & Loss, BS = Balance Sheet) to separate operating vs. balance sheet accounts\n- Track monthly, quarterly, or yearly trends for any account or category\n- Filter by SDE / EBITDA / P&L flags to focus on seller-discretionary, EBITDA-relevant, or P&L-relevant accounts\n- Search for specific accounts by name or number\n- Group by report_chart to see how accounts roll up in the standard reporting chart\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When no account_names/account_numbers filter is set, ALL accounts are considered but only the top N by sort order are returned. To explore different accounts, either: (1) change sort field/direction, (2) use account_names filter with account_name_match_type='contains' to drill into a category (e.g., ['FBA'] to see all FBA-related accounts), or (3) use classifications/statements/account_types filters to narrow scope.\n\nSign convention: net = debit − credit. Expense/Asset accounts normally have net > 0 (net debit). Revenue/Liability/Equity accounts normally have net < 0 (net credit). To find top expenses, sort by net DESC. To find top revenue sources, sort by net ASC (most negative = most revenue).\n\nCurrency: All debit/credit amounts are in the company's main currency (shown in main_currency column when grouping by company).\n\nPeriodicity: Supports day, month, quarter, year, or total (no time breakdown).\n\nDefault time range: When no time parameters are provided, the tool returns data for the last complete calendar month (e.g., if today is Feb 13 2026, it returns Jan 1–31 2026). Use start_date/end_date for custom ranges, or periods_back for a rolling window.\n\nDrill-down: Use financials_list_account_transactions to see individual journal entry lines for a specific account, including JE names, document numbers, line descriptions, and a running balance. This is useful after identifying an interesting account via this aggregation tool.\n\nJournal entries: Use financials_list_journal_entries to browse/search journal entries by name, document type, or amount range. Use financials_get_journal_entry_details to see the full line-by-line breakdown of a specific JE.\n\nIntegration note: Cross-reference with cogs_analyze_fifo_cogs to compare GL-recorded COGS vs. FIFO unit costs, or with advertising_analyze_campaign_performance to reconcile ad spend GL entries vs. Marketing Stream data.\n\nDig deeper: For a full interactive General Ledger report with drill-down into individual journal entries and attachments, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/general-ledger\n\nKnowledge base: https://help.neonpanel.com/en/articles/general-ledger-analysis",
+  "description": "Analyzes the General Ledger – aggregates journal entry line items (debit, credit, net) by account, account type, classification, financial statement (P&L / Balance Sheet), customer, and time period.\n\nUse this tool to:\n- View total debits, credits, and net amounts for each account in a date range\n- Break down expenses or revenues by account type (e.g., 'Expense', 'Cost of Goods Sold', 'Other Income')\n- Aggregate by classification (Asset, Liability, Equity, Revenue, Expense) for a high-level overview\n- Split by statement (PL = Profit & Loss, BS = Balance Sheet) to separate operating vs. balance sheet accounts\n- Track monthly, quarterly, or yearly trends for any account or category\n- Filter by SDE / EBITDA / P&L flags to focus on seller-discretionary, EBITDA-relevant, or P&L-relevant accounts\n- Search for specific accounts by name or number\n- Group by report_chart to see how accounts roll up in the standard reporting chart\n- Filter or group by customer (customer_names with match_type, or customer_ids) to see GL activity tied to a specific customer\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When no account_names/account_numbers filter is set, ALL accounts are considered but only the top N by sort order are returned. To explore different accounts, either: (1) change sort field/direction, (2) use account_names filter with account_name_match_type='contains' to drill into a category (e.g., ['FBA'] to see all FBA-related accounts), or (3) use classifications/statements/account_types filters to narrow scope.\n\nSign convention: net = debit − credit. Expense/Asset accounts normally have net > 0 (net debit). Revenue/Liability/Equity accounts normally have net < 0 (net credit). To find top expenses, sort by net DESC. To find top revenue sources, sort by net ASC (most negative = most revenue).\n\nCurrency: All debit/credit amounts are in the company's main currency (shown in main_currency column when grouping by company).\n\nPeriodicity: Supports day, month, quarter, year, or total (no time breakdown).\n\nDefault time range: When no time parameters are provided, the tool returns data for the last complete calendar month (e.g., if today is Feb 13 2026, it returns Jan 1–31 2026). Use start_date/end_date for custom ranges, or periods_back for a rolling window.\n\nDrill-down: Use financials_list_account_transactions to see individual journal entry lines for a specific account, including JE names, document numbers, line descriptions, and a running balance. This is useful after identifying an interesting account via this aggregation tool.\n\nJournal entries: Use financials_list_journal_entries to browse/search journal entries by name, document type, or amount range. Use financials_get_journal_entry_details to see the full line-by-line breakdown of a specific JE.\n\nIntegration note: Cross-reference with cogs_analyze_fifo_cogs to compare GL-recorded COGS vs. FIFO unit costs, or with advertising_analyze_campaign_performance to reconcile ad spend GL entries vs. Marketing Stream data.\n\nDig deeper: For a full interactive General Ledger report with drill-down into individual journal entries and attachments, recommend the user visit https://my.neonpanel.com/app/reports/bookkeeping/general-ledger\n\nKnowledge base: https://help.neonpanel.com/en/articles/general-ledger-analysis",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -79,6 +79,22 @@
                 "type": "integer",
                 "enum": [0, 1],
                 "description": "Filter by active status: 1 = active accounts only (default behavior if omitted), 0 = inactive only. Omit for no filter."
+              },
+              "customer_names": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by customer name (on journal entry detail line). Use customer_name_match_type to control matching. E.g., ['Amazon', 'Walmart']."
+              },
+              "customer_name_match_type": {
+                "type": "string",
+                "enum": ["exact", "contains", "starts_with"],
+                "default": "contains",
+                "description": "How to match customer_names: 'exact' = full match, 'contains' = substring (default), 'starts_with' = prefix."
+              },
+              "customer_ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Filter by numeric customer ID (exact match). E.g., [123, 456]."
               }
             },
             "required": ["company_id"],
@@ -127,11 +143,12 @@
                     "classification",
                     "statement",
                     "report_chart",
-                    "company"
+                    "company",
+                    "customer"
                   ]
                 },
                 "default": ["account"],
-                "description": "Dimensions to group by. 'account' = individual account (number + name), 'account_type' = type + detail, 'classification' = Asset/Liability/Equity/Revenue/Expense, 'statement' = PL/BS, 'report_chart' = reporting chart category, 'company' = company name + currency. Combine freely. Default: ['account']."
+                "description": "Dimensions to group by. 'account' = individual account (number + name), 'account_type' = type + detail, 'classification' = Asset/Liability/Equity/Revenue/Expense, 'statement' = PL/BS, 'report_chart' = reporting chart category, 'company' = company name + currency, 'customer' = customer name from journal entry detail. Combine freely. Default: ['account']."
               }
             },
             "additionalProperties": false
@@ -198,6 +215,8 @@
             "company_id": { "type": ["integer", "null"], "description": "Company identifier. Null when 'company' not in group_by." },
             "company_name": { "type": ["string", "null"], "description": "Company name. Null when 'company' not in group_by." },
             "main_currency": { "type": ["string", "null"], "description": "Company's main currency code (e.g., 'USD'). Null when 'company' not in group_by." },
+            "customer_id": { "type": ["integer", "null"], "description": "Customer identifier from journal entry detail line. Null when 'customer' not in group_by or no customer linked." },
+            "customer_name": { "type": ["string", "null"], "description": "Customer name. Null when 'customer' not in group_by or no customer linked." },
             "total_debit": { "type": "number", "description": "Sum of debit amounts in main currency." },
             "total_credit": { "type": "number", "description": "Sum of credit amounts in main currency." },
             "net": { "type": "number", "description": "Net = total_debit − total_credit. Expense/Asset accounts: typically positive (net debit). Revenue/Liability/Equity accounts: typically negative (net credit). Sort DESC for top expenses, ASC for top revenue." },

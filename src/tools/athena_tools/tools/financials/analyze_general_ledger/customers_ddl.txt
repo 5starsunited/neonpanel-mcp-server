@@ -1,0 +1,38 @@
+CREATE TABLE neonpanel_iceberg.customers (
+  id bigint,
+  bk_type string,
+  bk_id string,
+  company_id bigint,
+  account_id bigint,
+  name string,
+  currency string,
+  code string,
+  first_name string,
+  middle_name string,
+  last_name string,
+  suffix string,
+  address string,
+  address2 string,
+  country_id int,
+  country string,
+  city string,
+  region string,
+  postal_code string,
+  email string,
+  phone string,
+  mobile string,
+  website string,
+  bk_url string,
+  active int,
+  bank_details string,
+  deleted_at timestamp,
+  created_at timestamp,
+  updated_at timestamp,
+  partition_name string)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/customers'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);

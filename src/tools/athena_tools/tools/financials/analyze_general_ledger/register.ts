@@ -57,6 +57,7 @@ const GROUP_BY_OPTIONS = [
   'statement',
   'report_chart',
   'company',
+  'customer',
 ] as const;
 
 const SORTABLE_FIELDS = [
@@ -87,6 +88,12 @@ const querySchema = z
           .optional(),
         account_numbers: z.array(z.string()).optional(),
         document_types: z.array(z.string()).optional(),
+        customer_names: z.array(z.string()).optional(),
+        customer_name_match_type: z
+          .enum(['exact', 'contains', 'starts_with'])
+          .default('contains')
+          .optional(),
+        customer_ids: z.array(z.coerce.number().int().min(1)).optional(),
         sde: z.coerce.number().int().min(0).max(1).optional(),
         ebitda: z.coerce.number().int().min(0).max(1).optional(),
         pnl: z.coerce.number().int().min(0).max(1).optional(),
@@ -207,6 +214,11 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
       const accountNameMatchType = query.filters.account_name_match_type ?? 'contains';
       const accountNumbers = (query.filters.account_numbers ?? []).map((s) => s.trim()).filter(Boolean);
       const documentTypes = (query.filters.document_types ?? []).map((s) => s.trim()).filter(Boolean);
+      const customerNames = (query.filters.customer_names ?? []).map((s) => s.trim()).filter(Boolean);
+      const customerNameMatchType = query.filters.customer_name_match_type ?? 'contains';
+      const customerIds = (query.filters.customer_ids ?? [])
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0);
 
       const sdeFilter = query.filters.sde ?? null;
       const ebitdaFilter = query.filters.ebitda ?? null;
@@ -253,6 +265,11 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
         account_numbers_array: sqlVarcharArrayExpr(accountNumbers),
         document_types_array: sqlVarcharArrayExpr(documentTypes),
 
+        // Customer filters
+        customer_names_array: sqlVarcharArrayExpr(customerNames),
+        customer_name_match_type_sql: sqlStringLiteral(customerNameMatchType),
+        customer_ids_array: sqlBigintArrayExpr(customerIds),
+
         // Boolean flag filters (nullable int)
         sde_filter: sqlNullableInt(sdeFilter),
         ebitda_filter: sqlNullableInt(ebitdaFilter),
@@ -273,6 +290,7 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
         group_by_statement: groupBy.includes('statement') ? 1 : 0,
         group_by_report_chart: groupBy.includes('report_chart') ? 1 : 0,
         group_by_company: groupBy.includes('company') ? 1 : 0,
+        group_by_customer: groupBy.includes('customer') ? 1 : 0,
       });
 
       const athenaResult = await runAthenaQuery({

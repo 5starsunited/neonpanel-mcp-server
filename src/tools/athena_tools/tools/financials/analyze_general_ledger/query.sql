@@ -29,6 +29,11 @@ WITH params AS (
     {{account_numbers_array}}         AS account_numbers,      -- exact match on account number
     {{account_name_match_type_sql}}   AS account_name_match_type, -- 'exact', 'contains', 'starts_with'
 
+    -- Customer filter
+    {{customer_names_array}}          AS customer_names,       -- e.g. ['Amazon', 'Walmart']
+    {{customer_name_match_type_sql}}  AS customer_name_match_type, -- 'exact', 'contains', 'starts_with'
+    {{customer_ids_array}}            AS customer_ids,         -- numeric customer IDs
+
     -- Optional journal entry filters
     {{document_types_array}}          AS document_types,       -- e.g. ['Invoice', 'Journal Entry']
 
@@ -47,7 +52,8 @@ WITH params AS (
     CAST({{group_by_classification}} AS INTEGER)   AS group_by_classification,
     CAST({{group_by_statement}} AS INTEGER)        AS group_by_statement,
     CAST({{group_by_report_chart}} AS INTEGER)     AS group_by_report_chart,
-    CAST({{group_by_company}} AS INTEGER)          AS group_by_company
+    CAST({{group_by_company}} AS INTEGER)          AS group_by_company,
+    CAST({{group_by_customer}} AS INTEGER)          AS group_by_customer
 ),
 
 -- ─── Enriched fact rows ─────────────────────────────────────────────────────
@@ -73,6 +79,10 @@ enriched AS (
     a.pnl                                   AS pnl,
     a.active                                AS active,
 
+    -- Customer
+    jed.customer_id                         AS customer_id,
+    cust.name                               AS customer_name,
+
     -- Measures (already in main currency)
     jed.debit                               AS debit,
     jed.credit                              AS credit,
@@ -94,6 +104,9 @@ enriched AS (
 
   INNER JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" c
     ON c.id = je.company_id
+
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."customers" cust
+    ON cust.id = jed.customer_id
 
   CROSS JOIN params p
 
@@ -146,6 +159,27 @@ enriched AS (
     AND (
       cardinality(p.account_numbers) = 0
       OR any_match(p.account_numbers, an -> an = a.number)
+    )
+
+    -- Customer name filter
+    AND (
+      (cardinality(p.customer_names) = 0 AND cardinality(p.customer_ids) = 0)
+      OR (
+        cardinality(p.customer_ids) > 0 AND contains(p.customer_ids, jed.customer_id)
+      )
+      OR (
+        cardinality(p.customer_names) > 0 AND cust.name IS NOT NULL
+        AND (
+          CASE p.customer_name_match_type
+            WHEN 'exact' THEN
+              any_match(p.customer_names, n -> lower(n) = lower(cust.name))
+            WHEN 'starts_with' THEN
+              any_match(p.customer_names, n -> lower(cust.name) LIKE lower(n) || '%')
+            ELSE -- 'contains'
+              any_match(p.customer_names, n -> lower(cust.name) LIKE '%' || lower(n) || '%')
+          END
+        )
+      )
     )
 
     -- Document type filter (on source_doc_type)
@@ -205,6 +239,8 @@ aggregated AS (
     CASE WHEN p.group_by_company = 1 THEN w.company_id ELSE NULL END                      AS company_id,
     CASE WHEN p.group_by_company = 1 THEN w.company_name ELSE NULL END                    AS company_name,
     CASE WHEN p.group_by_company = 1 THEN w.main_currency ELSE NULL END                   AS main_currency,
+    CASE WHEN p.group_by_customer = 1 THEN w.customer_id ELSE NULL END                    AS customer_id,
+    CASE WHEN p.group_by_customer = 1 THEN w.customer_name ELSE NULL END                  AS customer_name,
 
     -- Metrics
     SUM(w.debit)                              AS total_debit,
@@ -234,7 +270,9 @@ aggregated AS (
     CASE WHEN p.group_by_report_chart = 1 THEN w.report_chart ELSE NULL END,
     CASE WHEN p.group_by_company = 1 THEN w.company_id ELSE NULL END,
     CASE WHEN p.group_by_company = 1 THEN w.company_name ELSE NULL END,
-    CASE WHEN p.group_by_company = 1 THEN w.main_currency ELSE NULL END
+    CASE WHEN p.group_by_company = 1 THEN w.main_currency ELSE NULL END,
+    CASE WHEN p.group_by_customer = 1 THEN w.customer_id ELSE NULL END,
+    CASE WHEN p.group_by_customer = 1 THEN w.customer_name ELSE NULL END
 )
 
 -- ─── Final ranked output ────────────────────────────────────────────────────
@@ -252,6 +290,8 @@ SELECT
   a.company_id,
   a.company_name,
   a.main_currency,
+  a.customer_id,
+  a.customer_name,
   ROUND(a.total_debit, 2)   AS total_debit,
   ROUND(a.total_credit, 2)  AS total_credit,
   ROUND(a.net, 2)           AS net,
