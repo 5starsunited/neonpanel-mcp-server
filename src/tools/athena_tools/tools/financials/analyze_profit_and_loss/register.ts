@@ -32,6 +32,11 @@ function sqlBigintArrayExpr(values: number[]): string {
   return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
+function sqlVarcharArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
+  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+}
+
 function sqlDateExpr(value?: string): string {
   const trimmed = value?.trim();
   if (!trimmed) return 'CAST(NULL AS DATE)';
@@ -47,6 +52,12 @@ const querySchema = z
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
+        customer_names: z.array(z.string()).optional(),
+        customer_name_match_type: z
+          .enum(['exact', 'contains', 'starts_with'])
+          .default('contains')
+          .optional(),
+        customer_ids: z.array(z.coerce.number().int().min(1)).optional(),
       })
       .strict(),
     time: z
@@ -144,6 +155,12 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
       const periodicity = query.periodicity ?? 'month';
       const groupByCompany = query.group_by_company ?? 0;
 
+      const customerNames = (query.filters.customer_names ?? []).map((s) => s.trim()).filter(Boolean);
+      const customerNameMatchType = query.filters.customer_name_match_type ?? 'contains';
+      const customerIds = (query.filters.customer_ids ?? [])
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0);
+
       // Default to last calendar month when no time params are provided (LA timezone)
       let startDate = query.time?.start_date;
       let endDate = query.time?.end_date;
@@ -166,6 +183,11 @@ export function registerFinancialsAnalyzeProfitAndLossTool(registry: ToolRegistr
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
         periodicity_sql: sqlStringLiteral(periodicity),
         group_by_company: groupByCompany,
+
+        // Customer filters
+        customer_names_array: sqlVarcharArrayExpr(customerNames),
+        customer_name_match_type_sql: sqlStringLiteral(customerNameMatchType),
+        customer_ids_array: sqlBigintArrayExpr(customerIds),
       });
 
       const athenaResult = await runAthenaQuery({

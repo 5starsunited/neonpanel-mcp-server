@@ -35,7 +35,12 @@ WITH params AS (
     {{end_date_sql}}                  AS end_date,
     {{company_ids_array}}             AS company_ids,
     {{periodicity_sql}}               AS periodicity,
-    CAST({{group_by_company}} AS INTEGER) AS group_by_company
+    CAST({{group_by_company}} AS INTEGER) AS group_by_company,
+
+    -- Customer filter
+    {{customer_names_array}}          AS customer_names,
+    {{customer_name_match_type_sql}}  AS customer_name_match_type,
+    {{customer_ids_array}}            AS customer_ids
 ),
 
 -- ─── Enriched fact rows with P&L classification ─────────────────────────────
@@ -83,6 +88,9 @@ enriched AS (
   INNER JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" c
     ON c.id = je.company_id
 
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."customers" cust
+    ON cust.id = jed.customer_id
+
   CROSS JOIN params p
 
   WHERE
@@ -93,6 +101,27 @@ enriched AS (
     -- Date filter
     AND je.transaction_date >= p.start_date
     AND je.transaction_date <= p.end_date
+
+    -- Customer filter
+    AND (
+      (cardinality(p.customer_names) = 0 AND cardinality(p.customer_ids) = 0)
+      OR (
+        cardinality(p.customer_ids) > 0 AND contains(p.customer_ids, jed.customer_id)
+      )
+      OR (
+        cardinality(p.customer_names) > 0 AND cust.name IS NOT NULL
+        AND (
+          CASE p.customer_name_match_type
+            WHEN 'exact' THEN
+              any_match(p.customer_names, n -> lower(n) = lower(cust.name))
+            WHEN 'starts_with' THEN
+              any_match(p.customer_names, n -> lower(cust.name) LIKE lower(n) || '%')
+            ELSE -- 'contains'
+              any_match(p.customer_names, n -> lower(cust.name) LIKE '%' || lower(n) || '%')
+          END
+        )
+      )
+    )
 
     -- Only P&L-relevant account types (Income, COGS, Expense, Other Expense)
     AND lower(a.type) IN (
