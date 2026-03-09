@@ -93,7 +93,6 @@ const querySchema = z
           .enum(['exact', 'contains', 'starts_with'])
           .default('contains')
           .optional(),
-        customer_ids: z.array(z.coerce.number().int().min(1)).optional(),
         sde: z.coerce.number().int().min(0).max(1).optional(),
         ebitda: z.coerce.number().int().min(0).max(1).optional(),
         pnl: z.coerce.number().int().min(0).max(1).optional(),
@@ -216,9 +215,6 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
       const documentTypes = (query.filters.document_types ?? []).map((s) => s.trim()).filter(Boolean);
       const customerNames = (query.filters.customer_names ?? []).map((s) => s.trim()).filter(Boolean);
       const customerNameMatchType = query.filters.customer_name_match_type ?? 'contains';
-      const customerIds = (query.filters.customer_ids ?? [])
-        .map((n) => Number(n))
-        .filter((n) => Number.isFinite(n) && n > 0);
 
       const sdeFilter = query.filters.sde ?? null;
       const ebitdaFilter = query.filters.ebitda ?? null;
@@ -268,7 +264,6 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
         // Customer filters
         customer_names_array: sqlVarcharArrayExpr(customerNames),
         customer_name_match_type_sql: sqlStringLiteral(customerNameMatchType),
-        customer_ids_array: sqlBigintArrayExpr(customerIds),
 
         // Boolean flag filters (nullable int)
         sde_filter: sqlNullableInt(sdeFilter),
@@ -290,7 +285,7 @@ export function registerFinancialsAnalyzeGeneralLedgerTool(registry: ToolRegistr
         group_by_statement: groupBy.includes('statement') ? 1 : 0,
         group_by_report_chart: groupBy.includes('report_chart') ? 1 : 0,
         group_by_company: groupBy.includes('company') ? 1 : 0,
-        group_by_customer: groupBy.includes('customer') ? 1 : 0,
+        group_by_customer: (groupBy.includes('customer') || customerNames.length > 0) ? 1 : 0,
       });
 
       const athenaResult = await runAthenaQuery({

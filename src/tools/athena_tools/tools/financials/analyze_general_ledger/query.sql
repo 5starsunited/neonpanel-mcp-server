@@ -32,7 +32,6 @@ WITH params AS (
     -- Customer filter
     {{customer_names_array}}          AS customer_names,       -- e.g. ['Amazon', 'Walmart']
     {{customer_name_match_type_sql}}  AS customer_name_match_type, -- 'exact', 'contains', 'starts_with'
-    {{customer_ids_array}}            AS customer_ids,         -- numeric customer IDs
 
     -- Optional journal entry filters
     {{document_types_array}}          AS document_types,       -- e.g. ['Invoice', 'Journal Entry']
@@ -79,9 +78,9 @@ enriched AS (
     a.pnl                                   AS pnl,
     a.active                                AS active,
 
-    -- Customer
-    jed.customer_id                         AS customer_id,
-    cust.name                               AS customer_name,
+    -- Customer (prefer customers table, fall back to JE header name)
+    je.customer_id                          AS customer_id,
+    COALESCE(cust.name, je.name)            AS customer_name,
 
     -- Measures (already in main currency)
     jed.debit                               AS debit,
@@ -106,7 +105,7 @@ enriched AS (
     ON c.id = je.company_id
 
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."customers" cust
-    ON cust.id = jed.customer_id
+    ON cust.id = je.customer_id
 
   CROSS JOIN params p
 
@@ -161,24 +160,18 @@ enriched AS (
       OR any_match(p.account_numbers, an -> an = a.number)
     )
 
-    -- Customer name filter
+    -- Customer name filter (matches against customers.name OR je.name)
     AND (
-      (cardinality(p.customer_names) = 0 AND cardinality(p.customer_ids) = 0)
+      cardinality(p.customer_names) = 0
       OR (
-        cardinality(p.customer_ids) > 0 AND contains(p.customer_ids, jed.customer_id)
-      )
-      OR (
-        cardinality(p.customer_names) > 0 AND cust.name IS NOT NULL
-        AND (
-          CASE p.customer_name_match_type
-            WHEN 'exact' THEN
-              any_match(p.customer_names, n -> lower(n) = lower(cust.name))
-            WHEN 'starts_with' THEN
-              any_match(p.customer_names, n -> lower(cust.name) LIKE lower(n) || '%')
-            ELSE -- 'contains'
-              any_match(p.customer_names, n -> lower(cust.name) LIKE '%' || lower(n) || '%')
-          END
-        )
+        CASE p.customer_name_match_type
+          WHEN 'exact' THEN
+            any_match(p.customer_names, n -> lower(n) = lower(COALESCE(cust.name, je.name)))
+          WHEN 'starts_with' THEN
+            any_match(p.customer_names, n -> lower(COALESCE(cust.name, je.name)) LIKE lower(n) || '%')
+          ELSE -- 'contains'
+            any_match(p.customer_names, n -> lower(COALESCE(cust.name, je.name)) LIKE '%' || lower(n) || '%')
+        END
       )
     )
 
@@ -228,17 +221,19 @@ aggregated AS (
     END                                                                                   AS time_period,
 
     -- Conditional group-by keys
+    -- Account (when group_by_account=1, also include dependent attributes)
     CASE WHEN p.group_by_account = 1 THEN w.account_number ELSE NULL END                  AS account_number,
     CASE WHEN p.group_by_account = 1 THEN w.account_name ELSE NULL END                    AS account_name,
     CASE WHEN p.group_by_account = 1 THEN w.account_full_name ELSE NULL END               AS account_full_name,
-    CASE WHEN p.group_by_account_type = 1 THEN w.account_type ELSE NULL END               AS account_type,
-    CASE WHEN p.group_by_account_type = 1 THEN w.account_type_detail ELSE NULL END        AS account_type_detail,
-    CASE WHEN p.group_by_classification = 1 THEN w.classification ELSE NULL END           AS classification,
-    CASE WHEN p.group_by_statement = 1 THEN w.statement ELSE NULL END                     AS statement,
-    CASE WHEN p.group_by_report_chart = 1 THEN w.report_chart ELSE NULL END               AS report_chart,
-    CASE WHEN p.group_by_company = 1 THEN w.company_id ELSE NULL END                      AS company_id,
-    CASE WHEN p.group_by_company = 1 THEN w.company_name ELSE NULL END                    AS company_name,
-    CASE WHEN p.group_by_company = 1 THEN w.main_currency ELSE NULL END                   AS main_currency,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_account_type = 1 THEN w.account_type ELSE NULL END               AS account_type,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_account_type = 1 THEN w.account_type_detail ELSE NULL END        AS account_type_detail,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_classification = 1 THEN w.classification ELSE NULL END           AS classification,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_statement = 1 THEN w.statement ELSE NULL END                     AS statement,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_report_chart = 1 THEN w.report_chart ELSE NULL END               AS report_chart,
+    -- Company (always shown – query is scoped to authorized companies)
+    w.company_id                                                                          AS company_id,
+    w.company_name                                                                        AS company_name,
+    w.main_currency                                                                       AS main_currency,
     CASE WHEN p.group_by_customer = 1 THEN w.customer_id ELSE NULL END                    AS customer_id,
     CASE WHEN p.group_by_customer = 1 THEN w.customer_name ELSE NULL END                  AS customer_name,
 
@@ -263,14 +258,14 @@ aggregated AS (
     CASE WHEN p.group_by_account = 1 THEN w.account_number ELSE NULL END,
     CASE WHEN p.group_by_account = 1 THEN w.account_name ELSE NULL END,
     CASE WHEN p.group_by_account = 1 THEN w.account_full_name ELSE NULL END,
-    CASE WHEN p.group_by_account_type = 1 THEN w.account_type ELSE NULL END,
-    CASE WHEN p.group_by_account_type = 1 THEN w.account_type_detail ELSE NULL END,
-    CASE WHEN p.group_by_classification = 1 THEN w.classification ELSE NULL END,
-    CASE WHEN p.group_by_statement = 1 THEN w.statement ELSE NULL END,
-    CASE WHEN p.group_by_report_chart = 1 THEN w.report_chart ELSE NULL END,
-    CASE WHEN p.group_by_company = 1 THEN w.company_id ELSE NULL END,
-    CASE WHEN p.group_by_company = 1 THEN w.company_name ELSE NULL END,
-    CASE WHEN p.group_by_company = 1 THEN w.main_currency ELSE NULL END,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_account_type = 1 THEN w.account_type ELSE NULL END,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_account_type = 1 THEN w.account_type_detail ELSE NULL END,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_classification = 1 THEN w.classification ELSE NULL END,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_statement = 1 THEN w.statement ELSE NULL END,
+    CASE WHEN p.group_by_account = 1 OR p.group_by_report_chart = 1 THEN w.report_chart ELSE NULL END,
+    w.company_id,
+    w.company_name,
+    w.main_currency,
     CASE WHEN p.group_by_customer = 1 THEN w.customer_id ELSE NULL END,
     CASE WHEN p.group_by_customer = 1 THEN w.customer_name ELSE NULL END
 )
