@@ -1,0 +1,141 @@
+{
+  "name": "financials_list_unmapped_statement_transactions",
+  "description": "Diagnostic tool that lists Amazon settlement transaction combos that lack classification mapping.\n\nTwo modes:\n\n1. **reference** — Shows transaction_type + amount_type + amount_description combos that have NO matching rule in settlement_flat_mapping. These are the rows that get subclass '9.99' (Unclassified) in the classify tool's reference mode. Use this to identify which mapping rules need to be added to settlement_flat_mapping.\n\n2. **coa** (default) — Shows service_name values that have NO matching service → account link in the company's Chart of Accounts. These are the rows that appear as 'unmapped' in the classify tool's default (CoA) mode. Use this to identify which services need to be linked to an account.\n\nWorkflow:\n1. Run classify tool → notice unmapped amounts are significant\n2. Call THIS tool to get the specific unmapped combos or service names\n3. Fix the mappings:\n   - For reference mode gaps → add rules to settlement_flat_mapping\n   - For CoA mode gaps → use financials_analyze_service_coa_mapping to link services to accounts\n4. Re-run classify tool to verify everything is now mapped\n\nDefault time range: Last 3 months when no dates are provided.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Query envelope.",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["coa", "reference"],
+            "default": "coa",
+            "description": "Which mapping layer to check.\n\n- 'coa' (default): Lists service_name values with no service → account mapping in the company's CoA.\n- 'reference': Lists transaction_type + amount_type + amount_description combos with no settlement_flat_mapping rule."
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filters. company_id is required.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "settlement_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by specific settlement IDs."
+              },
+              "marketplace_codes": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by marketplace country code (e.g., 'US', 'DE'). Case-insensitive."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "time": {
+            "type": "object",
+            "description": "Date range filter on posted transaction date.",
+            "properties": {
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Start of date range (YYYY-MM-DD). Defaults to 3 months ago."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "End of date range (YYYY-MM-DD). Defaults to today."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ordering.",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": ["total_amount", "line_count"],
+                "default": "line_count",
+                "description": "Column to sort by. Default: line_count."
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc",
+                "description": "Sort direction. Default: desc (most impactful unmapped combos first)."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 200,
+            "description": "Maximum rows to return (default 200, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rank": { "type": "integer", "description": "1-based position by sort field." },
+            "currency": { "type": "string", "description": "ISO 4217 currency code." },
+            "transaction_type": { "type": ["string", "null"], "description": "[reference mode] Transaction type (e.g., 'Order', 'Refund', 'Service Fee')." },
+            "amount_type": { "type": ["string", "null"], "description": "[reference mode] Amount type as-is from the source." },
+            "amount_description": { "type": ["string", "null"], "description": "[reference mode] Amount description as-is from the source." },
+            "amount_type_norm": { "type": ["string", "null"], "description": "[reference mode] Normalized amount_type used for mapping lookup." },
+            "amount_description_norm": { "type": ["string", "null"], "description": "[reference mode] Normalized amount_description used for mapping lookup." },
+            "service_name": { "type": ["string", "null"], "description": "[coa mode] The derived service label that has no CoA account mapping." },
+            "total_amount": { "type": "number", "description": "Net amount of unmapped transactions in this group." },
+            "line_count": { "type": "integer", "description": "Number of unmapped transaction lines." },
+            "total_quantity": { "type": ["integer", "null"], "description": "Sum of item quantity." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "List unmapped services (CoA mode)",
+      "description": "Find service names that have no account mapping in the company's CoA.",
+      "request": {
+        "query": {
+          "filters": { "company_id": 211 },
+          "time": { "start_date": "2025-12-01", "end_date": "2026-02-28" }
+        }
+      }
+    },
+    {
+      "title": "List unmapped transaction combos (reference mode)",
+      "description": "Find transaction_type + amount_type + amount_description combos missing from settlement_flat_mapping.",
+      "request": {
+        "query": {
+          "mode": "reference",
+          "filters": { "company_id": 211 },
+          "sort": { "field": "total_amount", "direction": "asc" }
+        }
+      }
+    }
+  ]
+}

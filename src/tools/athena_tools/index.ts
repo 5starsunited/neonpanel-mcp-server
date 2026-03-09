@@ -37,6 +37,7 @@ import { registerFinancialsSaveAmazonStatementReconciliationResultTool } from '.
 import { registerFinancialsListAmazonStatementReconciliationResultsTool } from './tools/financials/list_amazon_statement_reconciliation_results/register';
 import { registerFinancialsAnalyzeServiceCoaMappingTool } from './tools/financials/analyze_service_coa_mapping/register';
 import { registerFinancialsListChartOfAccountsTool } from './tools/financials/list_chart_of_accounts/register';
+import { registerFinancialsListUnmappedStatementTransactionsTool } from './tools/financials/list_unmapped_statement_transactions/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -77,5 +78,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerFinancialsListAmazonStatementReconciliationResultsTool(registry);
   registerFinancialsAnalyzeServiceCoaMappingTool(registry);
   registerFinancialsListChartOfAccountsTool(registry);
+  registerFinancialsListUnmappedStatementTransactionsTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }
