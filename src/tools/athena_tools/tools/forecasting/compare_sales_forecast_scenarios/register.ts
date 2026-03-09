@@ -35,7 +35,6 @@ function sqlNullableTimestampExpr(iso: string | null | undefined): string {
   if (!iso) return 'CAST(NULL AS TIMESTAMP)';
   const trimmed = iso.trim();
   if (trimmed.length === 0) return 'CAST(NULL AS TIMESTAMP)';
-  // Athena: from_iso8601_timestamp accepts RFC3339/ISO8601.
   return `from_iso8601_timestamp(${sqlStringLiteral(trimmed)})`;
 }
 
@@ -52,6 +51,10 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
 function sqlBooleanLiteral(value: boolean): string {
   return value ? 'TRUE' : 'FALSE';
 }
+
+// ---------------------------------------------------------------------------
+// Zod schemas
+// ---------------------------------------------------------------------------
 
 const querySchema = z
   .object({
@@ -70,6 +73,13 @@ const querySchema = z
         asin: z.array(z.string()).max(5).optional(),
       })
       .catchall(z.unknown()),
+    aggregation: z
+      .object({
+        group_by: z
+          .array(z.enum(['company', 'brand', 'product_family', 'parent_asin', 'asin']))
+          .optional(),
+      })
+      .optional(),
     country_code: z.array(z.string()).min(1).max(1).optional(),
     marketplace: z.array(z.string()).min(1).max(1).optional(),
     limit: z.coerce.number().int().min(1).max(500).default(200).optional(),
@@ -81,9 +91,6 @@ const toolSpecificSchema = z
     compare: z
       .object({
         mode: z.enum(['scenarios', 'runs', 'scenarios_and_runs']).default('scenarios').optional(),
-
-        aggregate: z.enum(['none', 'parent_asin', 'product_family', 'all']).default('none').optional(),
-        include_breakdown: z.boolean().default(false).optional(),
 
         scenario_ids: z.array(z.coerce.number().int().min(1)).optional(),
         scenario_uuids: z.array(z.string()).optional(),
@@ -122,6 +129,10 @@ const inputSchema = z
   })
   .strict();
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function normalizeCompanyId(filters: any): { companyId?: number; error?: string } {
   const companyId = filters.company_id ? Number(filters.company_id) : undefined;
   if (companyId && Number.isFinite(companyId) && companyId > 0) {
@@ -157,9 +168,52 @@ async function getAllowedCompanyIds(requestedCompanyId: number, context: ToolExe
   return { permittedCompanyIds, allowedCompanyIds };
 }
 
+// ---------------------------------------------------------------------------
+// Group-by dimension helpers (shared pattern with list_latest tool)
+// ---------------------------------------------------------------------------
+
+type DimColumn = { baseExpr: string; alias: string };
+
+function buildGroupByDimensions(groupBy: string[]): DimColumn[] {
+  const dims: DimColumn[] = [
+    { baseExpr: 'b.company_id', alias: 'company_id' },
+  ];
+
+  for (const key of groupBy) {
+    switch (key) {
+      case 'company':
+        break; // already included
+      case 'brand':
+        dims.push({ baseExpr: "COALESCE(b.brand, '__UNKNOWN__')", alias: 'brand' });
+        break;
+      case 'product_family':
+        dims.push({ baseExpr: "COALESCE(b.product_family, '__UNKNOWN__')", alias: 'product_family' });
+        break;
+      case 'parent_asin':
+        dims.push({ baseExpr: "COALESCE(b.parent_asin, '__UNKNOWN__')", alias: 'parent_asin' });
+        break;
+      case 'asin':
+        dims.push({ baseExpr: "COALESCE(b.child_asin, '__UNKNOWN__')", alias: 'child_asin' });
+        break;
+    }
+  }
+
+  return dims;
+}
+
+function buildGroupTemplateVars(dims: DimColumn[]): Record<string, string> {
+  return {
+    group_select_base: dims.map((d) => `${d.baseExpr} AS ${d.alias}`).join(',\n    '),
+    group_by_clause_base: dims.map((d) => d.baseExpr).join(', '),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
 export function registerForecastingCompareSalesForecastScenariosTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const sqlPath = path.join(__dirname, 'query.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -173,7 +227,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
   registry.register({
     name: 'forecasting_compare_sales_forecast_scenarios',
     description:
-      'Deep-dive comparison for a single item across forecast scenarios and/or run history; overlays actuals by default. Use country_code (e.g., US/UK/AU) for SKU-based lookups.',
+      'Deep-dive comparison across forecast scenarios and/or run history; overlays actuals by default. Use country_code (e.g., US/UK/AU) for SKU-based lookups.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -186,6 +240,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
       const warnings: string[] = [];
 
+      // ---- Company ID resolution ----
       const { companyId, error } = normalizeCompanyId(filters);
       if (error) {
         return { rows: [], meta: { warnings, error } };
@@ -200,6 +255,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         };
       }
 
+      // ---- Selector parsing ----
       const inventoryIds = Array.isArray(filters.inventory_ids)
         ? filters.inventory_ids
             .map((n: any) => Number(n))
@@ -287,16 +343,19 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         warnings.push('compare.scenario_uuids is not supported yet; use compare.scenario_names.');
       }
 
+      // ---- Authorization ----
       const { permittedCompanyIds, allowedCompanyIds } = await getAllowedCompanyIds(companyId, context);
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
         return { rows: [], meta: { warnings, error: 'Not authorized for requested company_id.' } };
       }
 
+      // ---- Aggregation mode ----
+      const validGroupByKeys = new Set(['company', 'brand', 'product_family', 'parent_asin', 'asin']);
+      const groupBy = [...new Set((parsed.query.aggregation?.group_by ?? []).filter((g) => validGroupByKeys.has(g)))];
+      const isAggregated = groupBy.length > 0;
+
+      // ---- Limits ----
       const limit = Math.min(500, parsed.query.limit ?? 200);
-      const aggregateMode = String(compare.aggregate ?? 'none');
-      const includeBreakdown = Boolean(compare.include_breakdown ?? false);
-      const detailNeeded = aggregateMode === 'none' || includeBreakdown;
-      const aggregateNeeded = aggregateMode !== 'none';
       const selectorCount = selectorFlags.inventory
         ? inventoryIds.length
         : selectorFlags.sku
@@ -311,13 +370,13 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         selectorFlags.inventory || selectorFlags.sku
           ? Math.max(1, Math.min(selectorCount, 20))
           : Math.max(1, fallbackMaxItems);
-      const rowsPerItemEstimate = aggregateNeeded && detailNeeded ? 400 : detailNeeded ? 250 : 150;
+      const rowsPerItemEstimate = isAggregated ? 150 : 250;
       const rowLimit = Math.min(5000, Math.max(limit, maxItems * rowsPerItemEstimate));
-      const maxRows = aggregateNeeded && detailNeeded ? Math.min(6000, rowLimit * 2) : rowLimit;
+      const maxRows = rowLimit;
       const debugSqlEnabled = Boolean(compare.debug_sql);
 
-      const template = await loadTextFile(sqlPath);
-      const query = renderSqlTemplate(template, {
+      // ---- Common template variables ----
+      const commonTemplateVars: Record<string, string | number> = {
         catalog: config.athena.catalog,
         database: config.athena.database,
         table: config.athena.tables.inventoryPlanningSnapshot,
@@ -330,14 +389,17 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
         inventory_ids_array: sqlCompanyIdArrayExpr(inventoryIds),
         sku_array: sqlVarcharArrayExpr(skuList),
-  sku_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
-  sku_normalized_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.trim().toLowerCase())),
+        sku_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
+        sku_normalized_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.trim().toLowerCase())),
         marketplace_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS VARCHAR)',
-  marketplace_lower_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw.trim().toLowerCase()) : 'CAST(NULL AS VARCHAR)',
+        marketplace_lower_sql:
+          countryCodeRaw.length > 0
+            ? sqlStringLiteral(countryCodeRaw.trim().toLowerCase())
+            : 'CAST(NULL AS VARCHAR)',
         parent_asins_array: sqlVarcharArrayExpr(parentAsins),
-  parent_asins_lower_array: sqlVarcharArrayExpr(parentAsins.map((s: string) => s.toLowerCase())),
+        parent_asins_lower_array: sqlVarcharArrayExpr(parentAsins.map((s: string) => s.toLowerCase())),
         product_families_array: sqlVarcharArrayExpr(productFamilies),
-  product_families_lower_array: sqlVarcharArrayExpr(productFamilies.map((s: string) => s.toLowerCase())),
+        product_families_lower_array: sqlVarcharArrayExpr(productFamilies.map((s: string) => s.toLowerCase())),
 
         apply_inventory_id_filter_sql: sqlBooleanLiteral(selectorFlags.inventory),
         apply_sku_filter_sql: sqlBooleanLiteral(selectorFlags.sku),
@@ -352,11 +414,6 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
         compare_mode_sql: sqlStringLiteral(String(compare.mode ?? 'scenarios')),
 
-        aggregate_mode_sql: sqlStringLiteral(aggregateMode),
-        include_breakdown_sql: sqlBooleanLiteral(includeBreakdown),
-        detail_needed_sql: sqlBooleanLiteral(detailNeeded),
-        aggregate_needed_sql: sqlBooleanLiteral(aggregateNeeded),
-
         limit_top_n: Number(rowLimit),
 
         run_selector_type_sql: sqlStringLiteral(String(compare.run_selector?.type ?? 'latest_n')),
@@ -370,128 +427,47 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         period_end_sql: sqlNullableStringExpr(compare.period?.end ?? null),
 
         max_items: maxItems,
-      });
+      };
+
+      let renderedQuery: string;
+
+      if (isAggregated) {
+        // ---- Aggregated path ----
+        const dims = buildGroupByDimensions(groupBy);
+        const groupVars = buildGroupTemplateVars(dims);
+
+        const sqlPath = path.join(__dirname, 'query_grouped.sql');
+        const template = await loadTextFile(sqlPath);
+        renderedQuery = renderSqlTemplate(template, { ...commonTemplateVars, ...groupVars });
+      } else {
+        // ---- Detail (per-item) path ----
+        const sqlPath = path.join(__dirname, 'query.sql');
+        const template = await loadTextFile(sqlPath);
+        renderedQuery = renderSqlTemplate(template, commonTemplateVars);
+      }
 
       const athenaResult = await runAthenaQuery({
-        query,
+        query: renderedQuery,
         database: config.athena.database,
         workGroup: config.athena.workgroup,
         outputLocation: config.athena.outputLocation,
         maxRows,
       });
 
-      const rowsRaw = (athenaResult.rows ?? []) as Array<Record<string, any>>;
-      if (rowsRaw.length === 0) {
-        return {
-          items: [],
-          aggregates: [],
-          meta: {
-            warnings,
-            applied_compare: compare,
-            debug_sql: debugSqlEnabled ? query : undefined,
-          },
-        };
-      }
+      const rows = (athenaResult.rows ?? []) as Array<Record<string, any>>;
 
-      const detailRows = rowsRaw.filter((r) => r.row_type === 'detail');
-      const aggregateRows = rowsRaw.filter((r) => r.row_type === 'aggregate');
-
-      const itemsByKey = new Map<
-        string,
-        {
-          item_ref: Record<string, any>;
-          series: Map<
-            string,
-            {
-              series_type: any;
-              scenario_name: any;
-              run_updated_at: any;
-              currency: any;
-              rows: Record<string, any>[];
-            }
-          >;
-        }
-      >();
-
-      for (const r of detailRows) {
-        const itemKey = [r.company_id, r.inventory_id, r.sku, r.marketplace].join('|');
-        if (!itemsByKey.has(itemKey)) {
-          itemsByKey.set(itemKey, {
-            item_ref: {
-              company_id: r.company_id,
-              inventory_id: r.inventory_id,
-              sku: r.sku,
-              marketplace: r.marketplace,
-              child_asin: r.child_asin,
-              parent_asin: r.parent_asin,
-              asin: r.asin,
-              product_name: r.product_name,
-              product_family: r.product_family,
-              snapshot_date: r.snapshot_date,
-            },
-            series: new Map(),
-          });
-        }
-
-        const itemEntry = itemsByKey.get(itemKey)!;
-        const seriesKey = [r.series_type, r.scenario_name, r.run_updated_at, r.currency].join('|');
-        if (!itemEntry.series.has(seriesKey)) {
-          itemEntry.series.set(seriesKey, {
-            series_type: r.series_type,
-            scenario_name: r.scenario_name,
-            run_updated_at: r.run_updated_at,
-            currency: r.currency,
-            rows: [],
-          });
-        }
-
-        const seriesEntry = itemEntry.series.get(seriesKey)!;
-        seriesEntry.rows.push({
-          period: r.period,
-          units_sold: r.units_sold,
-          sales_amount: r.sales_amount,
-          unit_price: r.unit_price,
-          seasonality_index: r.seasonality_index,
-        });
-      }
-
-      const aggregatesByKey = new Map<string, { group: Record<string, any>; rows: Record<string, any>[] }>();
-      for (const r of aggregateRows) {
-        const key = [r.group_product_family ?? '', r.group_parent_asin ?? ''].join('|');
-        if (!aggregatesByKey.has(key)) {
-          aggregatesByKey.set(key, {
-            group: {
-              product_family: r.group_product_family,
-              parent_asin: r.group_parent_asin,
-            },
-            rows: [],
-          });
-        }
-
-        const entry = aggregatesByKey.get(key)!;
-        entry.rows.push({
-          series_type: r.series_type,
-          scenario_name: r.scenario_name,
-          run_updated_at: r.run_updated_at,
-          period: r.period,
-          units_sold: r.units_sold,
-          sales_amount: r.sales_amount,
-          unit_price: r.unit_price,
-          currency: r.currency,
-          seasonality_index: r.seasonality_index,
-        });
-      }
+      // Defensive: enforce company_id filter client-side.
+      const filteredRows = companyId
+        ? rows.filter((r) => String(r.company_id) === String(companyId))
+        : rows;
 
       return {
-        items: Array.from(itemsByKey.values()).map((entry) => ({
-          item_ref: entry.item_ref,
-          series: Array.from(entry.series.values()),
-        })),
-        aggregates: Array.from(aggregatesByKey.values()),
+        rows: filteredRows,
         meta: {
           warnings,
+          group_by: isAggregated ? groupBy : undefined,
           applied_compare: compare,
-          debug_sql: debugSqlEnabled ? query : undefined,
+          debug_sql: debugSqlEnabled ? renderedQuery : undefined,
         },
       };
     },

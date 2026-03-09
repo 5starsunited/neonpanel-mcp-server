@@ -34,6 +34,10 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
   return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
+// ---------------------------------------------------------------------------
+// Zod schemas
+// ---------------------------------------------------------------------------
+
 const sharedQuerySchema = z
   .object({
     filters: z
@@ -55,13 +59,8 @@ const sharedQuerySchema = z
       .optional(),
     aggregation: z
       .object({
-        group_by: z.array(z.string()).optional(),
-        time: z
-          .object({
-            periodicity: z.enum(['day', 'week', 'month', 'quarter', 'year']).optional(),
-            start_date: z.string().optional(),
-            end_date: z.string().optional(),
-          })
+        group_by: z
+          .array(z.enum(['company', 'brand', 'product_family', 'parent_asin', 'asin']))
           .optional(),
       })
       .optional(),
@@ -84,10 +83,6 @@ const toolSpecificSchema = z
     include_plan_series: z.boolean().default(true),
     include_sales_history_signals: z.boolean().default(true),
     include_actuals: z.boolean().default(false),
-    aggregate: z.boolean().default(false),
-    aggregate_by: z.enum(['parent_asin', 'product_family']).default('parent_asin'),
-    include_item_sales_share: z.boolean().default(false),
-    sales_share_basis: z.enum(['sales_last_30_days', 'units_sold_last_30_days']).default('sales_last_30_days'),
     debug: z.boolean().default(false),
   })
   .strict();
@@ -100,6 +95,10 @@ const inputSchema = z
   .strict();
 
 const fallbackOutputSchema = { type: 'object', additionalProperties: true } as const;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function normalizeCompanyIdFilters(filters: any): { companyId?: number; error?: string } {
   if (!filters) return {};
@@ -144,6 +143,60 @@ async function getAllowedCompanyIds(requestedCompanyId: number | undefined, cont
   return { permittedCompanyIds, allowedCompanyIds };
 }
 
+// ---------------------------------------------------------------------------
+// Group-by dimension helpers for aggregated mode
+// ---------------------------------------------------------------------------
+
+type DimColumn = { baseExpr: string; alias: string };
+
+/**
+ * Build the list of SQL dimensions for the GROUP BY / SELECT clauses.
+ * company_id + company_name are always included for authorization and readability.
+ */
+function buildGroupByDimensions(groupBy: string[]): DimColumn[] {
+  const dims: DimColumn[] = [
+    { baseExpr: 't.company_id', alias: 'company_id' },
+    { baseExpr: 't.company_name', alias: 'company_name' },
+  ];
+
+  for (const key of groupBy) {
+    switch (key) {
+      case 'company':
+        break; // already included above
+      case 'brand':
+        dims.push({ baseExpr: "COALESCE(t.brand, '__UNKNOWN__')", alias: 'brand' });
+        break;
+      case 'product_family':
+        dims.push({ baseExpr: "COALESCE(t.product_family, '__UNKNOWN__')", alias: 'product_family' });
+        break;
+      case 'parent_asin':
+        dims.push({ baseExpr: "COALESCE(t.parent_asin, '__UNKNOWN__')", alias: 'parent_asin' });
+        break;
+      case 'asin':
+        dims.push({ baseExpr: "COALESCE(t.child_asin, '__UNKNOWN__')", alias: 'child_asin' });
+        break;
+    }
+  }
+
+  return dims;
+}
+
+/** Generate the SQL fragment template variables consumed by query_grouped.sql. */
+function buildGroupTemplateVars(dims: DimColumn[]): Record<string, string> {
+  return {
+    group_select_base: dims.map((d) => `${d.baseExpr} AS ${d.alias}`).join(',\n    '),
+    group_by_clause_base: dims.map((d) => d.baseExpr).join(', '),
+    group_select_raw: dims.map((d) => d.alias).join(', '),
+    group_by_clause_raw: dims.map((d) => d.alias).join(', '),
+    group_plan_join_condition: dims.map((d) => `gp.${d.alias} = g.${d.alias}`).join(' AND '),
+    group_actuals_join_condition: dims.map((d) => `ga.${d.alias} = g.${d.alias}`).join(' AND '),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
 export function registerForecastingListLatestSalesForecastTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
 
@@ -171,30 +224,21 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
 
       const warnings: string[] = [];
 
+      // ---- Company ID resolution ----
       const { companyId, error } = normalizeCompanyIdFilters(filters);
       if (error) {
         return {
           items: [],
-          meta: {
-            warnings,
-            error,
-            applied_sort: query.sort ?? null,
-            selected_fields: query.select_fields ?? null,
-          },
+          meta: { warnings, error, applied_sort: query.sort ?? null, selected_fields: query.select_fields ?? null },
         };
       }
 
+      // ---- Unsupported-filter warnings ----
       if (filters.tags && Array.isArray(filters.tags) && filters.tags.length > 0) {
         warnings.push('Unsupported filter ignored: query.filters.tags (no tags column in snapshot).');
       }
       if (filters.pareto_abc_class && Array.isArray(filters.pareto_abc_class) && filters.pareto_abc_class.length > 0) {
         warnings.push('Unsupported filter ignored: query.filters.pareto_abc_class (not supported by this tool yet).');
-      }
-      if (query.aggregation?.group_by && query.aggregation.group_by.some((g: string) => g && g !== 'none')) {
-        warnings.push('query.aggregation.group_by is not implemented; use tool_specific.aggregate + tool_specific.aggregate_by.');
-      }
-      if (query.aggregation?.time) {
-        warnings.push('query.aggregation.time is not supported for latest-forecast view; ignoring.');
       }
       if (query.cursor) {
         warnings.push('Pagination cursor is not supported yet; ignoring query.cursor.');
@@ -203,6 +247,14 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         warnings.push('Server-side sorting is not implemented yet; using default sort (recent sales desc).');
       }
 
+      // ---- Determine aggregation mode from query.aggregation.group_by ----
+      const validGroupByKeys = new Set(['company', 'brand', 'product_family', 'parent_asin', 'asin']);
+      const groupBy = [...new Set((query.aggregation?.group_by ?? []).filter((g) => validGroupByKeys.has(g)))];
+      const isAggregated = groupBy.length > 0;
+
+      // Zod enum already validates group_by values; no need for runtime unknown-key filtering.
+
+      // ---- Authorization ----
       const { permittedCompanyIds, allowedCompanyIds } = await getAllowedCompanyIds(companyId, context);
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
         return {
@@ -214,6 +266,7 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         };
       }
 
+      // ---- Athena config ----
       const catalog = config.athena.catalog;
       const database = config.athena.database;
       const table = config.athena.tables.inventoryPlanningSnapshot;
@@ -228,12 +281,8 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
       const limitTopN = hasSkuFilter ? Math.max(limit, Math.max(10, skuList.length)) : limit;
       const maxRows = hasSkuFilter ? Math.max(50, limit * 5) : limit;
 
-      // Use optimised query for the dominant path (details).
-      // Keep baseline query for aggregate output (optimised SQL is detail-only).
-      const sqlPath = path.join(__dirname, 'query.sql');
-
-      const template = await loadTextFile(sqlPath);
-      const rendered = renderSqlTemplate(template, {
+      // Common template variables shared by both detail and grouped SQL paths.
+      const commonTemplateVars: Record<string, string | number> = {
         catalog,
         database,
         table,
@@ -243,13 +292,7 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         limit_top_n: Number(limitTopN),
         horizon_months: Number(toolSpecific.horizon_months ?? 12),
         include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
-        include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
         include_actuals_sql: toolSpecific.include_actuals ? 'TRUE' : 'FALSE',
-
-        aggregate_sql: toolSpecific.aggregate ? 'TRUE' : 'FALSE',
-        aggregate_by_sql: `'${toolSpecific.aggregate_by}'`,
-        include_item_sales_share_sql: toolSpecific.include_item_sales_share ? 'TRUE' : 'FALSE',
-        sales_share_basis_sql: `'${toolSpecific.sales_share_basis}'`,
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         skus_array: sqlVarcharArrayExpr(skuList),
@@ -260,8 +303,53 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         product_families_array: sqlVarcharArrayExpr((filters.product_family ?? []).map(String)),
         marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map(String)),
         revenue_abcd_classes_array: sqlVarcharArrayExpr((filters.revenue_abcd_class ?? []).map(String)),
+      };
 
-        debug_mode_sql: toolSpecific.debug ? 'TRUE' : 'FALSE',
+      // ================================================================
+      // AGGREGATED path: group_by was specified
+      // ================================================================
+      if (isAggregated) {
+        const dims = buildGroupByDimensions(groupBy);
+        const groupVars = buildGroupTemplateVars(dims);
+
+        const sqlPath = path.join(__dirname, 'query_grouped.sql');
+        const template = await loadTextFile(sqlPath);
+        const rendered = renderSqlTemplate(template, { ...commonTemplateVars, ...groupVars });
+
+        const athenaResult = await runAthenaQuery({
+          query: rendered,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows,
+        });
+
+        const items = (athenaResult.rows ?? []).map((row) => row as Record<string, unknown>);
+
+        // Defensive: enforce company_id filter client-side.
+        const filtered = companyId
+          ? items.filter((it) => String((it as any).company_id) === String(companyId))
+          : items;
+
+        return {
+          items: filtered,
+          meta: {
+            warnings,
+            group_by: groupBy,
+            applied_sort: query.sort ?? null,
+            selected_fields: query.select_fields ?? null,
+          },
+        };
+      }
+
+      // ================================================================
+      // DETAIL (SKU-level) path: no group_by
+      // ================================================================
+      const sqlPath = path.join(__dirname, 'query.sql');
+      const template = await loadTextFile(sqlPath);
+      const rendered = renderSqlTemplate(template, {
+        ...commonTemplateVars,
+        include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
       });
 
       const athenaResult = await runAthenaQuery({
@@ -274,11 +362,10 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
 
       const items = (athenaResult.rows ?? []).map((row) => row as Record<string, unknown>);
 
-      // If no rows returned for a single-SKU request, run a lightweight debug probe to surface match context.
-      if (items.length === 0) {
-        if (skuList.length === 1) {
-          const requestedSku = skuList[0];
-          const debugSql = `
+      // If no rows returned for a single-SKU request, run a lightweight debug probe.
+      if (items.length === 0 && skuList.length === 1) {
+        const requestedSku = skuList[0];
+        const debugSql = `
 WITH latest_snapshot AS (
   SELECT pil.year, pil.month, pil.day
   FROM "${catalog}"."${database}"."${table}" pil
@@ -317,87 +404,60 @@ WHERE pil.company_id = ${companyId}
   )
 LIMIT 25;`;
 
-          const debugResult = await runAthenaQuery({
-            query: debugSql,
-            database,
-            workGroup: config.athena.workgroup,
-            outputLocation: config.athena.outputLocation,
-            maxRows: 25,
-          });
+        const debugResult = await runAthenaQuery({
+          query: debugSql,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: 25,
+        });
 
-          // Retry main query with a slightly higher limit to avoid over-pruning in ORDER/LIMIT.
-          const retryRendered = renderSqlTemplate(template, {
-            catalog,
-            database,
-            table,
-            forecasting_database: forecastingDatabase,
-            sales_forecast_table: salesForecastTable,
+        // Retry main query with a slightly higher limit to avoid over-pruning.
+        const retryRendered = renderSqlTemplate(template, {
+          ...commonTemplateVars,
+          limit_top_n: Math.min(10, Math.max(3, Number(limit))),
+          include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
+        });
 
-            limit_top_n: Math.min(10, Math.max(3, Number(limit))),
-            horizon_months: Number(toolSpecific.horizon_months ?? 12),
-            include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
-            include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
-            include_actuals_sql: toolSpecific.include_actuals ? 'TRUE' : 'FALSE',
+        const retryResult = await runAthenaQuery({
+          query: retryRendered,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: Math.min(50, Math.max(10, limit * 5)),
+        });
 
-            aggregate_sql: toolSpecific.aggregate ? 'TRUE' : 'FALSE',
-            aggregate_by_sql: `'${toolSpecific.aggregate_by}'`,
-            include_item_sales_share_sql: toolSpecific.include_item_sales_share ? 'TRUE' : 'FALSE',
-            sales_share_basis_sql: `'${toolSpecific.sales_share_basis}'`,
+        const retryItems = (retryResult.rows ?? []).map((row) => row as Record<string, unknown>);
 
-            company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-            skus_array: sqlVarcharArrayExpr(skuList),
-            skus_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
-            asins_array: sqlVarcharArrayExpr((filters.asin ?? []).map(String)),
-            parent_asins_array: sqlVarcharArrayExpr((filters.parent_asin ?? []).map(String)),
-            brands_array: sqlVarcharArrayExpr((filters.brand ?? []).map(String)),
-            product_families_array: sqlVarcharArrayExpr((filters.product_family ?? []).map(String)),
-            marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map(String)),
-            revenue_abcd_classes_array: sqlVarcharArrayExpr((filters.revenue_abcd_class ?? []).map(String)),
-
-            debug_mode_sql: toolSpecific.debug ? 'TRUE' : 'FALSE',
-          });
-
-          const retryResult = await runAthenaQuery({
-            query: retryRendered,
-            database,
-            workGroup: config.athena.workgroup,
-            outputLocation: config.athena.outputLocation,
-            maxRows: Math.min(50, Math.max(10, limit * 5)),
-          });
-
-          const retryItems = (retryResult.rows ?? []).map((row) => row as Record<string, unknown>);
-
-          if (retryItems.length > 0) {
-            const filtered = companyId
-              ? retryItems.filter((it) => String((it as any).company_id) === String(companyId))
-              : retryItems;
-            return {
-              items: filtered,
-              meta: {
-                warnings: [...warnings, 'Returned via retry with higher limit_top_n. Debug probe attached.'],
-                applied_sort: query.sort ?? null,
-                selected_fields: query.select_fields ?? null,
-                debug_probe: debugResult.rows ?? [],
-              },
-            };
-          }
-
+        if (retryItems.length > 0) {
+          const filtered = companyId
+            ? retryItems.filter((it) => String((it as any).company_id) === String(companyId))
+            : retryItems;
           return {
-            items: [],
+            items: filtered,
             meta: {
-              warnings: [...warnings, 'No rows matched; debug probe attached.'],
+              warnings: [...warnings, 'Returned via retry with higher limit_top_n. Debug probe attached.'],
               applied_sort: query.sort ?? null,
               selected_fields: query.select_fields ?? null,
               debug_probe: debugResult.rows ?? [],
             },
           };
         }
+
+        return {
+          items: [],
+          meta: {
+            warnings: [...warnings, 'No rows matched; debug probe attached.'],
+            applied_sort: query.sort ?? null,
+            selected_fields: query.select_fields ?? null,
+            debug_probe: debugResult.rows ?? [],
+          },
+        };
       }
 
-      // Defensive: if caller requests a specific company_id, enforce it client-side as well.
+      // Defensive: enforce company_id filter client-side.
       if (companyId) {
         return {
-          // Athena rows are string-typed; compare as strings to avoid filtering out valid rows.
           items: items.filter((it) => String((it as any).company_id) === String(companyId)),
           meta: {
             warnings,

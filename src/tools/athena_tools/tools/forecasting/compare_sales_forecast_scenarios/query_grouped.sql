@@ -1,9 +1,9 @@
--- Tool: forecasting_compare_sales_forecast_scenarios (detail mode)
--- Purpose: per-item comparison of forecast scenarios/runs, with optional actuals overlay.
+-- Tool: forecasting_compare_sales_forecast_scenarios (grouped/aggregated mode)
+-- Purpose: aggregated comparison of forecast scenarios/runs, with optional actuals overlay.
 -- Notes:
--- - company_id filtering is REQUIRED.
--- - "actual" dataset is EXCLUDED from forecast selection; included separately via include_actuals flag.
--- - Filters use selector-path logic: inventory_ids OR sku+country_code OR parent_asin OR product_family.
+-- - Dimensions injected via template variables (group_select_base, group_by_clause_base, etc.).
+-- - company_id is always in GROUP BY.
+-- - "actual" dataset excluded from forecast; included separately via include_actuals flag.
 
 WITH params AS (
   SELECT
@@ -243,32 +243,30 @@ base_rows AS (
   SELECT * FROM actual_rows
 )
 
+-- Aggregated output: sum per (group dimensions, series_type, scenario_name, run_updated_at, period).
 SELECT
-  b.company_id,
-  b.inventory_id,
-  b.sku,
-  b.marketplace_key AS marketplace,
-  b.child_asin,
-  b.parent_asin,
-  b.asin,
-  b.product_name,
-  b.product_family,
-  b.brand,
-  b.snapshot_date,
+  {{group_select_base}},
   b.series_type,
   b.scenario_name,
   b.run_updated_at,
   b.period,
-  b.units_sold,
-  b.sales_amount,
-  b.unit_price,
-  b.currency
+  CAST(SUM(CAST(b.units_sold AS DOUBLE)) AS BIGINT) AS units_sold,
+  ROUND(SUM(CAST(b.sales_amount AS DOUBLE)), 2) AS sales_amount,
+  ROUND(
+    CASE WHEN SUM(CAST(b.units_sold AS DOUBLE)) > 0
+         THEN SUM(CAST(b.sales_amount AS DOUBLE)) / SUM(CAST(b.units_sold AS DOUBLE))
+         ELSE CAST(NULL AS DOUBLE) END, 3
+  ) AS unit_price,
+  MIN(b.currency) AS currency,
+  COUNT(DISTINCT b.inventory_id) AS inventory_count,
+  COUNT(DISTINCT b.sku) AS sku_count
 FROM base_rows b
+GROUP BY {{group_by_clause_base}}, b.series_type, b.scenario_name, b.run_updated_at, b.period
 
 ORDER BY
-  b.period ASC,
-  b.scenario_name ASC,
-  b.series_type ASC,
-  b.run_updated_at DESC
+  period ASC,
+  scenario_name ASC,
+  series_type ASC,
+  run_updated_at DESC
 
 LIMIT {{limit_top_n}}

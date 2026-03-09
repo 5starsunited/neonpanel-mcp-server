@@ -1,6 +1,6 @@
 {
   "name": "forecasting_compare_sales_forecast_scenarios",
-  "description": "Deep-dive forecasting comparison for multiple items with optional aggregation. Supports selectors by inventory_ids, sku+country_code, parent_asin, or product_family (pick one). Compares forecast outputs across scenarios and/or forecast runs, can overlay actuals, and can return aggregates plus per-item breakdown. Read-only; no side effects.",
+  "description": "Deep-dive forecasting comparison for multiple items. Supports selectors by inventory_ids, sku+country_code, parent_asin, or product_family (pick one). Compares forecast outputs across scenarios and/or forecast runs, with actuals overlay (include_actuals=true by default). Read-only; no side effects.\n\nLatest forecast evaluation:\n- The 'actual' scenario/dataset is always excluded when selecting forecast runs\n- Actuals are overlaid separately (same periods) when include_actuals=true, enabling actual-vs-forecast comparison\n\nAggregation:\n- query.aggregation.group_by: optional array of dimensions to aggregate by\n- Supported: company, brand, product_family, parent_asin, asin\n- company_id is always included for authorization\n- When aggregated, numeric fields (units_sold, sales_amount) are summed per (group, period, scenario)\n- If group_by is omitted, returns per-item detail rows\n\nCompany selection:\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n\nActual-vs-forecast comparison:\n- Set include_actuals=true (default) and optionally filter scenario_names to compare specific forecasts against actuals\n- Output rows have series_type='actual' or series_type='forecast' to distinguish them",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -71,6 +71,19 @@
             },
             "additionalProperties": true
           },
+          "aggregation": {
+            "type": "object",
+            "description": "Optional aggregation. If group_by is provided, returns aggregated rows instead of per-item detail.",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["company", "brand", "product_family", "parent_asin", "asin"] },
+                "description": "Dimensions to group by. Returns one row per (group, period, scenario, series_type). company_id is always included. Example: [\"brand\",\"product_family\"]."
+              }
+            },
+            "additionalProperties": false
+          },
+
           "limit": {
             "type": "integer",
             "minimum": 1,
@@ -94,18 +107,6 @@
                 "enum": ["scenarios", "runs", "scenarios_and_runs"],
                 "default": "scenarios",
                 "description": "Comparison axis selection."
-              },
-
-              "aggregate": {
-                "type": "string",
-                "enum": ["none", "parent_asin", "product_family", "all"],
-                "default": "none",
-                "description": "Aggregation mode: group totals by parent_asin, product_family, or both."
-              },
-              "include_breakdown": {
-                "type": "boolean",
-                "default": false,
-                "description": "When aggregating, also return per-item detail rows."
               },
 
               "scenario_ids": {
@@ -182,28 +183,12 @@
   "outputSchema": {
     "type": "object",
     "properties": {
-      "items": {
+      "rows": {
         "type": "array",
-        "description": "Per-item detail rows when detail is requested (aggregate=none or include_breakdown=true).",
+        "description": "Flat result rows. Each row has series_type (actual/forecast), scenario_name, period, units_sold, sales_amount, etc. In aggregated mode, rows also include inventory_count and sku_count.",
         "items": {
           "type": "object",
-          "properties": {
-            "item_ref": { "type": "object", "additionalProperties": true },
-            "rows": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
-          },
-          "additionalProperties": false
-        }
-      },
-      "aggregates": {
-        "type": "array",
-        "description": "Aggregated rows when aggregate mode is enabled.",
-        "items": {
-          "type": "object",
-          "properties": {
-            "group": { "type": "object", "additionalProperties": true },
-            "rows": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
-          },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
       "meta": {
