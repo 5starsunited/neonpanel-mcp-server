@@ -1,0 +1,143 @@
+{
+  "name": "shopify_list_inventory_balances",
+  "description": "List Shopify inventory balance records with warehouse, seller, and company details. Read-only; no side effects.\n\nUse cases:\n- View current Shopify stock levels per SKU/warehouse/seller\n- Filter by warehouse, seller, balance type, SKU, barcode\n- Aggregate totals by warehouse, seller, SKU, balance type, or snapshot date\n- Track inventory snapshots over a date range\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection/grouping\n\nImportant (company selection):\n- Use query.filters.company_id (preferred, integer) or query.filters.company (numeric string only)\n- At least one must be provided for authorization\n\nData sources:\n- neonpanel_iceberg.shopify_balances (quantity, sku, barcode, date, type)\n- neonpanel_iceberg.shopify_sellers (seller name, domain, status, connection state)\n- neonpanel_iceberg.inventory_warehouses (warehouse name)\n- neonpanel_iceberg.app_companies (company name)\n\nFilter logic:\n- Array filters use OR logic within the same filter type\n- Multiple filter types use AND\n- All string filters are case-insensitive\n\nDate filters:\n- query.filters.snapshot_date: exact date match (YYYY-MM-DD). Highest priority.\n- query.filters.date_from / date_to: date range (only applied when snapshot_date is not set)\n\nAggregation:\n- query.aggregation.group_by: returns one row per unique dimension combination\n- Supported dimensions: company, seller, warehouse, balance_type, sku, barcode, snapshot_date\n- company_id is always included in GROUP BY for authorization\n- Aggregated rows include: record_count, distinct_inventory_ids, distinct_skus, total_stock_quantity, avg_stock_quantity, min_stock_quantity, max_stock_quantity, earliest/latest_snapshot_date\n- If group_by is omitted or empty, returns detail rows",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters. All string filters are case-insensitive.",
+            "properties": {
+              "company": {
+                "type": "string",
+                "description": "Numeric company ID as string. Deprecated; use company_id instead."
+              },
+              "company_id": { "type": "integer", "minimum": 1 },
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product SKU(s). Case-insensitive."
+              },
+              "barcode": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by barcode(s)."
+              },
+              "warehouse_name": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by warehouse name(s). Case-insensitive."
+              },
+              "seller_name": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by Shopify seller/store name(s). Case-insensitive."
+              },
+              "balance_type": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by balance type(s). Case-insensitive."
+              },
+              "seller_status": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by seller/store status (e.g., 'active'). Case-insensitive."
+              },
+              "inventory_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by NeonPanel inventory ID(s)."
+              },
+              "snapshot_date": {
+                "type": "string",
+                "description": "Exact snapshot date (YYYY-MM-DD). Overrides date_from/date_to."
+              },
+              "date_from": {
+                "type": "string",
+                "description": "Start of date range (YYYY-MM-DD). Applied only when snapshot_date is not set."
+              },
+              "date_to": {
+                "type": "string",
+                "description": "End of date range (YYYY-MM-DD). Applied only when snapshot_date is not set."
+              }
+            },
+            "additionalProperties": true
+          },
+
+          "aggregation": {
+            "type": "object",
+            "description": "Optional aggregation. If group_by is provided, returns aggregated rows.",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["company", "seller", "warehouse", "balance_type", "sku", "barcode", "snapshot_date"]
+                },
+                "description": "Dimensions to group by. company_id is always included. Example: [\"warehouse\", \"sku\"]."
+              }
+            },
+            "additionalProperties": false
+          },
+
+          "sort": {
+            "type": "object",
+            "description": "Sort specification (not yet implemented server-side).",
+            "properties": {
+              "field": { "type": "string" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+              "nulls": { "type": "string", "enum": ["first", "last"], "default": "last" }
+            },
+            "additionalProperties": false
+          },
+
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection (projection)."
+          },
+
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 50
+          },
+
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor for pagination (not supported yet)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": { "type": "object", "additionalProperties": true }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "applied_sort": { "type": "object", "additionalProperties": true },
+          "selected_fields": { "type": "array", "items": { "type": "string" } },
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "group_by": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  }
+}

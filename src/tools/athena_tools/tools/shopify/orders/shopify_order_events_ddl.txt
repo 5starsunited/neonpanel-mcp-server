@@ -1,0 +1,23 @@
+CREATE TABLE neonpanel_iceberg.shopify_order_events (
+  id bigint,
+  order_id bigint,
+  item_id bigint,
+  event string,
+  shopify_id bigint,
+  shopify_item_id bigint,
+  warehouse_id bigint,
+  quantity int,
+  amount decimal(15, 3),
+  currency string,
+  status string,
+  shopify_created_at timestamp,
+  created_at timestamp,
+  updated_at timestamp,
+  partition_name string)
+LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/neonpanel_iceberg/neonpanel_iceberg/shopify_order_events'
+TBLPROPERTIES (
+  'table_type'='iceberg',
+  'compression_level'='3',
+  'format'='PARQUET',
+  'write_compression'='ZSTD'
+);

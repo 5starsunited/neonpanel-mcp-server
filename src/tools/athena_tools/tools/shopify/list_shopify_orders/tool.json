@@ -1,0 +1,165 @@
+{
+  "name": "shopify_list_orders",
+  "description": "List Shopify orders with line items and fulfillment/order events. Read-only; no side effects.\n\nUse cases:\n- View Shopify orders with their line items and event history (fulfillment, refund, etc.)\n- Filter by financial status, fulfillment status, event type/status, SKU, seller, warehouse, currency\n- Aggregate orders by seller, status, event type, warehouse, SKU, or month\n- Track order lifecycle from placement through fulfillment events\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort/projection/grouping\n\nImportant (company selection):\n- Use query.filters.company_id (preferred, integer) or query.filters.company (numeric string only)\n- At least one must be provided for authorization\n- Company is resolved through shopify_sellers.company_id\n\nData sources:\n- neonpanel_iceberg.shopify_orders (order header: amounts, statuses, timestamps)\n- neonpanel_iceberg.shopify_order_items (line items: sku, quantity, amount, title)\n- neonpanel_iceberg.shopify_order_events (events: fulfillment, refund, etc. with warehouse, quantity, amount)\n- neonpanel_iceberg.shopify_sellers (seller name, domain, status, connection state)\n- neonpanel_iceberg.inventory_warehouses (warehouse name)\n- neonpanel_iceberg.app_companies (company name)\n\nDetail mode (no group_by):\n- Returns one row per order × line-item × event combination\n- Includes full order header, item details, and event details\n- Sorted by order_created_at DESC\n\nFilter logic:\n- Array filters use OR logic within the same filter type\n- Multiple filter types use AND\n- All string filters are case-insensitive\n\nDate filters:\n- query.filters.date_from / date_to: filter on order creation date (shopify_created_at)\n\nAggregation:\n- query.aggregation.group_by: returns one row per unique dimension combination\n- Supported dimensions: company, seller, financial_status, fulfillment_status, currency, event_type, event_status, warehouse, sku, order_month\n- company_id is always included in GROUP BY for authorization\n- Aggregated rows include: order_count, line_item_count, distinct_skus, total_item_quantity, total_item_amount, total_event_quantity, total_event_amount, total_order_amount, total_order_subtotal, earliest/latest_order_date",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "description": "Shared query envelope.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Standard filters. All string filters are case-insensitive.",
+            "properties": {
+              "company": {
+                "type": "string",
+                "description": "Numeric company ID as string. Deprecated; use company_id instead."
+              },
+              "company_id": { "type": "integer", "minimum": 1 },
+              "order_name": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by Shopify order name(s) (e.g., '#1001'). Case-insensitive."
+              },
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by product SKU(s) on line items. Case-insensitive."
+              },
+              "seller_name": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by Shopify seller/store name(s). Case-insensitive."
+              },
+              "financial_status": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by order financial status (e.g., 'paid', 'refunded', 'pending'). Case-insensitive."
+              },
+              "fulfillment_status": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by order fulfillment status (e.g., 'fulfilled', 'partial', null=unfulfilled). Case-insensitive."
+              },
+              "event_type": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by order event type (e.g., 'fulfillment', 'refund'). Case-insensitive."
+              },
+              "event_status": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by order event status. Case-insensitive."
+              },
+              "currency": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by order currency (e.g., 'USD', 'EUR'). Case-insensitive."
+              },
+              "warehouse_name": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by warehouse name from events. Case-insensitive."
+              },
+              "inventory_id": {
+                "type": "array",
+                "items": { "type": "integer" },
+                "description": "Filter by NeonPanel inventory ID(s) on line items."
+              },
+              "date_from": {
+                "type": "string",
+                "description": "Filter orders created on or after this date (YYYY-MM-DD)."
+              },
+              "date_to": {
+                "type": "string",
+                "description": "Filter orders created on or before this date (YYYY-MM-DD)."
+              }
+            },
+            "additionalProperties": true
+          },
+
+          "aggregation": {
+            "type": "object",
+            "description": "Optional aggregation. If group_by is provided, returns aggregated rows.",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "company",
+                    "seller",
+                    "financial_status",
+                    "fulfillment_status",
+                    "currency",
+                    "event_type",
+                    "event_status",
+                    "warehouse",
+                    "sku",
+                    "order_month"
+                  ]
+                },
+                "description": "Dimensions to group by. company_id is always included. Example: [\"seller\", \"financial_status\"]."
+              }
+            },
+            "additionalProperties": false
+          },
+
+          "sort": {
+            "type": "object",
+            "description": "Sort specification (not yet implemented server-side).",
+            "properties": {
+              "field": { "type": "string" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+              "nulls": { "type": "string", "enum": ["first", "last"], "default": "last" }
+            },
+            "additionalProperties": false
+          },
+
+          "select_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional output field selection (projection)."
+          },
+
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 50
+          },
+
+          "cursor": {
+            "type": "string",
+            "description": "Opaque cursor for pagination (not supported yet)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": { "type": "object", "additionalProperties": true }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "applied_sort": { "type": "object", "additionalProperties": true },
+          "selected_fields": { "type": "array", "items": { "type": "string" } },
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "group_by": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  }
+}
