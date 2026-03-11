@@ -83,13 +83,12 @@ const sharedQuerySchema = z
         product_family: z.array(z.string()).optional(),
         parent_asin: z.array(z.string()).optional(),
         asin: z.array(z.string()).optional(),
-        sku: z.array(z.string()).optional(),
+        sku: z.array(z.string().min(1)).min(1).max(10),
         revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
         pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
         tags: z.array(z.string()).optional(),
       })
-      .catchall(z.unknown())
-      .optional(),
+      .catchall(z.unknown()),
     aggregation: z
       .object({
         group_by: z.array(z.string()).optional(),
@@ -367,12 +366,20 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
       const catalog = config.athena.catalog;
       const database = config.athena.database;
       const table = config.athena.tables.inventoryPlanningSnapshot;
+      const forecastingDatabase = config.athena.tables.forecastingDatabase;
+      const salesForecastTable = config.athena.tables.salesForecast;
 
       const filters = parsed.query.filters ?? {};
 
       const limit = parsed.query.limit ?? 200;
 
       const skus = ((filters as any).sku ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
+      if (skus.length === 0) {
+        return { items: [], meta: { warnings: ['query.filters.sku is required — provide 1-10 SKUs.'] } };
+      }
+      if (skus.length > 10) {
+        return { items: [], meta: { warnings: ['query.filters.sku accepts at most 10 SKUs per call.'] } };
+      }
       const asins = ((filters as any).asin ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
       const parentAsins = ((filters as any).parent_asin ?? [])
         .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0)
@@ -419,6 +426,8 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
         catalog,
         database,
         table,
+        forecasting_database: forecastingDatabase,
+        sales_forecast_table: salesForecastTable,
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         skus_array: sqlVarcharArrayExpr(skus),

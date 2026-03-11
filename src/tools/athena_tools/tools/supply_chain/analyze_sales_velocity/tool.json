@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_analyze_sales_velocity",
-  "description": "Analyze sales velocity for items selected by filters. Computes realized velocity signals, derives a plan-horizon velocity for PO placement decisions, detects inconsistencies, and returns explainable velocity recommendations. Read-only; no side effects.\n\nInput uses the shared query envelope:\n- query: standard filters/limit\n- tool_specific: knobs controlling output shape + computations\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
+  "description": "Analyze sales velocity for items selected by filters. Computes realized velocity signals, derives a plan-horizon velocity for PO placement decisions, detects inconsistencies, and returns explainable velocity recommendations. Read-only; no side effects.\n\nInput uses the shared query envelope:\n- query: standard filters/limit\n- tool_specific: knobs controlling output shape + computations\n\nIMPORTANT — required filter:\n- query.filters.sku (required, 1-10 SKUs) — you MUST provide at least one SKU.\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -18,17 +18,19 @@
               "product_family": { "type": "array", "items": { "type": "string" } },
               "parent_asin": { "type": "array", "items": { "type": "string" } },
               "asin": { "type": "array", "items": { "type": "string" } },
-              "sku": { "type": "array", "items": { "type": "string" } },
+              "sku": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10, "description": "Required. 1-10 SKUs to analyze." },
               "revenue_abcd_class": {
                 "type": "array",
                 "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
               },
               "tags": { "type": "array", "items": { "type": "string" } }
             },
+            "required": ["sku"],
             "additionalProperties": true
           },
           "limit": { "type": "integer", "minimum": 1, "default": 200 }
         },
+        "required": ["filters"],
         "additionalProperties": true
       },
       "tool_specific": {

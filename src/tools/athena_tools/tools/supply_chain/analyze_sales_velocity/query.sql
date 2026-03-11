@@ -4,6 +4,9 @@
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
 -- - This query filters to the latest (year,month,day) partition for the permitted company_ids.
+-- - Plan data is sourced from the Iceberg forecast table (fc_sales_forecast_iceberg) so that
+--   writes via forecasting_write_sales_forecast are reflected immediately without waiting
+--   for a snapshot rebuild.
 
 WITH params AS (
   SELECT
@@ -33,6 +36,60 @@ latest_snapshot AS (
   GROUP BY 1, 2, 3
   ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
   LIMIT 1
+),
+
+-- ---- Forecast plan from Iceberg table (same pattern as list_latest_sales_forecast) ----
+-- Latest forecast run per item (excludes 'actual' dataset)
+forecast_latest_key AS (
+  SELECT
+    company_id,
+    inventory_id,
+    calc_period,
+    updated_at
+  FROM (
+    SELECT
+      f.company_id,
+      f.inventory_id,
+      f.calc_period,
+      f.updated_at,
+      row_number() OVER (
+        PARTITION BY f.company_id, f.inventory_id
+        ORDER BY f.calc_period DESC, f.updated_at DESC
+      ) AS rn
+    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+    CROSS JOIN params p
+    WHERE contains(p.company_ids, f.company_id)
+      AND f.dataset <> 'actual'
+  ) ranked
+  WHERE rn = 1
+),
+
+forecast_latest_rows AS (
+  SELECT
+    f.company_id,
+    f.inventory_id,
+    f.forecast_period,
+    f.units_sold
+  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+  INNER JOIN forecast_latest_key k
+    ON k.company_id = f.company_id
+    AND k.inventory_id = f.inventory_id
+    AND k.calc_period = f.calc_period
+    AND k.updated_at = f.updated_at
+),
+
+-- Aggregate into per-item arrays of monthly planned units, ordered by forecast_period.
+-- Limit to 12 months to match the old next_12_month_sales_plan_units semantics.
+forecast_item_plan AS (
+  SELECT
+    fr.company_id,
+    fr.inventory_id,
+    slice(
+      array_agg(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
+      1, 12
+    ) AS plan_monthly_units
+  FROM forecast_latest_rows fr
+  GROUP BY 1, 2
 ),
 
 t_base AS (
@@ -76,19 +133,18 @@ t_base AS (
     -- Revenue proxy used for ABCD classification.
     COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
 
-    -- Parse monthly sales plan into an array of monthly units (doubles).
-    transform(
-      COALESCE(
-        TRY(CAST(json_parse(pil.next_12_month_sales_plan_units) AS ARRAY(JSON))),
-        CAST(ARRAY[] AS ARRAY(JSON))
-      ),
-      m -> COALESCE(TRY(CAST(json_extract_scalar(m, '$.units_sold') AS DOUBLE)), 0.0)
-    ) AS plan_monthly_units
+    -- Plan monthly units from the Iceberg forecast table (joined via forecast_item_plan).
+    -- Falls back to empty array when no forecast exists for this item.
+    COALESCE(fp.plan_monthly_units, CAST(ARRAY[] AS ARRAY(DOUBLE))) AS plan_monthly_units
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
 
   CROSS JOIN params p
   CROSS JOIN latest_snapshot s
+
+  LEFT JOIN forecast_item_plan fp
+    ON fp.company_id = pil.company_id
+    AND fp.inventory_id = pil.inventory_id
 
   WHERE
     contains(p.company_ids, pil.company_id)

@@ -408,6 +408,8 @@ async function executeSupplyChainListPoPlacementCandidates(
   const catalog = config.athena.catalog;
   const database = config.athena.database;
   const table = config.athena.tables.inventoryPlanningSnapshot;
+  const forecastingDatabase = config.athena.tables.forecastingDatabase;
+  const salesForecastTable = config.athena.tables.salesForecast;
 
   const limit = parsed.limit ?? 200;
 
@@ -450,6 +452,8 @@ async function executeSupplyChainListPoPlacementCandidates(
     catalog,
     database,
     table,
+    forecasting_database: forecastingDatabase,
+    sales_forecast_table: salesForecastTable,
     // Athena UI SQL parameter equivalents
     sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'planned'),
     planning_base_sql: planningBaseSql(parsed.planning_base),

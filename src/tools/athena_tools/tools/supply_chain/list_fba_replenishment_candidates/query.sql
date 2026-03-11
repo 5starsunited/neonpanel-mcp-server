@@ -3,6 +3,8 @@
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
 -- - Placeholder values are rendered by the server (for example: catalog/database/table and filter params).
+-- - Plan data is sourced from the Iceberg forecast table so that writes via
+--   forecasting_write_sales_forecast are reflected immediately.
 
 WITH params AS (
   SELECT
@@ -31,9 +33,6 @@ WITH params AS (
 ),
 
 latest_snapshot AS (
-  -- inventory_planning_snapshot is partitioned by: company_id, year, month, day (all strings).
-  -- This CTE selects the latest available (year,month,day) for the permitted company_ids.
-  -- Because we select only partition columns, Athena can satisfy this from metastore metadata (fast).
   SELECT pil.year, pil.month, pil.day
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
   CROSS JOIN params p
@@ -41,6 +40,57 @@ latest_snapshot AS (
   GROUP BY 1, 2, 3
   ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
   LIMIT 1
+),
+
+-- ---- Forecast plan from Iceberg table ----
+forecast_latest_key AS (
+  SELECT
+    company_id,
+    inventory_id,
+    calc_period,
+    updated_at
+  FROM (
+    SELECT
+      f.company_id,
+      f.inventory_id,
+      f.calc_period,
+      f.updated_at,
+      row_number() OVER (
+        PARTITION BY f.company_id, f.inventory_id
+        ORDER BY f.calc_period DESC, f.updated_at DESC
+      ) AS rn
+    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+    CROSS JOIN params p
+    WHERE contains(p.company_ids, f.company_id)
+      AND f.dataset <> 'actual'
+  ) ranked
+  WHERE rn = 1
+),
+
+forecast_latest_rows AS (
+  SELECT
+    f.company_id,
+    f.inventory_id,
+    f.forecast_period,
+    f.units_sold
+  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+  INNER JOIN forecast_latest_key k
+    ON k.company_id = f.company_id
+    AND k.inventory_id = f.inventory_id
+    AND k.calc_period = f.calc_period
+    AND k.updated_at = f.updated_at
+),
+
+forecast_item_plan AS (
+  SELECT
+    fr.company_id,
+    fr.inventory_id,
+    slice(
+      array_agg(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
+      1, 12
+    ) AS plan_monthly_units
+  FROM forecast_latest_rows fr
+  GROUP BY 1, 2
 ),
 
 t AS (
@@ -71,10 +121,7 @@ t AS (
           + 0.2 * COALESCE(pil.avg_units_3d, 0.0)
         )
         WHEN 'planned' THEN (
-          COALESCE(
-            CAST(json_extract_scalar(pil.next_12_month_sales_plan_units, '$[0].units_sold') AS DOUBLE),
-            0.0
-          ) / 30.0
+          COALESCE(element_at(fp.plan_monthly_units, 1), 0.0) / 30.0
         )
         ELSE (
           0.5 * COALESCE(pil.avg_units_30d, 0.0)
@@ -98,6 +145,10 @@ t AS (
 
   CROSS JOIN params p
   CROSS JOIN latest_snapshot s
+
+  LEFT JOIN forecast_item_plan fp
+    ON fp.company_id = pil.company_id
+    AND fp.inventory_id = pil.inventory_id
 
   WHERE
     -- REQUIRED company filter
@@ -130,7 +181,7 @@ t AS (
         (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
         0.0
       ) >= p.active_sold_min_units_per_day THEN TRUE
-      WHEN p.planning_base = 'planned only' AND pil.next_12_month_sales_plan_units IS NOT NULL THEN TRUE
+      WHEN p.planning_base = 'planned only' AND fp.plan_monthly_units IS NOT NULL THEN TRUE
       ELSE FALSE
     END
 ),
