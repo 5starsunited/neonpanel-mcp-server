@@ -265,6 +265,83 @@ WHERE
   return m;
 }
 
+/**
+ * Reverse resolution: sku + marketplace (country_code) → inventory_id.
+ * Needed so that writes submitted by SKU get a non-NULL inventory_id,
+ * which the read query (list_latest_sales_forecast) joins on.
+ */
+async function resolveInventoryIdFromSnapshot(
+  companyId: number,
+  skuMarketplacePairs: Array<{ sku: string; marketplace: string }>,
+): Promise<Map<string, number>> {
+  if (skuMarketplacePairs.length === 0) return new Map();
+
+  const catalog = config.athena.catalog;
+  const database = config.athena.database;
+  const table = config.athena.tables.inventoryPlanningSnapshot;
+
+  // Build a VALUES clause for (sku, marketplace) pairs
+  const valuesClause = skuMarketplacePairs
+    .map((p) => `(${sqlStringLiteral(p.sku)}, ${sqlStringLiteral(p.marketplace)})`)
+    .join(',\n    ');
+
+  const query = `
+WITH params AS (
+  SELECT CAST(${companyId} AS BIGINT) AS company_id
+),
+latest_snapshot AS (
+  SELECT pil.year, pil.month, pil.day
+  FROM "${catalog}"."${database}"."${table}" pil
+  CROSS JOIN params p
+  WHERE pil.company_id = p.company_id
+  GROUP BY 1, 2, 3
+  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  LIMIT 1
+),
+lookup_pairs AS (
+  SELECT v.sku, v.marketplace
+  FROM (VALUES
+    ${valuesClause}
+  ) AS v(sku, marketplace)
+)
+SELECT
+  pil.inventory_id,
+  pil.sku,
+  pil.country_code AS marketplace
+FROM "${catalog}"."${database}"."${table}" pil
+CROSS JOIN params p
+CROSS JOIN latest_snapshot s
+INNER JOIN lookup_pairs lp
+  ON LOWER(TRIM(pil.sku)) = LOWER(TRIM(lp.sku))
+  AND LOWER(TRIM(pil.country_code)) = LOWER(TRIM(lp.marketplace))
+WHERE
+  pil.company_id = p.company_id
+  AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
+`;
+
+  const res = await runAthenaQuery({
+    query,
+    database,
+    workGroup: config.athena.workgroup,
+    outputLocation: config.athena.outputLocation,
+    maxRows: Math.min(1000, skuMarketplacePairs.length + 5),
+  });
+
+  const m = new Map<string, number>();
+  for (const row of res.rows ?? []) {
+    const idRaw = row.inventory_id;
+    const id = idRaw === null ? NaN : Number(idRaw);
+    const sku = (row.sku ?? '') as string;
+    const marketplace = (row.marketplace ?? '') as string;
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (typeof sku !== 'string' || sku.trim().length === 0) continue;
+    if (typeof marketplace !== 'string' || marketplace.trim().length === 0) continue;
+    // Key: lowercase sku|marketplace
+    m.set(`${sku.trim().toLowerCase()}|${marketplace.trim().toLowerCase()}`, Math.trunc(id));
+  }
+  return m;
+}
+
 export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
@@ -339,6 +416,30 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
             w.marketplace = resolved.marketplace;
           } else {
             warnings.push(`Could not resolve sku/marketplace for inventory_id=${key} from latest snapshot.`);
+          }
+        }
+      }
+
+      // Reverse resolution: sku + marketplace → inventory_id.
+      // The read query (list_latest_sales_forecast) joins forecast data on inventory_id.
+      // Without this, writes by SKU end up with NULL inventory_id and are invisible to reads.
+      const unresolvedSkuPairs = writes
+        .filter((w) => !w.inventory_id && w.sku && w.marketplace)
+        .map((w) => ({ sku: w.sku!.trim(), marketplace: w.marketplace!.trim() }))
+        .filter((p) => p.sku.length > 0 && p.marketplace.length > 0);
+
+      // Deduplicate
+      const uniqueSkuPairs = [...new Map(unresolvedSkuPairs.map((p) => [`${p.sku.toLowerCase()}|${p.marketplace.toLowerCase()}`, p])).values()];
+
+      const reverseMap = await resolveInventoryIdFromSnapshot(companyId, uniqueSkuPairs);
+      for (const w of writes) {
+        if (!w.inventory_id && w.sku && w.marketplace) {
+          const lookupKey = `${w.sku.trim().toLowerCase()}|${w.marketplace.trim().toLowerCase()}`;
+          const resolvedId = reverseMap.get(lookupKey);
+          if (resolvedId) {
+            w.inventory_id = resolvedId;
+          } else {
+            warnings.push(`Could not resolve inventory_id for sku=${w.sku}, marketplace=${w.marketplace} from latest snapshot.`);
           }
         }
       }

@@ -79,8 +79,11 @@ normalized AS (
     'manual' AS dataset,
     COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid,
 
-    -- Partition key; use forecast_period by default.
-    NULLIF(TRIM(w.forecast_period), '') AS calc_period,
+    -- calc_period must be a CONSTANT "run period" (current month) for ALL rows in a write batch.
+    -- The read query (list_latest_sales_forecast) picks the latest calc_period per inventory_id
+    -- and then joins back to get all rows sharing that calc_period+updated_at.
+    -- If calc_period varies per row, the join only returns the single row with the max calc_period.
+    CAST(date_format(current_date, '%Y-%m') AS VARCHAR) AS calc_period,
 
     -- data_type distinguishes forecast vs actual rows.
     'forecast' AS data_type,
