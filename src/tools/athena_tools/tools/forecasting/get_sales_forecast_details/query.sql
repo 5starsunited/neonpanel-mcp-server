@@ -1,20 +1,26 @@
--- Tool: forecasting_list_latest_sales_forecast (grouped/aggregated mode)
--- Purpose: aggregated view of latest/current forecast plan, grouped by caller-specified dimensions.
+-- Tool: forecasting_get_sales_forecast_details (detail mode)
+-- Purpose: portfolio/list view of forecast plan per item (SKU-level).
 -- Notes:
--- - Dimensions are injected via template variables (group_select_base, group_by_clause_base, etc.).
--- - company_id is always included in GROUP BY for authorization.
--- - "actual" dataset is explicitly EXCLUDED from latest-forecast evaluation.
--- - Forecast and actuals series are summed per period within each group, then re-serialised to JSON.
+-- - company_id filtering is REQUIRED for authorization + partition pruning.
+-- - When scenario_uuid + calc_period are provided, returns that specific forecast run.
+-- - Otherwise picks the latest forecast run: per inventory_id, greatest calc_period then updated_at.
+-- - "actual" dataset is explicitly EXCLUDED from forecast evaluation.
+-- - Inventory attributes are joined from the latest (year,month,day) snapshot partition available.
 
 WITH params AS (
   SELECT
     {{limit_top_n}} AS top_results,
     CAST({{horizon_months}} AS INTEGER) AS horizon_months,
     {{include_plan_series_sql}} AS include_plan_series,
+    {{include_sales_history_signals_sql}} AS include_sales_history_signals,
     {{include_actuals_sql}} AS include_actuals,
 
     -- REQUIRED (authorization + partition pruning)
     {{company_ids_array}} AS company_ids,
+
+    -- OPTIONAL: pin to a specific forecast run (NULL = auto-latest)
+    {{run_scenario_uuid_sql}} AS run_scenario_uuid,
+    {{run_calc_period_sql}} AS run_calc_period,
 
     -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
@@ -37,7 +43,7 @@ latest_snapshot AS (
   LIMIT 1
 ),
 
--- Latest forecast run per item (excludes 'actual' dataset)
+-- Forecast run selection: if scenario_uuid + calc_period provided, use those; else auto-latest.
 forecast_latest_key AS (
   SELECT
     company_id,
@@ -58,6 +64,8 @@ forecast_latest_key AS (
     CROSS JOIN params p
     WHERE contains(p.company_ids, f.company_id)
       AND f.dataset <> 'actual'
+      AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
+      AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
   ) ranked
   WHERE rn = 1
 ),
@@ -171,7 +179,6 @@ actual_item_series AS (
   GROUP BY 1, 2
 ),
 
--- Base item rows: snapshot + forecast + actuals, with all filters applied.
 t_base AS (
   SELECT
     pil.company_id,
@@ -194,12 +201,29 @@ t_base AS (
     pil.product_family,
 
     pil.revenue_abcd_class,
+    pil.revenue_abcd_class_description,
+    pil.pareto_abc_class,
+    pil.revenue_share,
+    pil.cumulative_revenue_share,
 
     -- recent sales signals
     pil.sales_last_30_days,
     pil.units_sold_last_30_days,
     pil.revenue_30d,
     pil.units_30d,
+
+    -- scenario metadata for the latest forecast run
+    CAST(NULL AS BIGINT) AS sales_forecast_scenario_id,
+    fp.dataset AS sales_forecast_scenario_name,
+    fp.scenario_uuid AS sales_forecast_scenario_uuid,
+    CAST(NULL AS VARCHAR) AS seasonality_pattern,
+
+    -- additional useful attributes
+    pil.asin_img_path,
+    pil.product_name,
+    pil.avg_units_30d,
+    pil.avg_units_7d,
+    pil.avg_units_3d,
 
     -- plan series for latest forecast run
     fp.forecast_plan_periods_array,
@@ -218,7 +242,10 @@ t_base AS (
       lpad(CAST(pil.month AS VARCHAR), 2, '0'),
       '-',
       lpad(CAST(pil.day AS VARCHAR), 2, '0')
-    ) AS snapshot_date
+    ) AS snapshot_date,
+
+    CAST(fp.run_calc_period AS VARCHAR) AS forecast_run_period,
+    fp.run_updated_at AS forecast_run_updated_at
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
   CROSS JOIN params p
@@ -247,173 +274,116 @@ t_base AS (
     AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
     AND (cardinality(p.marketplaces) = 0 OR contains(p.marketplaces, lower(trim(pil.country_code))))
     AND (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, pil.revenue_abcd_class))
-),
-
--- ====================================================================
--- AGGREGATION SECTION
--- group_by dimensions are injected via template variables.
--- ====================================================================
-
--- Expand per-item forecast plan into (dimension, period, value) rows for GROUP BY summation.
-t_plan_expanded AS (
-  SELECT
-    {{group_select_base}},
-    period AS forecast_period,
-    CAST(idx AS INTEGER) AS month_index,
-    COALESCE(CAST(element_at(t.forecast_plan_units_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS units,
-    COALESCE(CAST(element_at(t.forecast_plan_sales_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS sales_amount
-  FROM t_base t
-  CROSS JOIN UNNEST(t.forecast_plan_periods_array) WITH ORDINALITY AS e(period, idx)
-  WHERE t.forecast_plan_periods_array IS NOT NULL
-    AND cardinality(t.forecast_plan_periods_array) > 0
-),
-
--- Sum forecast values per (group, period), then re-aggregate into a JSON series per group.
-t_group_plan AS (
-  SELECT
-    {{group_select_raw}},
-    json_format(
-      CAST(
-        transform(
-          sequence(1, cardinality(periods)),
-          i -> CAST(ROW(
-            element_at(periods, i),
-            CAST(ROUND(element_at(units, i), 0) AS BIGINT),
-            ROUND(element_at(sales, i), 2),
-            ROUND(IF(element_at(units, i) > 0, element_at(sales, i) / element_at(units, i), CAST(NULL AS DOUBLE)), 3),
-            CAST(1.0 AS DOUBLE)
-          ) AS ROW(
-            period VARCHAR,
-            units_sold BIGINT,
-            sales_amount DOUBLE,
-            unit_price DOUBLE,
-            seasonality_index DOUBLE
-          ))
-        )
-      AS JSON)
-    ) AS forecast_series_json
-  FROM (
-    SELECT
-      {{group_select_raw}},
-      array_agg(forecast_period ORDER BY month_index) AS periods,
-      array_agg(sum_units ORDER BY month_index) AS units,
-      array_agg(sum_sales ORDER BY month_index) AS sales
-    FROM (
-      SELECT
-        {{group_select_raw}},
-        forecast_period,
-        month_index,
-        SUM(units) AS sum_units,
-        SUM(sales_amount) AS sum_sales
-      FROM t_plan_expanded
-      GROUP BY {{group_by_clause_raw}}, forecast_period, month_index
-    ) x
-    GROUP BY {{group_by_clause_raw}}
-  ) y
-),
-
--- Expand per-item actuals into (dimension, period, value) rows.
-t_actuals_expanded AS (
-  SELECT
-    {{group_select_base}},
-    period AS actual_period,
-    CAST(idx AS INTEGER) AS month_index,
-    COALESCE(CAST(element_at(t.actual_units_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS units,
-    COALESCE(CAST(element_at(t.actual_sales_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS sales_amount
-  FROM t_base t
-  CROSS JOIN UNNEST(t.actual_periods_array) WITH ORDINALITY AS e(period, idx)
-  WHERE t.actual_periods_array IS NOT NULL
-    AND cardinality(t.actual_periods_array) > 0
-),
-
--- Sum actuals per (group, period), then re-aggregate into JSON series per group.
-t_group_actuals AS (
-  SELECT
-    {{group_select_raw}},
-    json_format(
-      CAST(
-        transform(
-          sequence(1, cardinality(periods)),
-          i -> CAST(ROW(
-            element_at(periods, i),
-            CAST(ROUND(element_at(units, i), 0) AS BIGINT),
-            ROUND(element_at(sales, i), 2),
-            ROUND(IF(element_at(units, i) > 0, element_at(sales, i) / element_at(units, i), CAST(NULL AS DOUBLE)), 3)
-          ) AS ROW(
-            period VARCHAR,
-            units_sold BIGINT,
-            sales_amount DOUBLE,
-            unit_price DOUBLE
-          ))
-        )
-      AS JSON)
-    ) AS actuals_series_json
-  FROM (
-    SELECT
-      {{group_select_raw}},
-      array_agg(actual_period ORDER BY month_index) AS periods,
-      array_agg(sum_units ORDER BY month_index) AS units,
-      array_agg(sum_sales ORDER BY month_index) AS sales
-    FROM (
-      SELECT
-        {{group_select_raw}},
-        actual_period,
-        month_index,
-        SUM(units) AS sum_units,
-        SUM(sales_amount) AS sum_sales
-      FROM t_actuals_expanded
-      GROUP BY {{group_by_clause_raw}}, actual_period, month_index
-    ) x
-    GROUP BY {{group_by_clause_raw}}
-  ) y
-),
-
--- Main grouping: aggregate KPIs per dimension combination.
-t_grouped AS (
-  SELECT
-    {{group_select_base}},
-
-    COUNT(DISTINCT t.inventory_id) AS inventory_count,
-    COUNT(DISTINCT t.sku) AS sku_count,
-
-    SUM(COALESCE(CAST(t.sales_last_30_days AS DOUBLE), 0.0)) AS sales_last_30_days,
-    SUM(COALESCE(CAST(t.units_sold_last_30_days AS DOUBLE), 0.0)) AS units_sold_last_30_days,
-    SUM(COALESCE(CAST(t.revenue_30d AS DOUBLE), 0.0)) AS revenue_30d,
-    SUM(COALESCE(CAST(t.units_30d AS DOUBLE), 0.0)) AS units_30d,
-
-    MIN(t.snapshot_date) AS snapshot_date,
-    CAST(MAX((SELECT horizon_months FROM params)) AS INTEGER) AS forecast_horizon_months
-
-  FROM t_base t
-  GROUP BY {{group_by_clause_base}}
 )
 
--- Final aggregated output
+-- Detail (SKU-level) output
 SELECT
-  g.*,
+  t.company_id,
+  t.company_name,
+  t.company_short_name,
+  t.company_uuid,
+
+  t.inventory_id,
+  t.sku,
+  t.country,
+  t.country_code,
+
+  t.child_asin,
+  t.parent_asin,
+  t.asin,
+  t.fnsku,
+  t.merchant_sku,
+
+  t.brand,
+  t.product_family,
+
+  t.revenue_abcd_class,
+  t.revenue_abcd_class_description,
+  t.pareto_abc_class,
+  t.revenue_share,
+  t.cumulative_revenue_share,
+
+  t.sales_last_30_days,
+  t.units_sold_last_30_days,
+  t.revenue_30d,
+  t.units_30d,
+
+  t.sales_forecast_scenario_id,
+  t.sales_forecast_scenario_name,
+  t.sales_forecast_scenario_uuid,
+  t.seasonality_pattern,
+
+  t.asin_img_path,
+  t.product_name,
+  t.avg_units_30d,
+  t.avg_units_7d,
+  t.avg_units_3d,
+
+  t.snapshot_date,
+  t.forecast_run_period,
+  t.forecast_run_updated_at,
 
   CASE
-    WHEN (SELECT include_plan_series FROM params)
-    THEN gp.forecast_series_json
+    WHEN p.include_plan_series THEN
+      json_format(
+        CAST(
+          transform(
+            sequence(1, cardinality(t.forecast_plan_periods_array)),
+            i -> CAST(ROW(
+              element_at(t.forecast_plan_periods_array, i),
+              CAST(ROUND(element_at(t.forecast_plan_units_array, i), 0) AS BIGINT),
+              ROUND(element_at(t.forecast_plan_sales_array, i), 2),
+              ROUND(IF(element_at(t.forecast_plan_units_array, i) > 0,
+                element_at(t.forecast_plan_sales_array, i) / element_at(t.forecast_plan_units_array, i),
+                CAST(NULL AS DOUBLE)
+              ), 3),
+              CAST(1.0 AS DOUBLE)
+            ) AS ROW(
+              period VARCHAR,
+              units_sold BIGINT,
+              sales_amount DOUBLE,
+              unit_price DOUBLE,
+              seasonality_index DOUBLE
+            ))
+          )
+        AS JSON)
+      )
     ELSE CAST(NULL AS VARCHAR)
   END AS forecast_series_json,
 
   CASE
-    WHEN (SELECT include_actuals FROM params)
-    THEN ga.actuals_series_json
+    WHEN p.include_actuals AND t.actual_periods_array IS NOT NULL AND cardinality(t.actual_periods_array) > 0 THEN
+      json_format(
+        CAST(
+          transform(
+            sequence(1, cardinality(t.actual_periods_array)),
+            i -> CAST(ROW(
+              element_at(t.actual_periods_array, i),
+              CAST(ROUND(element_at(t.actual_units_array, i), 0) AS BIGINT),
+              ROUND(element_at(t.actual_sales_array, i), 2),
+              ROUND(IF(element_at(t.actual_units_array, i) > 0,
+                element_at(t.actual_sales_array, i) / element_at(t.actual_units_array, i),
+                CAST(NULL AS DOUBLE)
+              ), 3)
+            ) AS ROW(
+              period VARCHAR,
+              units_sold BIGINT,
+              sales_amount DOUBLE,
+              unit_price DOUBLE
+            ))
+          )
+        AS JSON)
+      )
     ELSE CAST(NULL AS VARCHAR)
-  END AS actuals_series_json
+  END AS actuals_series_json,
 
-FROM t_grouped g
+  CAST(p.horizon_months AS INTEGER) AS forecast_horizon_months
 
-LEFT JOIN t_group_plan gp
-  ON {{group_plan_join_condition}}
-
-LEFT JOIN t_group_actuals ga
-  ON {{group_actuals_join_condition}}
+FROM t_base t
+CROSS JOIN params p
 
 ORDER BY
-  g.sales_last_30_days DESC,
-  g.units_sold_last_30_days DESC
+  COALESCE(CAST(t.sales_last_30_days AS DOUBLE), 0.0) DESC,
+  COALESCE(CAST(t.units_sold_last_30_days AS DOUBLE), 0.0) DESC
 
 LIMIT {{limit_top_n}}

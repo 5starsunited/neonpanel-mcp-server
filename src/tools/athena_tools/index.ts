@@ -6,10 +6,11 @@ import { registerSupplyChainListFbaReplenishmentCandidatesTool } from './tools/s
 import { registerSupplyChainListPoPlacementCandidatesTool } from './tools/supply_chain/list_po_placement_candidates/register';
 import { registerSupplyChainListStockReplenishmentRiskItemsTool } from './tools/supply_chain/list_stock_replenishment_risk_items/register';
 import { registerShipmentArrivalOracle } from './tools/supply_chain/shipment_arrival_oracle/register';
-import { registerForecastingListLatestSalesForecastTool } from './tools/forecasting/list_latest_sales_forecast/register';
+import { registerForecastingGetSalesForecastDetailsTool } from './tools/forecasting/get_sales_forecast_details/register';
 import { registerForecastingCompareSalesForecastScenariosTool } from './tools/forecasting/compare_sales_forecast_scenarios/register';
 import { registerForecastingWriteSalesForecastTool } from './tools/forecasting/write_sales_forecast/register';
 import { registerForecastingGenerateSalesForecastTool } from './tools/forecasting/generate_sales_forecast/register';
+import { registerForecastingListSalesForecastsTool } from './tools/forecasting/list_sales_forecasts/register';
 import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/get_competitive_landscape/register';
 import { registerBrandAnalyticsGetKeywordFunnelMetricsTool } from './tools/brand_analytics/get_keyword_funnel_metrics/register';
 import { registerBrandAnalyticsGetSearchTermMomentumTool } from './tools/brand_analytics/get_search_term_momentum/register';
@@ -43,10 +44,11 @@ import { registerShopifyListOrdersTool } from './tools/shopify/list_shopify_orde
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
-  registerForecastingListLatestSalesForecastTool(registry);
+  registerForecastingGetSalesForecastDetailsTool(registry);
   registerForecastingCompareSalesForecastScenariosTool(registry);
   registerForecastingWriteSalesForecastTool(registry);
   registerForecastingGenerateSalesForecastTool(registry);
+  registerForecastingListSalesForecastsTool(registry);
   registerSupplyChainListFbaReplenishmentCandidatesTool(registry);
   registerSupplyChainListPoPlacementCandidatesTool(registry);
   registerSupplyChainListStockReplenishmentRiskItemsTool(registry);

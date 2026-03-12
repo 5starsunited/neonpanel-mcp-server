@@ -1,0 +1,94 @@
+{
+  "name": "forecasting_list_sales_forecasts",
+  "description": "List all available forecast runs for a company. Returns one row per distinct forecast run (unique calc_period + updated_at + dataset combination) with summary statistics.\n\nUse this tool FIRST to discover what forecasts exist before comparing or reviewing them.\n\nEach row represents a forecast run and includes:\n- calc_period: the calculation period (YYYY-MM) that groups the run\n- updated_at: timestamp when the run was written\n- dataset: scenario/method name (e.g. 'rwlt_monthly_plan', 'manual', 'actual')\n- item_count: how many distinct SKUs/inventory_ids are in this run\n- period_count: how many forecast months are covered\n- period_start / period_end: the date range of forecast periods\n- total_units / total_sales_amount: aggregate totals across all items and periods\n\nDefault sort: calc_period DESC, updated_at DESC (most recent first).\nTip: use limit=1 to get just the latest forecast run.\n\nImportant (company selection):\n- query.filters.company_id (required, integer)\n\nOptional filters:\n- query.filters.scenario: filter by dataset/scenario name(s)\n- query.filters.marketplace: filter by marketplace (US, UK)\n- query.filters.calc_period: filter to specific calc_period(s) (YYYY-MM format)",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Required. The company ID to list forecasts for."
+              },
+              "company": {
+                "type": "string",
+                "description": "Deprecated; use company_id. Numeric string only."
+              },
+              "scenario": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by dataset/scenario name (e.g. 'rwlt_monthly_plan', 'manual', 'actual')."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter by marketplace (e.g. ['US']). Case-insensitive."
+              },
+              "calc_period": {
+                "type": "array",
+                "items": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+                "description": "Filter to specific calc_period(s) in YYYY-MM format."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 50,
+            "description": "Max rows returned. Use limit=1 to get only the latest forecast run."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": true
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "company_id": { "type": "integer" },
+            "calc_period": { "type": "string" },
+            "updated_at": { "type": "string" },
+            "dataset": { "type": "string" },
+            "scenario_uuid": { "type": "string" },
+            "item_count": { "type": "integer" },
+            "period_count": { "type": "integer" },
+            "period_start": { "type": "string" },
+            "period_end": { "type": "string" },
+            "total_rows": { "type": "integer" },
+            "total_units": { "type": "number" },
+            "total_sales_amount": { "type": "number" },
+            "marketplace_ids": { "type": "array", "items": { "type": "string" } },
+            "currencies": { "type": "array", "items": { "type": "string" } },
+            "sku_count": { "type": "integer" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "warnings": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "additionalProperties": true
+  }
+}

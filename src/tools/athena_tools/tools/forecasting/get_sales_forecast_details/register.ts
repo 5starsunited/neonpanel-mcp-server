@@ -34,6 +34,13 @@ function sqlCompanyIdArrayExpr(values: number[]): string {
   return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
+function sqlNullableStringExpr(value: string | null | undefined): string {
+  if (value === null || value === undefined) return 'CAST(NULL AS VARCHAR)';
+  const trimmed = String(value).trim();
+  if (trimmed.length === 0) return 'CAST(NULL AS VARCHAR)';
+  return sqlStringLiteral(trimmed);
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
@@ -79,6 +86,8 @@ const sharedQuerySchema = z
 
 const toolSpecificSchema = z
   .object({
+    scenario_uuid: z.string().optional(),
+    calc_period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
     horizon_months: z.coerce.number().int().min(1).max(24).default(12),
     include_plan_series: z.boolean().default(true),
     include_sales_history_signals: z.boolean().default(true),
@@ -201,7 +210,7 @@ function buildGroupTemplateVars(dims: DimColumn[]): Record<string, string> {
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerForecastingListLatestSalesForecastTool(registry: ToolRegistry) {
+export function registerForecastingGetSalesForecastDetailsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
 
   let specJson: ToolSpecJson | undefined;
@@ -214,8 +223,8 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
   }
 
   registry.register({
-    name: 'forecasting_list_latest_sales_forecast',
-    description: 'List items with latest/current forecast plan and inventory attributes (query envelope).',
+    name: 'forecasting_get_sales_forecast_details',
+    description: 'Get forecast plan details per item. By default returns the latest forecast run; optionally pin to a specific run via scenario_uuid + calc_period (query envelope).',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? fallbackOutputSchema,
@@ -297,6 +306,9 @@ export function registerForecastingListLatestSalesForecastTool(registry: ToolReg
         horizon_months: Number(toolSpecific.horizon_months ?? 12),
         include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
         include_actuals_sql: toolSpecific.include_actuals ? 'TRUE' : 'FALSE',
+
+        run_scenario_uuid_sql: sqlNullableStringExpr(toolSpecific.scenario_uuid),
+        run_calc_period_sql: sqlNullableStringExpr(toolSpecific.calc_period),
 
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         skus_array: sqlVarcharArrayExpr(skuList),
