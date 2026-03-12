@@ -1,0 +1,73 @@
+{
+  "name": "forecasting_run_sales_forecast_job",
+  "description": "Trigger the sales-forecast Glue ETL job that re-computes forecasts and writes the results to the Iceberg table.\n\nThe job is idempotent: it deletes existing rows for the target calc_period + scenario_uuid + company_id before appending fresh results.\n\nThe tool returns immediately with a JobRunId. Use forecasting_check_sales_forecast_job_status to monitor progress.\n\nJobs typically take 3-5 minutes to complete.\n\nIMPORTANT:\n- Before calling, use get_forecasting_settings for the company to obtain the correct scenario_uuid(s).\n- company_id, calc_period, and scenario_uuids are all REQUIRED to prevent unintentional broad recalculations.\n- After starting, use forecasting_check_sales_forecast_job_status — do NOT check earlier than 3 minutes.",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Required. The company to run the forecast for. Use get_forecasting_settings to look up the company's forecasting configuration."
+      },
+      "calc_period": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}$",
+        "description": "Required. Calculation period in YYYY-MM format (e.g. '2026-03')."
+      },
+      "scenario_uuids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "minItems": 1,
+        "maxItems": 10,
+        "description": "Required. Scenario UUID(s) to run. Use get_forecasting_settings for the company to get the default scenario_uuid."
+      },
+      "inventory_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional. Run forecast for a single inventory item only. Omit to run for ALL items in the company."
+      },
+      "horizon": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 48,
+        "default": 24,
+        "description": "Forecast horizon in months. Default: 24."
+      }
+    },
+    "required": ["company_id", "calc_period", "scenario_uuids"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "job_run_id": {
+        "type": "string",
+        "description": "The Glue JobRunId for tracking via forecasting_check_sales_forecast_job_status."
+      },
+      "job_name": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string",
+        "description": "STARTED on success, DENIED if not authorized."
+      },
+      "arguments_sent": {
+        "type": "object",
+        "description": "The full argument map sent to the Glue job."
+      },
+      "next_step": {
+        "type": "string",
+        "description": "Guidance on what to do next."
+      },
+      "warnings": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "required": ["job_run_id", "job_name", "state"]
+  }
+}

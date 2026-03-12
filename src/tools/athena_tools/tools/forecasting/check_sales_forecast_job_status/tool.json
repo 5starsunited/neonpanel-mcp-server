@@ -1,0 +1,52 @@
+{
+  "name": "forecasting_check_sales_forecast_job_status",
+  "description": "Check the status of a previously started sales-forecast Glue job run.\n\nUse this after calling forecasting_run_sales_forecast_job to monitor progress.\nUse forecasting_list_sales_forecasts or forecasting_get_sales_forecast_details to review results after completion.\n\nIMPORTANT: Jobs typically take 3-5 minutes. Do NOT check status earlier than 3 minutes after starting the job.\n\nPossible states:\n- STARTING / RUNNING / WAITING: Job is still in progress. Check again in 1-2 minutes.\n- SUCCEEDED: Job completed successfully. Forecast data is now available.\n- FAILED / ERROR / TIMEOUT / STOPPED: Job did not complete. Check error_message for details.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "job_run_id": {
+        "type": "string",
+        "description": "Required. The JobRunId returned by forecasting_run_sales_forecast_job."
+      }
+    },
+    "required": ["job_run_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "job_run_id": {
+        "type": "string"
+      },
+      "job_name": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string",
+        "description": "Current Glue job run state."
+      },
+      "started_on": {
+        "type": "string",
+        "description": "ISO timestamp when the job started."
+      },
+      "completed_on": {
+        "type": "string",
+        "description": "ISO timestamp when the job completed (if finished)."
+      },
+      "execution_time_seconds": {
+        "type": "integer",
+        "description": "Total execution time in seconds (if finished)."
+      },
+      "error_message": {
+        "type": "string",
+        "description": "Error message if the job failed."
+      },
+      "advice": {
+        "type": "string",
+        "description": "Guidance on next steps based on current state."
+      }
+    },
+    "required": ["job_run_id", "job_name", "state"]
+  }
+}

@@ -11,6 +11,8 @@ import { registerForecastingCompareSalesForecastScenariosTool } from './tools/fo
 import { registerForecastingWriteSalesForecastTool } from './tools/forecasting/write_sales_forecast/register';
 import { registerForecastingGenerateSalesForecastTool } from './tools/forecasting/generate_sales_forecast/register';
 import { registerForecastingListSalesForecastsTool } from './tools/forecasting/list_sales_forecasts/register';
+import { registerForecastingRunSalesForecastJobTool } from './tools/forecasting/run_sales_forecast_job/register';
+import { registerForecastingCheckSalesForecastJobStatusTool } from './tools/forecasting/check_sales_forecast_job_status/register';
 import { registerBrandAnalyticsGetCompetitiveLandscapeTool } from './tools/brand_analytics/get_competitive_landscape/register';
 import { registerBrandAnalyticsGetKeywordFunnelMetricsTool } from './tools/brand_analytics/get_keyword_funnel_metrics/register';
 import { registerBrandAnalyticsGetSearchTermMomentumTool } from './tools/brand_analytics/get_search_term_momentum/register';
@@ -49,6 +51,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerForecastingWriteSalesForecastTool(registry);
   registerForecastingGenerateSalesForecastTool(registry);
   registerForecastingListSalesForecastsTool(registry);
+  registerForecastingRunSalesForecastJobTool(registry);
+  registerForecastingCheckSalesForecastJobStatusTool(registry);
   registerSupplyChainListFbaReplenishmentCandidatesTool(registry);
   registerSupplyChainListPoPlacementCandidatesTool(registry);
   registerSupplyChainListStockReplenishmentRiskItemsTool(registry);

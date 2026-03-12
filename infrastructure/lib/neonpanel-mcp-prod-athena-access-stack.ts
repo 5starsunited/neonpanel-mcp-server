@@ -102,6 +102,16 @@ export class NeonpanelMcpProdAthenaAccessStack extends cdk.Stack {
       }),
     );
 
+    // Glue ETL job execution (sales-forecast Glue job).
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: 'GlueJobExecution',
+        effect: iam.Effect.ALLOW,
+        actions: ['glue:StartJobRun', 'glue:GetJobRun', 'glue:GetJob'],
+        resources: ['*'],
+      }),
+    );
+
     // Data bucket permissions (Iceberg table location). Iceberg writes often require
     // read/list + delete as part of transactional metadata / file management.
     role.addToPolicy(
