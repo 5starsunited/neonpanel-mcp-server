@@ -48,7 +48,7 @@ t_base AS (
     sl.state AS connection_state,
 
     sfy.date AS snapshot_date,
-    sfy.type AS balance_type,
+    CAST(sfy.type AS VARCHAR) AS balance_type,
 
     sfy.inventory_id,
     sfy.warehouse_id,
@@ -103,7 +103,7 @@ t_base AS (
     )
     AND (
       cardinality(p.balance_types) = 0
-      OR contains(p.balance_types_lower, lower(trim(sfy.type)))
+      OR contains(p.balance_types_lower, lower(trim(CAST(sfy.type AS VARCHAR))))
     )
     AND (
       cardinality(p.seller_statuses) = 0
