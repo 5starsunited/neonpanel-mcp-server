@@ -7,6 +7,7 @@ import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { applySelectFields } from '../select-fields';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -178,6 +179,7 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
       const time = query.aggregation?.time;
       const periodicity = time?.periodicity ?? 'week';
       const periodsBack = time?.periods_back ?? 4;
+      const selectFields = query.select_fields;
 
       const weakLeaderMax = toolSpecific?.weak_leader_detection?.max_leader_conversion_share ?? 0.15;
       const weakLeaderMinRank = toolSpecific?.weak_leader_detection?.min_search_volume_rank ?? 50000;
@@ -210,7 +212,7 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
         maxRows: query.limit ?? 100,
       });
 
-      return { items: athenaResult.rows ?? [] };
+      return applySelectFields(athenaResult.rows ?? [], selectFields);
     },
   });
 }

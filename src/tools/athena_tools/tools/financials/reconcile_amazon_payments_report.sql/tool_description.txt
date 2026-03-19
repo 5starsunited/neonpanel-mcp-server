@@ -1,0 +1,12 @@
+In this tool we need to let user upload amazon payments report pdf
+(also known as trunsactions sumaries)
+The tool should:
+1) save the file on s3, provide user with the link; 
+2) extract text and save it in prebuild Iceberg tables structure;
+3) run SQL to agregate statement details data using built-in classifications: 
+there are two variants 
+   a)based on user CoA; 
+   b) Based on NeonPanel own classifications.
+4) compare results row by row, save reconciliation result in 
+Iceberg table with by row status like Match/Discreptancy/Unknown
+Fill discreptancy column with data (0 for Matched)

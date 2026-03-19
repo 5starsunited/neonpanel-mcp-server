@@ -138,8 +138,28 @@
           },
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional output field selection. When provided, only these fields are returned per row — significantly reduces response size. If omitted, returns all columns (~90 fields)."
+            "items": {
+              "type": "string",
+              "enum": [
+                "week_start", "company_id", "marketplace", "marketplace_country_code",
+                "parent_asin", "asin", "row_type", "brand", "title",
+                "revenue_abcd_class", "pareto_abc_class", "product_family", "revenue_share",
+                "impressiondata_impressioncount", "clickdata_clickcount",
+                "cartadddata_cartaddcount", "purchasedata_purchasecount",
+                "clickdata_clickrate", "purchasedata_conversionrate",
+                "purchasedata_searchtrafficsales_amount", "purchasedata_searchtrafficsales_currencycode",
+                "kpi_click_rate", "kpi_cart_add_rate", "kpi_purchase_rate",
+                "kpi_sales_per_click", "kpi_sales_per_impression",
+                "kpi_click_rate_wow", "kpi_click_rate_wolast4", "kpi_click_rate_wolast12",
+                "kpi_cart_add_rate_wow", "kpi_cart_add_rate_wolast4", "kpi_cart_add_rate_wolast12",
+                "kpi_purchase_rate_wow", "kpi_purchase_rate_wolast4", "kpi_purchase_rate_wolast12",
+                "cvr_same_day", "cvr_one_day", "cvr_two_day", "cvr_same_vs_two_ratio", "cvr_one_vs_two_ratio",
+                "kpi_click_rate_trend_signal", "kpi_cart_add_rate_trend_signal", "kpi_purchase_rate_trend_signal",
+                "strength_signal", "weakness_signal", "opportunity_signal", "threshold_signal",
+                "strength_color", "weakness_color", "opportunity_color", "threshold_color"
+              ]
+            },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — significantly reduces response size. If omitted, returns all columns (~90 fields). IMPORTANT: Use exact field names from the enum."
           },
           "limit": {
             "type": "integer",

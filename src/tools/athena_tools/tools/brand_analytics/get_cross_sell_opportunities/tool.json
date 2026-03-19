@@ -103,8 +103,20 @@
           },
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size."
+            "items": {
+              "type": "string",
+              "enum": [
+                "rank", "primary_asin", "primary_product_family", "primary_brand",
+                "primary_pareto_abc_class", "primary_revenue_abcd_class", "primary_revenue_share",
+                "co_purchased_asin", "co_purchased_product_family", "co_purchased_brand",
+                "co_purchased_pareto_abc_class", "co_purchased_revenue_abcd_class", "co_purchased_revenue_share",
+                "marketplace", "best_rank",
+                "avg_combination_pct", "max_combination_pct", "min_combination_pct",
+                "weeks_appearing", "total_weeks", "consistency_score", "co_purchased_is_own",
+                "first_seen", "last_seen", "window_start", "window_end"
+              ]
+            },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum — e.g., 'primary_asin' not 'purchased_asin', 'avg_combination_pct' not 'combination_pct'."
           },
           "limit": {
             "type": "integer",

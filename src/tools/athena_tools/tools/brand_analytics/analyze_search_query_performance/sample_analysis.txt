@@ -1,0 +1,413 @@
+Архитектура алертов для SQP на примере запроса “donut pillow” (ASIN B0B61478T9). Логика построена так, чтобы агент каждую неделю сам определял: это проблема трафика (видимости) или конверсии (оффера/PDP), и давал действие. 
+ 
+Trigger → Check → Decision 
+ 
+Search Query Score (1–10) 
+Дата недели (week) 
+
+ 
+1) Что агент должен забирать из SQP (по одному запросу) 
+
+Для каждого Query (например, “donut pillow”) он фиксирует: 
+
+Вход (visibility) 
+
+Search Query Volume 
+
+Total Impressions 
+
+ASIN Impressions 
+
+ASIN Impressions Share = ASIN Impr / Total Impr 
+
+Клик (CTR / привлекательность в выдаче) 
+5) Total Clicks 
+6) ASIN Clicks 
+7) ASIN Click Share = ASIN Clicks / Total Clicks 
+8) Click Rate  
+
+Корзина (mid-funnel) 
+9) Cart Add Rate 
+10) ASIN Cart Adds 
+11) ASIN Cart Add Share 
+
+Покупка (end-funnel) 
+12) Purchase Rate 
+13) ASIN Purchases 
+14) ASIN Purchase Share 
+
+ 
+CTR advantage/Привлекательность в выдаче 
+
+CTR advantage = ASIN Click Share / ASIN Impr Share 
+
+Если > 1 → вы кликабельнее, чем средний конкурент. 
+
+Если < 1 → вас показывают, но не выбирают (проблема главного изображения/цены/рейтинга). 
+
+На нашем примере: 
+Impr Share 6.19%, Click Share 14.10% 
+GAP_CTR = 14.10 / 6.19 ≈ 2.28 → сильный сигнал “нас мало показывают, но мы выигрываем клики”. 
+
+A screenshot of a computer
+
+Description automatically generated 
+ 
+Tриггер на углубление - Анализ конкурентной таблицы (обязателен при перекосе Impr vs Click) 
+На верхнем уровне SQP: 
+
+Impression Share = 6.19% 
+
+Click Share = 14.1% 
+
+Есть перекос: кликов забираем в 2.3 раза больше, чем доля показов. 
+Это не финальный вывод, а триггер открыть конкурентную таблицу. 
+
+A screenshot of a computer
+
+Description automatically generated 
+ 
+После анализа таблицы мы фиксируем факты: 
+
+Рынок не позволяет одному ASIN забрать большую долю показов 
+
+Наш Impression Share находится в верхнем диапазоне рынка (максимум) 
+
+Наш Click Share существенно выше Impr Share 
+
+Высокая цена не мешает отбору кликов 
+ 
+Проверка на потолок показов: 
+ASIN Impression Share входит в TOP-cluster - (±1–2% от лидеров выдачи) 
+ 
+Пример: 
+
+Мы: 6.19% 
+
+Конкуренты: 5.85%, 4.96%, 4.24% 
+
+Вывод: потолок показов достигнут 
+ 
+2) AI ОБЯЗАН открыть таблицу конкурентов и сравнить ТОП-3: 
+
+Для каждого конкурента: 
+
+Impression Share 
+
+Click Share 
+
+Price 
+
+ALERT: Visibility Loss 
+
+Только если ВСЕ условия выполняются: 
+
+Impression Share ↓ WoW или MoM 
+
+AND 
+
+Click Share ↓ 
+
+AND 
+
+Price не менялся 
+
+AND 
+
+У конкурентов растёт Impression Share 
+
+Возможные причины: 
+
+потеря позиций 
+
+проблемы с листингом / availability 
+
+ 
+Вывод:  
+Низкая доля показов не является проблемой сама по себе. 
+В данном запросе ASIN уже достиг потолка видимости, а перераспределение кликов обусловлено ценовой сегментацией. 
+Дополнительный рост невозможен без изменения цены или семантики. 
+ 
+Проверка еще одного запроса, не generic, medical intent  
+
+A screenshot of a computer
+
+Description automatically generated 
+ 
+По запросу hemorrhoid pillow ASIN B0B61478T9 находится в максимальной зоне видимости и лидирует по кликам, несмотря на премиальную цену. 
+Рост ограничен не качеством листинга и не алгоритмом, а структурным потолком распределения показов. 
+Запрос является core medical-запросом, где наш продукт — референсный. 
+ 
+Что именно показал этот анализ - hemorrhoid pillow = эталонный medical-интент 
+
+высокая осознанность 
+
+высокая конверсия в клик 
+
+низкая ценовая эластичность 
+ 
+Гипотеза - Основная точка роста — расширение пула медицинских поисковых запросов с аналогичным интентом и масштабом, что и является ключевой задачей PPC-агентства.  
+ 
+
+Возврат в первую таблицу — Cart Adds & Purchases 
+A screenshot of a graph
+
+Description automatically generated 
+medical intent: 
+
+чаще добавляют в корзину 
+
+меньше сомнений 
+
+меньше “походов по листингу” 
+
+A screen shot of a white background
+
+Description automatically generated 
+medical-запрос даёт лучшую конверсию 
+
+мы забираем большую долю покупок, чем долю показов 
+
+ 
+Гипотеза подтверждена - И далее я подбираю возможные точки роста, и даю PPC аг-ву.  
+ 
+Финальный вывод  
+
+Низкий Impression Share ≠ проблема 
+→ это архитектура Amazon, а не провал ASIN 
+
+Ключевой индикатор силы — Click Share > Impression Share 
+
+Medical intent: 
+
+выше Cart Add Rate 
+
+выше Purchase Rate 
+
+выше ASIN Purchase Share 
+
+Рост для нас НЕ в увеличении показов по generic, а в: 
+
+расширении medical-intent запросов 
+
+усилении PPC именно там 
+
+На основе анализа Search Query Performance видно, что запросы с medical intent (например, hemorrhoid pillow) при сопоставимой доле показов дают существенно более высокие Cart Add Rate, Purchase Rate и ASIN Purchase Share по сравнению с generic запросами (donut pillow). 
+Потенциал роста Impression Share лежит в расширении coverage по medical-контексту, а не в изменении цены или позиционирования продукта. 
+
+Задача: расширить и масштабировать покрытие medical-intent запросов (symptom-driven, condition-driven), так как именно они дают максимальную отдачу на уровне покупок, а не кликов. 
+ 
+Проверить и усилить: 
+
+Отдельные exact / phrase кампании под: 
+
+tailbone pain 
+
+hemorrhoids 
+
+postpartum 
+
+pressure relief 
+
+ASIN-таргетинг по CloudBliss и другим лидерам именно в medical-запросах 
+
+Top of Search multiplier только для medical-keywords 
+
+SB / SBV с medical messaging (не “donut pillow”, а “relief / recovery / pain”) 
+ 
+Что я еще могу увидеть по этим данным: 
+Проблемы (внутренние сигналы) 
+
+Head-term donut pillow — слабая монетизация трафика 
+
+Impression Share: ~6.2% 
+
+Click Share: 14.1% 
+
+Purchase Share: 21.0% 
+
+Что это значит: 
+
+Мы забираем клики и покупки лучше, чем показы, но: 
+
+Purchase Rate всего 8.16% — ниже, чем у medical-запросов. 
+
+Head-term даёт объём, но хуже конвертирует, чем medical intent. 
+
+Проблема: 
+
+Большая зависимость от head-term с менее качественным трафиком. 
+
+Рост за счёт него = рост оборота, но не эффективности. 
+
+ 
+Запрос bed sore cushions for butt — системный аутсайдер 
+
+Cart Add Rate: 13.87% (ниже среднего) 
+
+Purchase Rate: 6.72% (самый низкий) 
+
+Purchase Share: 10.48% 
+Проблема: 
+
+Запрос есть в топ-10, 
+
+но не соответствует продукту по intent. 
+
+Трафик «шумный», съедает показы и бюджет. 
+
+Углубляюсь, смотрю какие продукты продаюся по этому запросу, и понимаю, что формируется новая ниша, с новым типом продукта. Возможность роста.  
+ 
+A screenshot of a website
+
+Description automatically generated 
+ 
+Риски (если ничего не делать) 
+
+Потеря роста = ставка только на head-term 
+
+donut pillow уже: 
+
+высококонкурентный 
+
+price-sensitive 
+
+ограничен алгоритмом (Amazon не отдаёт 20–30% impression одному ASIN) 
+
+Риск: 
+
+Потолок роста по head-term уже близко. 
+
+Любое падение ранка = мгновенный удар по продажам. 
+
+Shape 
+
+Конкуренты перехватывают medical-long tails 
+
+Medical-запросы: 
+
+дают лучший CVR 
+
+дают лучший Purchase Share 
+
+Если их не защищать exact / high-bid, конкуренты: 
+
+легко «выкусят» этот трафик. 
+
+ Риск: 
+
+Потеря самого качественного сегмента спроса. 
+
+В отчётах это сначала будет выглядеть как: 
+
+CTR норм, impressions норм, а продажи просели. 
+
+ 
+Искажение выводов без сегментации intent 
+
+Если смотреть только на первую таблицу (Impressions / Clicks): 
+
+Impression Share кажется «низким» 
+
+Возникает ложный вывод: «мы недополучаем показы» 
+
+Но после углубления: 
+
+Это нормальный потолок для head-term 
+
+Реальная точка роста — medical intent 
+
+Риск: 
+
+Неправильные решения: 
+
+«давайте лить больше на donut pillow» 
+
+вместо: «давайте расширять medical-запросы» 
+
+KPI 
+Impression Share 
+🟢 GREEN 
+6–10% → норма / потолок Amazon 
+
+🟡 YELLOW 
+4–6% → есть потенциал роста 
+
+🔴 RED 
+<4% → проблема с видимостью (rank / ads) 
+
+Click Share (по запросу) 
+
+🟢 GREEN 
+12–16% → сильный листинг 
+
+🟡 YELLOW 
+8–12% → средняя кликабельность 
+
+🔴 RED 
+<8% → проблема с оффером / ценой / визуалом 
+
+Cart Add Rate 
+
+🟢 GREEN 
+≥15% → запрос релевантный 
+
+🟡 YELLOW 
+12–15% → сомнение у покупателя 
+
+🔴 RED 
+<12% → не тот intent / ожидание ≠ продукт 
+
+Purchase Rate 
+
+🟢 GREEN 
+≥9% → запрос качественный 
+
+🟡 YELLOW 
+7–9% → допустимо 
+
+🔴 RED 
+<7% → риск масштабирования 
+
+Наш пример 
+ 
+donut pillow 
+
+Impression Share ≈ 6% 🟢 
+
+Click Share ≈ 14% 🟢 
+
+Cart Add Rate ≈ 14.56% 
+
+Purchase Share ≈ 21% 🟢 
+
+Purchase Rate ≈ 8.16% 🟡 
+→ держим, не давим дальше 
+
+hemorrhoid pillow 
+
+Impression Share ≈ 6% 🟢 
+
+Click Share ≈ 16% 🟢 
+
+Cart Add Rate ≈ 17.12% 
+
+Purchase Share ≈ 24% 🟢 
+
+Purchase Rate ≈ 9.50% 🟢 
+→ масштабируем мед запросы 
+
+bed sore cushions for butt 
+
+Impression Share ≈ 5.00% 🟢 
+
+Click Share ≈ 8.03% 🟡 
+
+Cart Add Rate ≈ 13.87% 
+
+Purchase Share ≈ 10.48% 🔴 
+
+Purchase Rate ≈ 6.72% 🔴 
+→ НЕ масштабируем, рискованный запрос 
+
+ 

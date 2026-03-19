@@ -151,8 +151,32 @@
           },
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional output field selection. When provided, only these fields are returned per row — significantly reduces response size. If omitted, returns all columns (~100 fields)."
+            "items": {
+              "type": "string",
+              "enum": [
+                "week_start", "company_id", "marketplace_country_code", "marketplace",
+                "parent_asin", "asin", "row_type", "brand", "title",
+                "revenue_abcd_class", "pareto_abc_class", "product_family", "revenue_share",
+                "searchquerydata_searchquery", "searchquerydata_searchqueryscore", "searchquerydata_searchqueryvolume",
+                "kpi_impression_share", "kpi_click_share", "kpi_cart_add_rate", "kpi_purchase_rate", "kpi_ctr_advantage",
+                "kpi_impression_share_wow", "kpi_impression_share_wolast4", "kpi_impression_share_wolast12",
+                "kpi_click_share_wow", "kpi_click_share_wolast4", "kpi_click_share_wolast12",
+                "kpi_cart_add_rate_wow", "kpi_cart_add_rate_wolast4", "kpi_cart_add_rate_wolast12",
+                "kpi_purchase_rate_wow", "kpi_purchase_rate_wolast4", "kpi_purchase_rate_wolast12",
+                "kpi_ctr_advantage_wow", "kpi_ctr_advantage_wolast4", "kpi_ctr_advantage_wolast12",
+                "cvr_same_day", "cvr_one_day", "cvr_two_day", "cvr_same_vs_two_ratio", "cvr_one_vs_two_ratio",
+                "kpi_impression_share_trend_signal", "kpi_click_share_trend_signal",
+                "kpi_cart_add_rate_trend_signal", "kpi_purchase_rate_trend_signal", "kpi_ctr_advantage_trend_signal",
+                "strength_signal", "weakness_signal", "opportunity_signal", "threshold_signal",
+                "strength_color", "weakness_color", "opportunity_color", "threshold_color",
+                "impressiondata_totalqueryimpressioncount", "impressiondata_asinimpressioncount", "impressiondata_asinimpressionshare",
+                "clickdata_totalclickcount", "clickdata_asinclickcount", "clickdata_asinclickshare",
+                "cartadddata_totalcartaddcount", "cartadddata_asincartaddcount", "cartadddata_asincartaddshare",
+                "purchasedata_totalpurchasecount", "purchasedata_asinpurchasecount", "purchasedata_asinpurchaseshare",
+                "startdate", "enddate"
+              ]
+            },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — significantly reduces response size. If omitted, returns all columns (~100 fields). IMPORTANT: Use exact field names from the enum — e.g., 'searchquerydata_searchquery' not 'search_query'."
           },
           "limit": {
             "type": "integer",

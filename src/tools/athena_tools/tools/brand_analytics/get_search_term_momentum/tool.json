@@ -126,8 +126,22 @@
           },
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. If omitted, returns all columns."
+            "items": {
+              "type": "string",
+              "enum": [
+                "rank", "search_term", "company_name", "marketplace", "currency", "category",
+                "search_volume", "period_start", "period_end",
+                "my_asin", "my_brand", "my_click_share", "prev_week_share",
+                "wow_delta", "avg_share_l4w", "avg_share_l12w", "momentum_signal",
+                "revenue_abcd_class", "pareto_abc_class", "asin_class", "product_family", "revenue_share",
+                "rank_1_asin", "rank_1_itemname", "rank_1_department", "rank_1_clickshare", "rank_1_conversionshare",
+                "rank_2_asin", "rank_2_itemname", "rank_2_department", "rank_2_clickshare", "rank_2_conversionshare",
+                "rank_3_asin", "rank_3_itemname", "rank_3_department", "rank_3_clickshare", "rank_3_conversionshare",
+                "my_position", "is_weak_leader", "leader_conversion_share",
+                "displacement_opportunity_score", "click_share_to_leader"
+              ]
+            },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. If omitted, returns all columns. IMPORTANT: Use exact field names from the enum."
           },
           "limit": {
             "type": "integer",

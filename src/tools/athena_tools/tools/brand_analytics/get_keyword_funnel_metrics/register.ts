@@ -7,6 +7,7 @@ import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { applySelectFields } from '../select-fields';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -247,11 +248,7 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       });
 
       const rows = athenaResult.rows ?? [];
-      if (selectFields && selectFields.length > 0) {
-        const keep = new Set(selectFields);
-        return { items: rows.map((r: Record<string, unknown>) => Object.fromEntries(Object.entries(r).filter(([k]) => keep.has(k)))) };
-      }
-      return { items: rows };
+      return applySelectFields(rows, selectFields);
     },
   });
 }

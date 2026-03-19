@@ -237,55 +237,59 @@ SELECT
   p.search_frequency_rank,
   CAST(p.period_start AS DATE) AS period_start,
   CAST(p.period_end AS DATE) AS period_end,
-  p.top_3_products,
+  json_format(CAST(p.top_3_products AS JSON)) AS top_3_products,
   p.my_position,
-  CAST(
-    ROW(
-      CASE
-        WHEN p.leader_conversion_share IS NULL THEN false
-        WHEN p.leader_conversion_share <= params.weak_leader_max_conversion_share
-          AND p.search_frequency_rank <= params.weak_leader_min_search_volume_rank
-          AND (NOT params.weak_leader_require_my_presence OR p.my_position IS NOT NULL)
-          THEN true
-        ELSE false
-      END,
-      COALESCE(p.leader_conversion_share, 0.0),
-      CASE
-        WHEN p.leader_conversion_share IS NULL THEN 0.0
-        ELSE
-          GREATEST(0.0, (1.0 - p.leader_conversion_share))
-          * (1.0 / (1.0 + CAST(p.search_frequency_rank AS DOUBLE)))
-          * 100000.0
-      END,
-      CASE
-        WHEN p.leader_conversion_share IS NULL THEN 'insufficient_data'
-        WHEN p.leader_conversion_share <= params.weak_leader_max_conversion_share THEN 'optimize_listing_to_displace'
-        ELSE 'monitor_competitor_strength'
-      END
-    ) AS ROW(
-      is_weak_leader BOOLEAN,
-      leader_conversion_share DOUBLE,
-      displacement_opportunity_score DOUBLE,
-      recommended_action VARCHAR
-    )
-  ) AS weak_leader_analysis,
-  CAST(
-    ROW(
-      CASE
-        WHEN p.my_click_share IS NULL THEN NULL
-        ELSE p.leader_click_share - p.my_click_share
-      END,
-      CASE
-        WHEN p.my_conversion_share IS NULL THEN NULL
-        ELSE p.leader_conversion_share - p.my_conversion_share
-      END,
-      CAST(NULL AS BIGINT)
-    ) AS ROW(
-      click_share_to_leader DOUBLE,
-      conversion_share_to_leader DOUBLE,
-      estimated_clicks_if_leader BIGINT
-    )
-  ) AS share_gaps
+  json_format(CAST(
+    CAST(
+      ROW(
+        CASE
+          WHEN p.leader_conversion_share IS NULL THEN false
+          WHEN p.leader_conversion_share <= params.weak_leader_max_conversion_share
+            AND p.search_frequency_rank <= params.weak_leader_min_search_volume_rank
+            AND (NOT params.weak_leader_require_my_presence OR p.my_position IS NOT NULL)
+            THEN true
+          ELSE false
+        END,
+        COALESCE(p.leader_conversion_share, 0.0),
+        CASE
+          WHEN p.leader_conversion_share IS NULL THEN 0.0
+          ELSE
+            GREATEST(0.0, (1.0 - p.leader_conversion_share))
+            * (1.0 / (1.0 + CAST(p.search_frequency_rank AS DOUBLE)))
+            * 100000.0
+        END,
+        CASE
+          WHEN p.leader_conversion_share IS NULL THEN 'insufficient_data'
+          WHEN p.leader_conversion_share <= params.weak_leader_max_conversion_share THEN 'optimize_listing_to_displace'
+          ELSE 'monitor_competitor_strength'
+        END
+      ) AS ROW(
+        is_weak_leader BOOLEAN,
+        leader_conversion_share DOUBLE,
+        displacement_opportunity_score DOUBLE,
+        recommended_action VARCHAR
+      )
+    ) AS JSON
+  )) AS weak_leader_analysis,
+  json_format(CAST(
+    CAST(
+      ROW(
+        CASE
+          WHEN p.my_click_share IS NULL THEN NULL
+          ELSE p.leader_click_share - p.my_click_share
+        END,
+        CASE
+          WHEN p.my_conversion_share IS NULL THEN NULL
+          ELSE p.leader_conversion_share - p.my_conversion_share
+        END,
+        CAST(NULL AS BIGINT)
+      ) AS ROW(
+        click_share_to_leader DOUBLE,
+        conversion_share_to_leader DOUBLE,
+        estimated_clicks_if_leader BIGINT
+      )
+    ) AS JSON
+  )) AS share_gaps
 FROM per_term p
 CROSS JOIN params
 WHERE

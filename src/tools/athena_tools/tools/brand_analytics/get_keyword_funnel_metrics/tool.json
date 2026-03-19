@@ -131,8 +131,22 @@
           },
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional output field selection. If omitted, returns all available metrics."
+            "items": {
+              "type": "string",
+              "enum": [
+                "rank", "keyword", "marketplace", "period_start", "period_end",
+                "search_query_volume", "search_frequency_rank",
+                "total_impressions", "brand_impressions", "brand_impression_share", "brand_impression_share_wow",
+                "total_clicks", "brand_clicks", "brand_click_share", "brand_click_share_wow",
+                "total_cart_adds", "brand_cart_adds", "brand_cart_add_share", "brand_cart_add_share_wow",
+                "total_purchases", "brand_purchases", "brand_purchase_share", "brand_purchase_share_wow",
+                "market_impression_to_click_rate", "market_click_to_cart_rate",
+                "market_cart_to_purchase_rate", "market_impression_to_purchase_rate",
+                "brand_impression_to_click_rate", "brand_click_to_cart_rate",
+                "brand_cart_to_purchase_rate", "brand_impression_to_purchase_rate"
+              ]
+            },
+            "description": "Optional output field selection. If omitted, returns all available metrics. IMPORTANT: Use exact field names from the enum."
           },
           "limit": {
             "type": "integer",

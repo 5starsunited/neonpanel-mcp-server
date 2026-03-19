@@ -111,8 +111,24 @@
           },
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size."
+            "items": {
+              "type": "string",
+              "enum": [
+                "rank", "asin", "product_family", "asin_brand",
+                "pareto_abc_class", "revenue_abcd_class", "revenue_share",
+                "marketplace", "currency",
+                "total_orders", "total_unique_customers", "total_repeat_revenue",
+                "avg_weekly_orders", "avg_weekly_unique_customers",
+                "avg_repeat_customers_pct", "avg_weekly_repeat_revenue", "avg_repeat_revenue_pct",
+                "max_repeat_customers_pct", "max_repeat_revenue_pct",
+                "weeks_with_data", "total_weeks",
+                "latest_week_orders", "latest_week_unique_customers",
+                "latest_week_repeat_customers_pct", "latest_week_repeat_revenue", "latest_week_repeat_revenue_pct",
+                "repeat_customers_pct_wow", "repeat_revenue_pct_wow", "orders_wow",
+                "first_seen", "last_seen", "window_start", "window_end"
+              ]
+            },
+            "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum — e.g., 'avg_repeat_customers_pct' not 'repeat_customer_pct'."
           },
           "limit": {
             "type": "integer",
