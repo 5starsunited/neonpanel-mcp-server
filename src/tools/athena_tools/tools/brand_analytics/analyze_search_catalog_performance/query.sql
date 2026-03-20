@@ -33,6 +33,18 @@ WITH params AS (
         {{purchase_trend_colors_array}} AS purchase_trend_colors
 ),
 -- ─── RYG threshold values (pivoted from Iceberg table into one row) ──────────
+-- Company-specific overrides (company_id = N) take priority over defaults (company_id IS NULL).
+ryg_ranked AS (
+    SELECT *,
+        ROW_NUMBER() OVER (
+            PARTITION BY tool, signal_group, metric, color
+            ORDER BY CASE WHEN company_id = {{ryg_company_id}} THEN 0 ELSE 1 END
+        ) AS rn
+    FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
+    WHERE (company_id = {{ryg_company_id}} OR company_id IS NULL)
+      AND tool IN ('scp', 'global')
+),
+
 thresholds AS (
     SELECT
         -- Strength (scp)
@@ -45,9 +57,8 @@ thresholds AS (
         -- Trend (global)
         MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
         MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
-    FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
-    WHERE user_id = 'default'
-      AND tool IN ('scp', 'global')
+    FROM ryg_ranked
+    WHERE rn = 1
 ),
 -- ─── Dimension tables ──────────────────────────────────────────────────────
 marketplaces_dim AS (

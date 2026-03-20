@@ -82,6 +82,7 @@ const querySchema = z
       })
       .optional(),
     select_fields: z.array(z.string()).optional(),
+    ryg_company_id: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50).optional(),
   })
   .strict();
@@ -179,10 +180,12 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
       const periodsBack = time?.periods_back ?? 12;
       const limitTopN = query.limit ?? 50;
       const selectFields = query.select_fields;
+      const rygCompanyId = query.ryg_company_id ?? allowedCompanyIds[0];
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
+        ryg_company_id: Number(rygCompanyId),
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlDateExpr(time?.start_date),
         end_date_sql: sqlDateExpr(time?.end_date),

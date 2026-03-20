@@ -161,6 +161,11 @@
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — significantly reduces response size. If omitted, returns all columns (~90 fields). IMPORTANT: Use exact field names from the enum."
           },
+          "ryg_company_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional: company_id whose custom RYG thresholds to apply. If omitted, uses the first company_id from filters. If the company has no custom thresholds, system defaults are used."
+          },
           "limit": {
             "type": "integer",
             "minimum": 1,

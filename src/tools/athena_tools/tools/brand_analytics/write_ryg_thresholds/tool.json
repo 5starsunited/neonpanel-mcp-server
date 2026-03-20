@@ -1,0 +1,103 @@
+{
+  "name": "brand_analytics_write_ryg_thresholds",
+  "description": "Write company-specific RYG (Red/Yellow/Green) signal threshold overrides for Brand Analytics analysis tools. Consequential (writes data).\n\nUse cases:\n- Customise strength/weakness/opportunity/trend thresholds per company\n- Override system defaults with company-specific values\n- Reset company overrides to fall back to system defaults\n\nEach write creates one threshold row for a (tool, signal_group, metric, color) slot.\nIf a row already exists for the same company + slot, it is replaced (upsert semantics).\n\nTo reset (delete all company overrides), use action='reset'.\n\nAvailable tools: sqp (Search Query Performance), scp (Search Catalog Performance), global (shared trend thresholds).\n\nExample (set custom SQP strength thresholds):\n{\n  \"company_id\": 103,\n  \"reason\": \"Company 103 has higher baseline metrics; raising green bar.\",\n  \"writes\": [\n    { \"tool\": \"sqp\", \"signal_group\": \"strength\", \"metric\": \"click_share\", \"color\": \"green\", \"threshold_value\": 0.15, \"signal_code\": \"market_leader\", \"signal_description\": \"Top click share (>15%).\" },\n    { \"tool\": \"sqp\", \"signal_group\": \"strength\", \"metric\": \"purchase_rate\", \"color\": \"green\", \"threshold_value\": 0.12, \"signal_code\": \"high_intent_win\", \"signal_description\": \"Elite conversion (>12%).\" }\n  ]\n}\n\nExample (reset all overrides for a company):\n{\n  \"company_id\": 103,\n  \"reason\": \"Reverting to system defaults.\",\n  \"action\": \"reset\"\n}",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Company identifier to set overrides for."
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 5,
+        "description": "Human-readable reason for the change (audit trail)."
+      },
+      "action": {
+        "type": "string",
+        "enum": ["write", "reset"],
+        "default": "write",
+        "description": "write (default): upsert threshold overrides. reset: delete ALL company overrides (reverts to system defaults)."
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, validate and preview without persisting."
+      },
+      "writes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 50,
+        "description": "Threshold overrides to write. Required when action='write'.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "tool": {
+              "type": "string",
+              "enum": ["sqp", "scp", "global"],
+              "description": "Tool this threshold applies to."
+            },
+            "signal_group": {
+              "type": "string",
+              "enum": ["strength", "weakness", "opportunity", "threshold", "trend"],
+              "description": "Signal group."
+            },
+            "metric": {
+              "type": "string",
+              "description": "Metric name (e.g., click_share, purchase_rate, cvr_ratio, delta, impression_share, click_rate)."
+            },
+            "color": {
+              "type": "string",
+              "enum": ["green", "yellow", "red"],
+              "description": "Signal color tier."
+            },
+            "threshold_value": {
+              "type": "number",
+              "description": "Numeric threshold boundary value."
+            },
+            "signal_code": {
+              "type": "string",
+              "description": "Short code for the signal (e.g., market_leader, visibility_void)."
+            },
+            "signal_description": {
+              "type": "string",
+              "description": "Human-readable explanation of the signal."
+            }
+          },
+          "required": ["tool", "signal_group", "metric", "color", "threshold_value", "signal_code", "signal_description"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["company_id", "reason"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "action": { "type": "string" },
+      "accepted": { "type": "integer" },
+      "written": { "type": "integer" },
+      "deleted": { "type": "integer" },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string", "enum": ["ok", "skipped", "error"] },
+            "tool": { "type": "string" },
+            "signal_group": { "type": "string" },
+            "metric": { "type": "string" },
+            "color": { "type": "string" },
+            "threshold_value": { "type": "number" },
+            "message": { "type": "string" }
+          }
+        }
+      }
+    },
+    "required": ["dry_run", "action", "accepted", "written"]
+  }
+}

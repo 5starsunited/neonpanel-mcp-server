@@ -4,13 +4,14 @@
 -- signal colors (green/yellow/red) and signal codes with explanations.
 --
 -- Scope hierarchy:
---   scope = 'default'  → system-wide defaults, applied when no user override exists
---   scope = 'user'     → per-user overrides (future: user_id column will be populated)
+--   company_id IS NULL  → system-wide defaults, applied when no company override exists
+--   company_id = N      → company-specific overrides (take priority over defaults)
 --
 -- Each row defines ONE threshold boundary for one (signal_group, metric, color).
 -- The SQL consumers JOIN this table and use the thresholds in CASE WHEN expressions.
 
 CREATE TABLE brand_analytics_iceberg.ryg_thresholds (
+  company_id          BIGINT,
   user_id             STRING,  
   tool                STRING,
   signal_group        STRING,

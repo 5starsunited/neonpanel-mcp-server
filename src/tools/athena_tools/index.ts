@@ -20,6 +20,8 @@ import { registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool } from './tools
 import { registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool } from './tools/brand_analytics/analyze_search_catalog_performance/register';
 import { registerBrandAnalyticsGetCrossSellOpportunitiesTool } from './tools/brand_analytics/get_cross_sell_opportunities/register';
 import { registerBrandAnalyticsAnalyzeRepeatPurchasesTool } from './tools/brand_analytics/analyze_repeat_purchases/register';
+import { registerBrandAnalyticsListRygThresholdsTool } from './tools/brand_analytics/list_ryg_thresholds/register';
+import { registerBrandAnalyticsWriteRygThresholdsTool } from './tools/brand_analytics/write_ryg_thresholds/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
@@ -67,6 +69,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(registry);
   registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry);
   registerBrandAnalyticsAnalyzeRepeatPurchasesTool(registry);
+  registerBrandAnalyticsListRygThresholdsTool(registry);
+  registerBrandAnalyticsWriteRygThresholdsTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsListLostBatchesTool(registry);
   registerCogsExportUnitCostsTool(registry);

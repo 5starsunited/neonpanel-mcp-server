@@ -1,0 +1,50 @@
+{
+  "name": "brand_analytics_list_ryg_thresholds",
+  "description": "Lists the RYG (Red/Yellow/Green) signal thresholds used by Brand Analytics analysis tools. Shows both system defaults and any company-specific overrides.\n\nUse cases:\n- Inspect current threshold values before customising them\n- Verify company-specific overrides are applied correctly\n- Understand how strength, weakness, opportunity, and trend signals are classified\n\nEach row defines one threshold boundary for a (tool, signal_group, metric, color) combination.\nCompany overrides (company_id = N) take priority over defaults (company_id IS NULL) in analysis queries.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Company identifier. Returns both the company's custom overrides and the system defaults."
+      },
+      "tool": {
+        "type": "string",
+        "enum": ["sqp", "scp", "global"],
+        "description": "Optional: filter by tool name (sqp = Search Query Performance, scp = Search Catalog Performance, global = shared trend thresholds)."
+      },
+      "include_defaults": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true (default), include system default thresholds alongside company overrides. Set false to see only company-specific overrides."
+      }
+    },
+    "required": ["company_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "company_id": { "type": ["integer", "null"] },
+            "is_override": { "type": "boolean" },
+            "tool": { "type": "string" },
+            "signal_group": { "type": "string" },
+            "metric": { "type": "string" },
+            "color": { "type": "string" },
+            "threshold_value": { "type": "number" },
+            "signal_code": { "type": "string" },
+            "signal_description": { "type": "string" },
+            "updated_at": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
