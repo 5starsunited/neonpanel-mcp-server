@@ -37,35 +37,23 @@ WITH params AS (
 -- ─── RYG threshold values (pivoted from Iceberg table into one row) ──────────
 thresholds AS (
     SELECT
-        -- Strength
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_share'   AND color = 'green'  THEN threshold_value END) AS str_click_share_g,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'green'  THEN threshold_value END) AS str_purchase_rate_g,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_share'   AND color = 'yellow' THEN threshold_value END) AS str_click_share_y,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'yellow' THEN threshold_value END) AS str_purchase_rate_y,
-        -- Weakness
-        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'click_share'      AND color = 'red'    THEN threshold_value END) AS wk_click_share_r,
-        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'impression_share' AND color = 'red'    THEN threshold_value END) AS wk_impression_share_r,
-        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'click_share_high' AND color = 'red'    THEN threshold_value END) AS wk_click_share_high_r,
-        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'purchase_rate'    AND color = 'red'    THEN threshold_value END) AS wk_purchase_rate_r,
-        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'cart_add_rate'    AND color = 'yellow' THEN threshold_value END) AS wk_cart_add_rate_y,
-        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'purchase_rate'    AND color = 'yellow' THEN threshold_value END) AS wk_purchase_rate_y,
-        -- Opportunity
-        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'cvr_ratio'        AND color = 'green'  THEN threshold_value END) AS opp_cvr_ratio_g,
-        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'impression_share' AND color = 'green'  THEN threshold_value END) AS opp_impression_share_g,
-        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'ctr_advantage'    AND color = 'green'  THEN threshold_value END) AS opp_ctr_advantage_g,
-        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'impression_share' AND color = 'yellow' THEN threshold_value END) AS opp_impression_share_y,
-        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'ctr_advantage'    AND color = 'yellow' THEN threshold_value END) AS opp_ctr_advantage_y,
-        -- Threshold/Ceiling
-        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'impression_share' AND color = 'red'    THEN threshold_value END) AS th_impression_share_r,
-        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'ctr_advantage'    AND color = 'red'    THEN threshold_value END) AS th_ctr_advantage_r,
-        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'impression_share' AND color = 'yellow' THEN threshold_value END) AS th_impression_share_y,
-        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'ctr_advantage'    AND color = 'yellow' THEN threshold_value END) AS th_ctr_advantage_y,
-        -- Trend
-        MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
-        MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
+        -- Strength (sqp)
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'strength' AND metric = 'click_share'   AND color = 'green'  THEN threshold_value END) AS str_click_share_g,
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'green'  THEN threshold_value END) AS str_purchase_rate_g,
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'strength' AND metric = 'click_share'   AND color = 'yellow' THEN threshold_value END) AS str_click_share_y,
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'yellow' THEN threshold_value END) AS str_purchase_rate_y,
+        -- Weakness (sqp)
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'weakness' AND metric = 'click_share'   AND color = 'red' THEN threshold_value END) AS wk_click_share_r,
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'weakness' AND metric = 'purchase_rate' AND color = 'red' THEN threshold_value END) AS wk_purchase_rate_r,
+        -- Opportunity (sqp)
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'opportunity' AND metric = 'cvr_ratio'        AND color = 'green' THEN threshold_value END) AS opp_cvr_ratio_g,
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'opportunity' AND metric = 'impression_share' AND color = 'green' THEN threshold_value END) AS opp_impression_share_g,
+        -- Trend (global)
+        MAX(CASE WHEN tool = 'global' AND signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
+        MAX(CASE WHEN tool = 'global' AND signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
     FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
-    WHERE user_id IS NULL
-      AND tool = 'search_query_performance'
+    WHERE user_id = 'default'
+      AND tool IN ('sqp', 'global')
 ),
 
 raw AS (
@@ -317,7 +305,7 @@ cvr_base AS (
 signal_base AS (
     SELECT
         w.*,
-        -- Strength signal (thresholds from ryg_thresholds table)
+        -- Strength signal
         CASE
             WHEN w.kpi_click_share IS NULL OR w.kpi_purchase_rate IS NULL THEN NULL
             WHEN w.kpi_click_share >= t.str_click_share_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'green'
@@ -326,77 +314,56 @@ signal_base AS (
         END AS strength_color,
         CASE
             WHEN w.kpi_click_share IS NULL OR w.kpi_purchase_rate IS NULL THEN 'insufficient_data'
-            WHEN w.kpi_click_share >= t.str_click_share_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'strong_listing_and_intent'
-            WHEN w.kpi_click_share >= t.str_click_share_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'acceptable_performance'
+            WHEN w.kpi_click_share >= t.str_click_share_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'market_leader'
+            WHEN w.kpi_click_share >= t.str_click_share_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'competitive'
             ELSE 'weak_click_or_conversion'
         END AS strength_code,
         CASE
             WHEN w.kpi_click_share IS NULL OR w.kpi_purchase_rate IS NULL THEN 'Not enough data to evaluate strength.'
-            WHEN w.kpi_click_share >= t.str_click_share_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'Strong clickability and purchase intent.'
-            WHEN w.kpi_click_share >= t.str_click_share_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'Performance is acceptable but not leading.'
+            WHEN w.kpi_click_share >= t.str_click_share_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'Top-tier click share and conversion; listing is highly relevant.'
+            WHEN w.kpi_click_share >= t.str_click_share_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'Moderate click share; visible but not dominant.'
             ELSE 'Underperforming click or purchase rates.'
         END AS strength_description,
 
-        -- Weakness signal (priority order; thresholds from ryg_thresholds table)
+        -- Weakness signal
         CASE
-            WHEN w.kpi_impression_share_wow < 0 AND w.kpi_click_share_wow < 0 THEN 'red'
-            WHEN w.kpi_click_share < t.wk_click_share_r AND w.kpi_impression_share >= t.wk_impression_share_r THEN 'red'
-            WHEN w.kpi_click_share >= t.wk_click_share_high_r AND w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'red'
-            WHEN w.kpi_cart_add_rate < t.wk_cart_add_rate_y OR w.kpi_purchase_rate < t.wk_purchase_rate_y THEN 'yellow'
+            WHEN w.kpi_click_share < t.wk_click_share_r THEN 'red'
+            WHEN w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'red'
             ELSE 'green'
         END AS weakness_color,
         CASE
-            WHEN w.kpi_impression_share_wow < 0 AND w.kpi_click_share_wow < 0 THEN 'visibility_loss'
-            WHEN w.kpi_click_share < t.wk_click_share_r AND w.kpi_impression_share >= t.wk_impression_share_r THEN 'offer_weakness'
-            WHEN w.kpi_click_share >= t.wk_click_share_high_r AND w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'funnel_leakage'
-            WHEN w.kpi_cart_add_rate < t.wk_cart_add_rate_y OR w.kpi_purchase_rate < t.wk_purchase_rate_y THEN 'intent_mismatch'
+            WHEN w.kpi_click_share < t.wk_click_share_r THEN 'visibility_void'
+            WHEN w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'pdp_friction'
             ELSE 'no_major_weakness'
         END AS weakness_code,
         CASE
-            WHEN w.kpi_impression_share_wow < 0 AND w.kpi_click_share_wow < 0 THEN 'Visibility and clicks are declining week over week.'
-            WHEN w.kpi_click_share < t.wk_click_share_r AND w.kpi_impression_share >= t.wk_impression_share_r THEN 'Impressions are acceptable but click share is weak.'
-            WHEN w.kpi_click_share >= t.wk_click_share_high_r AND w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'Strong clicks but weak purchases suggest PDP/price issues.'
-            WHEN w.kpi_cart_add_rate < t.wk_cart_add_rate_y OR w.kpi_purchase_rate < t.wk_purchase_rate_y THEN 'Low cart add or purchase rate indicates intent mismatch.'
+            WHEN w.kpi_click_share < t.wk_click_share_r THEN 'Poor click share; main image or price likely failing.'
+            WHEN w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'Critical conversion leak; check reviews or UX.'
             ELSE 'No critical weakness detected.'
         END AS weakness_description,
 
-        -- Opportunity signal (thresholds from ryg_thresholds table)
+        -- Opportunity signal
         CASE
             WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'green'
-            WHEN w.kpi_impression_share < t.opp_impression_share_g AND w.kpi_ctr_advantage >= t.opp_ctr_advantage_g THEN 'green'
-            WHEN w.kpi_impression_share < t.opp_impression_share_y AND w.kpi_ctr_advantage >= t.opp_ctr_advantage_y THEN 'yellow'
+            WHEN w.kpi_impression_share < t.opp_impression_share_g THEN 'green'
             ELSE 'red'
         END AS opportunity_color,
         CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'fast_delivery_uplift'
-            WHEN w.kpi_impression_share < t.opp_impression_share_g AND w.kpi_ctr_advantage >= t.opp_ctr_advantage_g THEN 'visibility_gap'
-            WHEN w.kpi_impression_share < t.opp_impression_share_y AND w.kpi_ctr_advantage >= t.opp_ctr_advantage_y THEN 'moderate_visibility_gap'
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'shipping_alpha'
+            WHEN w.kpi_impression_share < t.opp_impression_share_g THEN 'untapped_volume'
             ELSE 'no_clear_opportunity'
         END AS opportunity_code,
         CASE
             WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
-              THEN 'Fast-delivery conversion uplift; increasing same/one-day availability may raise profitability.'
-            WHEN w.kpi_impression_share < t.opp_impression_share_g AND w.kpi_ctr_advantage >= t.opp_ctr_advantage_g THEN 'High CTR advantage but low impressions: scale visibility.'
-            WHEN w.kpi_impression_share < t.opp_impression_share_y AND w.kpi_ctr_advantage >= t.opp_ctr_advantage_y THEN 'CTR advantage with moderate impressions: growth possible.'
-            ELSE 'No clear visibility opportunity.'
+              THEN '1-Day delivery provides >30% CVR lift. Scale FBA.'
+            WHEN w.kpi_impression_share < t.opp_impression_share_g THEN 'High CVR but low Imp Share. Aggressively raise bids.'
+            ELSE 'No clear opportunity.'
         END AS opportunity_description,
 
-        -- Threshold / ceiling signal (thresholds from ryg_thresholds table)
-        CASE
-            WHEN w.kpi_impression_share >= t.th_impression_share_r AND w.kpi_ctr_advantage >= t.th_ctr_advantage_r THEN 'red'
-            WHEN w.kpi_impression_share >= t.th_impression_share_y AND w.kpi_ctr_advantage >= t.th_ctr_advantage_y THEN 'yellow'
-            ELSE 'green'
-        END AS threshold_color,
-        CASE
-            WHEN w.kpi_impression_share >= t.th_impression_share_r AND w.kpi_ctr_advantage >= t.th_ctr_advantage_r THEN 'visibility_ceiling'
-            WHEN w.kpi_impression_share >= t.th_impression_share_y AND w.kpi_ctr_advantage >= t.th_ctr_advantage_y THEN 'approaching_ceiling'
-            ELSE 'no_ceiling'
-        END AS threshold_code,
-        CASE
-            WHEN w.kpi_impression_share >= t.th_impression_share_r AND w.kpi_ctr_advantage >= t.th_ctr_advantage_r THEN 'Likely visibility ceiling; growth limited by distribution.'
-            WHEN w.kpi_impression_share >= t.th_impression_share_y AND w.kpi_ctr_advantage >= t.th_ctr_advantage_y THEN 'Approaching visibility ceiling.'
-            ELSE 'No ceiling detected.'
-        END AS threshold_description
+        -- Threshold / ceiling signal (no sqp rows in table → always green)
+        'green' AS threshold_color,
+        'no_ceiling' AS threshold_code,
+        'No ceiling detected.' AS threshold_description
     FROM cvr_base w
     CROSS JOIN thresholds t
 ),
