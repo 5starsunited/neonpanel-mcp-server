@@ -32,7 +32,35 @@ WITH params AS (
         {{cart_add_trend_colors_array}} AS cart_add_trend_colors,
         {{purchase_trend_colors_array}} AS purchase_trend_colors
 ),
-
+-- ─── RYG threshold values (pivoted from Iceberg table into one row) ──────────
+thresholds AS (
+    SELECT
+        -- Strength
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'     AND color = 'green'  THEN threshold_value END) AS str_click_rate_g,
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate'  AND color = 'green'  THEN threshold_value END) AS str_purchase_rate_g,
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'     AND color = 'yellow' THEN threshold_value END) AS str_click_rate_y,
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate'  AND color = 'yellow' THEN threshold_value END) AS str_purchase_rate_y,
+        -- Weakness
+        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'wow_delta'      AND color = 'red'    THEN threshold_value END) AS wk_wow_delta_r,
+        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'click_rate'     AND color = 'red'    THEN threshold_value END) AS wk_click_rate_r,
+        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'purchase_rate'  AND color = 'red'    THEN threshold_value END) AS wk_purchase_rate_r,
+        MAX(CASE WHEN signal_group = 'weakness' AND metric = 'cart_add_rate'  AND color = 'yellow' THEN threshold_value END) AS wk_cart_add_rate_y,
+        -- Opportunity
+        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'cvr_ratio'     AND color = 'green'  THEN threshold_value END) AS opp_cvr_ratio_g,
+        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'purchase_rate' AND color = 'yellow' THEN threshold_value END) AS opp_purchase_rate_y,
+        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'click_rate'    AND color = 'yellow' THEN threshold_value END) AS opp_click_rate_y,
+        -- Threshold/Ceiling
+        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'click_rate'    AND color = 'red'    THEN threshold_value END) AS th_click_rate_r,
+        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'purchase_rate' AND color = 'red'    THEN threshold_value END) AS th_purchase_rate_r,
+        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'click_rate'    AND color = 'yellow' THEN threshold_value END) AS th_click_rate_y,
+        MAX(CASE WHEN signal_group = 'threshold' AND metric = 'purchase_rate' AND color = 'yellow' THEN threshold_value END) AS th_purchase_rate_y,
+        -- Trend
+        MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
+        MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
+    FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
+    WHERE user_id IS NULL
+      AND tool = 'search_catalog_performance'
+),
 -- ─── Dimension tables ──────────────────────────────────────────────────────
 marketplaces_dim AS (
     SELECT
@@ -407,113 +435,115 @@ cvr_base AS (
 signal_base AS (
     SELECT
         w.*,
-        -- Strength signal
+        -- Strength signal (thresholds from ryg_thresholds table)
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN NULL
-            WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'green'
-            WHEN w.kpi_click_rate >= 0.08 AND w.kpi_purchase_rate >= 0.07 THEN 'yellow'
+            WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'green'
+            WHEN w.kpi_click_rate >= t.str_click_rate_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'yellow'
             ELSE 'red'
         END AS strength_color,
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN 'insufficient_data'
-            WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'strong_engagement_and_conversion'
-            WHEN w.kpi_click_rate >= 0.08 AND w.kpi_purchase_rate >= 0.07 THEN 'acceptable_performance'
+            WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'strong_engagement_and_conversion'
+            WHEN w.kpi_click_rate >= t.str_click_rate_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'acceptable_performance'
             ELSE 'weak_click_or_conversion'
         END AS strength_code,
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN 'Not enough data to evaluate strength.'
-            WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'Strong clickability and conversion.'
-            WHEN w.kpi_click_rate >= 0.08 AND w.kpi_purchase_rate >= 0.07 THEN 'Performance is acceptable but not leading.'
+            WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'Strong clickability and conversion.'
+            WHEN w.kpi_click_rate >= t.str_click_rate_y AND w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'Performance is acceptable but not leading.'
             ELSE 'Underperforming click or conversion rate.'
         END AS strength_description,
 
-        -- Weakness signal
+        -- Weakness signal (thresholds from ryg_thresholds table)
         CASE
-            WHEN w.kpi_click_rate_wow < -0.02 AND w.kpi_purchase_rate_wow < -0.02 THEN 'red'
-            WHEN w.kpi_click_rate < 0.08 OR w.kpi_purchase_rate < 0.07 THEN 'red'
-            WHEN w.kpi_cart_add_rate < 0.12 THEN 'yellow'
+            WHEN w.kpi_click_rate_wow < t.wk_wow_delta_r AND w.kpi_purchase_rate_wow < t.wk_wow_delta_r THEN 'red'
+            WHEN w.kpi_click_rate < t.wk_click_rate_r OR w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'red'
+            WHEN w.kpi_cart_add_rate < t.wk_cart_add_rate_y THEN 'yellow'
             ELSE 'green'
         END AS weakness_color,
         CASE
-            WHEN w.kpi_click_rate_wow < -0.02 AND w.kpi_purchase_rate_wow < -0.02 THEN 'engagement_decline'
-            WHEN w.kpi_click_rate < 0.08 THEN 'low_click_rate'
-            WHEN w.kpi_purchase_rate < 0.07 THEN 'low_conversion_rate'
-            WHEN w.kpi_cart_add_rate < 0.12 THEN 'low_cart_add_rate'
+            WHEN w.kpi_click_rate_wow < t.wk_wow_delta_r AND w.kpi_purchase_rate_wow < t.wk_wow_delta_r THEN 'engagement_decline'
+            WHEN w.kpi_click_rate < t.wk_click_rate_r THEN 'low_click_rate'
+            WHEN w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'low_conversion_rate'
+            WHEN w.kpi_cart_add_rate < t.wk_cart_add_rate_y THEN 'low_cart_add_rate'
             ELSE 'no_major_weakness'
         END AS weakness_code,
         CASE
-            WHEN w.kpi_click_rate_wow < -0.02 AND w.kpi_purchase_rate_wow < -0.02 THEN 'Clicks and purchases are declining week over week.'
-            WHEN w.kpi_click_rate < 0.08 THEN 'Click rate is weak for this catalog item.'
-            WHEN w.kpi_purchase_rate < 0.07 THEN 'Conversion rate is weak for this catalog item.'
-            WHEN w.kpi_cart_add_rate < 0.12 THEN 'Cart add rate is below target.'
+            WHEN w.kpi_click_rate_wow < t.wk_wow_delta_r AND w.kpi_purchase_rate_wow < t.wk_wow_delta_r THEN 'Clicks and purchases are declining week over week.'
+            WHEN w.kpi_click_rate < t.wk_click_rate_r THEN 'Click rate is weak for this catalog item.'
+            WHEN w.kpi_purchase_rate < t.wk_purchase_rate_r THEN 'Conversion rate is weak for this catalog item.'
+            WHEN w.kpi_cart_add_rate < t.wk_cart_add_rate_y THEN 'Cart add rate is below target.'
             ELSE 'No critical weakness detected.'
         END AS weakness_description,
 
-        -- Opportunity signal
+        -- Opportunity signal (thresholds from ryg_thresholds table)
         CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= 1.3 OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= 1.3 THEN 'green'
-            WHEN w.kpi_purchase_rate >= 0.09 AND w.kpi_click_rate >= 0.08 THEN 'yellow'
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'green'
+            WHEN w.kpi_purchase_rate >= t.opp_purchase_rate_y AND w.kpi_click_rate >= t.opp_click_rate_y THEN 'yellow'
             ELSE 'red'
         END AS opportunity_color,
         CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= 1.3 OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= 1.3 THEN 'fast_delivery_uplift'
-            WHEN w.kpi_purchase_rate >= 0.09 AND w.kpi_click_rate >= 0.08 THEN 'scale_traffic'
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'fast_delivery_uplift'
+            WHEN w.kpi_purchase_rate >= t.opp_purchase_rate_y AND w.kpi_click_rate >= t.opp_click_rate_y THEN 'scale_traffic'
             ELSE 'no_clear_opportunity'
         END AS opportunity_code,
         CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= 1.3 OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= 1.3
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
               THEN 'Fast-delivery conversion uplift; increase same/one-day availability if possible.'
-            WHEN w.kpi_purchase_rate >= 0.09 AND w.kpi_click_rate >= 0.08 THEN 'Strong conversion with adequate clicks: consider scaling traffic.'
+            WHEN w.kpi_purchase_rate >= t.opp_purchase_rate_y AND w.kpi_click_rate >= t.opp_click_rate_y THEN 'Strong conversion with adequate clicks: consider scaling traffic.'
             ELSE 'No clear opportunity detected.'
         END AS opportunity_description,
 
-        -- Threshold / ceiling signal
+        -- Threshold / ceiling signal (thresholds from ryg_thresholds table)
         CASE
-            WHEN w.kpi_click_rate >= 0.16 AND w.kpi_purchase_rate >= 0.10 THEN 'red'
-            WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'yellow'
+            WHEN w.kpi_click_rate >= t.th_click_rate_r AND w.kpi_purchase_rate >= t.th_purchase_rate_r THEN 'red'
+            WHEN w.kpi_click_rate >= t.th_click_rate_y AND w.kpi_purchase_rate >= t.th_purchase_rate_y THEN 'yellow'
             ELSE 'green'
         END AS threshold_color,
         CASE
-            WHEN w.kpi_click_rate >= 0.16 AND w.kpi_purchase_rate >= 0.10 THEN 'conversion_ceiling'
-            WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'approaching_ceiling'
+            WHEN w.kpi_click_rate >= t.th_click_rate_r AND w.kpi_purchase_rate >= t.th_purchase_rate_r THEN 'conversion_ceiling'
+            WHEN w.kpi_click_rate >= t.th_click_rate_y AND w.kpi_purchase_rate >= t.th_purchase_rate_y THEN 'approaching_ceiling'
             ELSE 'no_ceiling'
         END AS threshold_code,
         CASE
-            WHEN w.kpi_click_rate >= 0.16 AND w.kpi_purchase_rate >= 0.10 THEN 'Likely near ceiling; growth may be limited by demand.'
-            WHEN w.kpi_click_rate >= 0.12 AND w.kpi_purchase_rate >= 0.09 THEN 'Approaching ceiling; optimize for marginal gains.'
+            WHEN w.kpi_click_rate >= t.th_click_rate_r AND w.kpi_purchase_rate >= t.th_purchase_rate_r THEN 'Likely near ceiling; growth may be limited by demand.'
+            WHEN w.kpi_click_rate >= t.th_click_rate_y AND w.kpi_purchase_rate >= t.th_purchase_rate_y THEN 'Approaching ceiling; optimize for marginal gains.'
             ELSE 'No ceiling detected.'
         END AS threshold_description
     FROM cvr_base w
+    CROSS JOIN thresholds t
 ),
 
 final AS (
     SELECT
         sb.*,
+        -- Trend signals (thresholds from ryg_thresholds table)
         CASE
-            WHEN sb.kpi_click_rate_wow > 0.02
-             AND sb.kpi_click_rate_wolast4 > 0.02
-             AND sb.kpi_click_rate_wolast12 > 0.02 THEN 'green'
-            WHEN sb.kpi_click_rate_wow < -0.02
-             AND sb.kpi_click_rate_wolast4 < -0.02
-             AND sb.kpi_click_rate_wolast12 < -0.02 THEN 'red'
+            WHEN sb.kpi_click_rate_wow > t.trend_delta_g
+             AND sb.kpi_click_rate_wolast4 > t.trend_delta_g
+             AND sb.kpi_click_rate_wolast12 > t.trend_delta_g THEN 'green'
+            WHEN sb.kpi_click_rate_wow < t.trend_delta_r
+             AND sb.kpi_click_rate_wolast4 < t.trend_delta_r
+             AND sb.kpi_click_rate_wolast12 < t.trend_delta_r THEN 'red'
             ELSE 'yellow'
         END AS kpi_click_rate_trend_signal,
         CASE
-            WHEN sb.kpi_cart_add_rate_wow > 0.02
-             AND sb.kpi_cart_add_rate_wolast4 > 0.02
-             AND sb.kpi_cart_add_rate_wolast12 > 0.02 THEN 'green'
-            WHEN sb.kpi_cart_add_rate_wow < -0.02
-             AND sb.kpi_cart_add_rate_wolast4 < -0.02
-             AND sb.kpi_cart_add_rate_wolast12 < -0.02 THEN 'red'
+            WHEN sb.kpi_cart_add_rate_wow > t.trend_delta_g
+             AND sb.kpi_cart_add_rate_wolast4 > t.trend_delta_g
+             AND sb.kpi_cart_add_rate_wolast12 > t.trend_delta_g THEN 'green'
+            WHEN sb.kpi_cart_add_rate_wow < t.trend_delta_r
+             AND sb.kpi_cart_add_rate_wolast4 < t.trend_delta_r
+             AND sb.kpi_cart_add_rate_wolast12 < t.trend_delta_r THEN 'red'
             ELSE 'yellow'
         END AS kpi_cart_add_rate_trend_signal,
         CASE
-            WHEN sb.kpi_purchase_rate_wow > 0.02
-             AND sb.kpi_purchase_rate_wolast4 > 0.02
-             AND sb.kpi_purchase_rate_wolast12 > 0.02 THEN 'green'
-            WHEN sb.kpi_purchase_rate_wow < -0.02
-             AND sb.kpi_purchase_rate_wolast4 < -0.02
-             AND sb.kpi_purchase_rate_wolast12 < -0.02 THEN 'red'
+            WHEN sb.kpi_purchase_rate_wow > t.trend_delta_g
+             AND sb.kpi_purchase_rate_wolast4 > t.trend_delta_g
+             AND sb.kpi_purchase_rate_wolast12 > t.trend_delta_g THEN 'green'
+            WHEN sb.kpi_purchase_rate_wow < t.trend_delta_r
+             AND sb.kpi_purchase_rate_wolast4 < t.trend_delta_r
+             AND sb.kpi_purchase_rate_wolast12 < t.trend_delta_r THEN 'red'
             ELSE 'yellow'
         END AS kpi_purchase_rate_trend_signal,
         json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.strength_color, sb.strength_code, sb.strength_description]) AS JSON)) AS strength_signal,
@@ -521,6 +551,7 @@ final AS (
         json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.opportunity_color, sb.opportunity_code, sb.opportunity_description]) AS JSON)) AS opportunity_signal,
         json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.threshold_color, sb.threshold_code, sb.threshold_description]) AS JSON)) AS threshold_signal
     FROM signal_base sb
+    CROSS JOIN thresholds t
 )
 
 SELECT
