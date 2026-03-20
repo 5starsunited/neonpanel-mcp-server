@@ -25,6 +25,9 @@ VALUES
 -- ═══════════════════════════════════════════════════════════════════════════════
 ('default', 'scp', 'strength',    'click_rate',        'green',  0.01,  'high_ctr',         'ASIN CTR > 1.0% is excellent for search results.',                     current_timestamp),
 ('default', 'scp', 'strength',    'purchase_rate',     'green',  0.12,  'top_converter',    'ASIN converts >12% of sessions into orders.',                          current_timestamp),
+('default', 'scp', 'strength',    'click_rate',        'yellow', 0.005, 'decent_ctr',       'ASIN CTR ≥ 0.5%; visible in search results.',                          current_timestamp),
+('default', 'scp', 'strength',    'purchase_rate',     'yellow', 0.05,  'solid_converter',  'ASIN converts ≥ 5% of sessions; above average.',                       current_timestamp),
+('default', 'scp', 'opportunity', 'cvr_ratio',         'green',  1.3,   'shipping_alpha',   '1-Day delivery provides >30% CVR lift. Scale FBA inventory.',           current_timestamp),
 ('default', 'scp', 'threshold',   'impression_share',  'red',    0.25,  'market_ceiling',   'Over 25% share of search; incremental growth is expensive.',           current_timestamp),
 
 -- ═══════════════════════════════════════════════════════════════════════════════

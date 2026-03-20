@@ -35,9 +35,13 @@ WITH params AS (
 -- ─── RYG threshold values (pivoted from Iceberg table into one row) ──────────
 thresholds AS (
     SELECT
-        -- Strength (scp, green only)
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'    AND color = 'green' THEN threshold_value END) AS str_click_rate_g,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'green' THEN threshold_value END) AS str_purchase_rate_g,
+        -- Strength (scp)
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'    AND color = 'green'  THEN threshold_value END) AS str_click_rate_g,
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'green'  THEN threshold_value END) AS str_purchase_rate_g,
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'    AND color = 'yellow' THEN threshold_value END) AS str_click_rate_y,
+        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'yellow' THEN threshold_value END) AS str_purchase_rate_y,
+        -- Opportunity (scp)
+        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'cvr_ratio' AND color = 'green' THEN threshold_value END) AS opp_cvr_ratio_g,
         -- Trend (global)
         MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
         MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
@@ -419,20 +423,23 @@ cvr_base AS (
 signal_base AS (
     SELECT
         w.*,
-        -- Strength signal (green only; no yellow rows → binary green/red)
+        -- Strength signal (green/yellow/red)
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN NULL
             WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'green'
+            WHEN w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'yellow'
             ELSE 'red'
         END AS strength_color,
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN 'insufficient_data'
             WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'high_ctr'
+            WHEN w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'decent_ctr'
             ELSE 'weak_click_or_conversion'
         END AS strength_code,
         CASE
             WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN 'Not enough data to evaluate strength.'
             WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'ASIN CTR and conversion are excellent for search results.'
+            WHEN w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'Moderate CTR or conversion; above average but not leading.'
             ELSE 'Underperforming click or conversion rate.'
         END AS strength_description,
 
@@ -441,12 +448,22 @@ signal_base AS (
         'no_major_weakness' AS weakness_code,
         'No critical weakness detected.' AS weakness_description,
 
-        -- Opportunity signal (no scp rows → always red/none)
-        'red' AS opportunity_color,
-        'no_clear_opportunity' AS opportunity_code,
-        'No clear opportunity detected.' AS opportunity_description,
+        -- Opportunity signal (fast-delivery CVR uplift)
+        CASE
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'green'
+            ELSE 'red'
+        END AS opportunity_color,
+        CASE
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'shipping_alpha'
+            ELSE 'no_clear_opportunity'
+        END AS opportunity_code,
+        CASE
+            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
+              THEN '1-Day delivery provides >30% CVR lift. Scale FBA inventory.'
+            ELSE 'No clear opportunity detected.'
+        END AS opportunity_description,
 
-        -- Threshold / ceiling signal (scp has no impression_share column; always green)
+        -- Threshold / ceiling signal (always green for now)
         'green' AS threshold_color,
         'no_ceiling' AS threshold_code,
         'No ceiling detected.' AS threshold_description
