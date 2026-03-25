@@ -106,7 +106,7 @@ const listReportsOutputSchema = {
       items: {
         type: 'object',
         properties: {
-          id: { type: 'integer', description: 'Report ID. Use with reports_get_report_details.' },
+          id: { type: 'integer', description: 'Report ID. Use with account_get_report_details.' },
           title: { type: 'string', description: 'Report name.' },
           group: { type: 'string', description: 'Report group/category.' },
           description: { type: 'string' },
@@ -536,8 +536,8 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       },
     })
     .register({
-      name: 'reports_list_reports',
-      description: 'Retrieve the list of available reports with groups, descriptions, and direct URLs (NeonPanel: GET /api/v1/reports).\n\nEach report has: id (use with reports_get_report_details for sheets and parameters), title, group (report category), description, link (base URL to open the report).\n\nWorkflow:\n1. Call this tool to browse available reports\n2. Call reports_get_report_details with reportId to get sheets and URL parameters\n3. Build the report URL: {link}?company={short_name}&sheet={slug}&{param}={value}\n\nThe company parameter uses short_name values from account_list_companies (e.g., ?company=5SU,KEM).\n\nNo input parameters required — returns all reports accessible to the authenticated user.',
+      name: 'account_list_reports',
+      description: 'Retrieve the list of available reports with groups, descriptions, and direct URLs (NeonPanel: GET /api/v1/reports).\n\nEach report has: id (use with account_get_report_details for sheets and parameters), title, group (report category), description, link (base URL to open the report).\n\nWorkflow:\n1. Call this tool to browse available reports\n2. Call account_get_report_details with reportId to get sheets and URL parameters\n3. Build the report URL: {link}?company={short_name}&sheet={slug}&{param}={value}\n\nThe company parameter uses short_name values from account_list_companies (e.g., ?company=5SU,KEM).\n\nNo input parameters required — returns all reports accessible to the authenticated user.',
       isConsequential: false,
       inputSchema: z.object({}),
       outputSchema: listReportsOutputSchema,
@@ -556,11 +556,11 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       },
     })
     .register({
-      name: 'reports_get_report_details',
-      description: 'Retrieve full report details including sheets and URL query parameters (NeonPanel: GET /api/v1/reports/{reportId}).\n\nReturns: id, title, group, description, link (base URL), and sheets[] — each sheet has slug, title, description, and parameters[].\n\nURL building pattern:\n  {link}?sheet={sheets[].slug}&{parameter.slug}={value}&...\n\nURL rules:\n- sheet is optional — if omitted, the first sheet opens by default\n- company parameter: comma-separated short_name values from account_list_companies (e.g., ?company=5SU,KEM)\n- Parameter order does not matter\n- Parameter types determine formatting:\n  • DateTimePicker → YYYY-MM-DD (e.g., 2026-02-01)\n  • DateTimeRangePicker → usually two params like start-date / end-date\n  • Dropdown with multiselect=true → comma-separated (e.g., brand=Nike,Adidas)\n\nExample URL:\nhttps://my.neonpanel.com/app/reports/basic_suite_new/v3-inventory-transactions-bas-user?company=5SU,KEM&sheet=transaction-list&start-date=2026-02-01&end-date=2026-02-13\n\nWorkflow: Call reports_list_reports first to get reportId values, then call this tool for the full sheet/parameter details.',
+      name: 'account_get_report_details',
+      description: 'Retrieve full report details including sheets and URL query parameters (NeonPanel: GET /api/v1/reports/{reportId}).\n\nReturns: id, title, group, description, link (base URL), and sheets[] — each sheet has slug, title, description, and parameters[].\n\nURL building pattern:\n  {link}?sheet={sheets[].slug}&{parameter.slug}={value}&...\n\nURL rules:\n- sheet is optional — if omitted, the first sheet opens by default\n- company parameter: comma-separated short_name values from account_list_companies (e.g., ?company=5SU,KEM)\n- Parameter order does not matter\n- Parameter types determine formatting:\n  • DateTimePicker → YYYY-MM-DD (e.g., 2026-02-01)\n  • DateTimeRangePicker → usually two params like start-date / end-date\n  • Dropdown with multiselect=true → comma-separated (e.g., brand=Nike,Adidas)\n\nExample URL:\nhttps://my.neonpanel.com/app/reports/basic_suite_new/v3-inventory-transactions-bas-user?company=5SU,KEM&sheet=transaction-list&start-date=2026-02-01&end-date=2026-02-13\n\nWorkflow: Call account_list_reports first to get reportId values, then call this tool for the full sheet/parameter details.',
       isConsequential: false,
       inputSchema: z.object({
-        reportId: z.number().int().min(1).describe('Report ID obtained from reports_list_reports.'),
+        reportId: z.number().int().min(1).describe('Report ID obtained from account_list_reports.'),
       }),
       outputSchema: reportDetailsOutputSchema,
       examples: [
