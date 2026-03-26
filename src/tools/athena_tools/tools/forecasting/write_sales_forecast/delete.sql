@@ -6,7 +6,7 @@ WHERE (company_id, sku, amazon_marketplace_id, forecast_period, scenario_uuid) I
   writes_input AS (
     -- Columns (in order):
     -- inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
-    -- forecast_period, units_sold, sales_amount, currency, note
+    -- forecast_period, units_sold, sales_amount, currency, note, sales_channel
     SELECT
       CAST(v.inventory_id AS BIGINT) AS inventory_id,
       CAST(v.sku AS VARCHAR) AS sku,
@@ -20,7 +20,8 @@ WHERE (company_id, sku, amazon_marketplace_id, forecast_period, scenario_uuid) I
       CAST(v.units_sold AS DOUBLE) AS units_sold,
       CAST(v.sales_amount AS DOUBLE) AS sales_amount,
       CAST(v.currency AS VARCHAR) AS currency,
-      CAST(v.note AS VARCHAR) AS note
+      CAST(v.note AS VARCHAR) AS note,
+      CAST(v.sales_channel AS VARCHAR) AS sales_channel
 
     FROM (
       VALUES
@@ -36,7 +37,8 @@ WHERE (company_id, sku, amazon_marketplace_id, forecast_period, scenario_uuid) I
       units_sold,
       sales_amount,
       currency,
-      note
+      note,
+      sales_channel
     )
   ),
   normalized AS (

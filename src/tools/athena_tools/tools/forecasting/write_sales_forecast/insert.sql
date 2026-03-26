@@ -12,6 +12,8 @@ INSERT INTO "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sal
   calc_period,
   data_type,
   author_name,
+  sales_channel,
+  country_code,
   updated_at
 )
 
@@ -25,7 +27,7 @@ WITH params AS (
 writes_input AS (
   -- Columns (in order):
   -- inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
-  -- forecast_period, units_sold, sales_amount, currency, note
+  -- forecast_period, units_sold, sales_amount, currency, note, sales_channel
   SELECT
     CAST(v.inventory_id AS BIGINT) AS inventory_id,
     CAST(v.sku AS VARCHAR) AS sku,
@@ -39,7 +41,8 @@ writes_input AS (
     CAST(v.units_sold AS DOUBLE) AS units_sold,
     CAST(v.sales_amount AS DOUBLE) AS sales_amount,
     CAST(v.currency AS VARCHAR) AS currency,
-    CAST(v.note AS VARCHAR) AS note
+    CAST(v.note AS VARCHAR) AS note,
+    CAST(v.sales_channel AS VARCHAR) AS sales_channel
 
   FROM (
     VALUES
@@ -55,7 +58,8 @@ writes_input AS (
     units_sold,
     sales_amount,
     currency,
-    note
+    note,
+    sales_channel
   )
 ),
 
@@ -89,6 +93,13 @@ normalized AS (
     'forecast' AS data_type,
 
     p.author_name,
+
+    -- sales_channel: default to 'Amazon' for Amazon forecasts.
+    COALESCE(NULLIF(TRIM(w.sales_channel), ''), 'Amazon') AS sales_channel,
+
+    -- country_code: resolved from marketplaces table (code column), or passed directly.
+    COALESCE(m.code, NULLIF(TRIM(w.marketplace), '')) AS country_code,
+
     p.updated_at
 
   FROM writes_input w
@@ -121,6 +132,8 @@ SELECT
   calc_period,
   data_type,
   author_name,
+  sales_channel,
+  country_code,
   updated_at
 FROM valid
 WHERE ok_forecast_period AND ok_units_sold AND ok_sales_amount AND ok_item_selector;

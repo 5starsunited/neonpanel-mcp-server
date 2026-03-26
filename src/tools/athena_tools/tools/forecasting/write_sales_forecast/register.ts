@@ -107,6 +107,7 @@ const writeItemSchema = z
     inventory_id: z.coerce.number().int().min(1).optional(),
     sku: z.string().optional(),
     marketplace: z.string().optional(),
+    sales_channel: z.string().optional(),
 
     scenario_uuid: z
       .string()
@@ -166,7 +167,7 @@ async function isAuthorizedForCompany(companyId: number, context: ToolExecutionC
 function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): string {
   // Must match the column order documented in query.sql.
   // inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
-  // forecast_period, units_sold, sales_amount, currency, note
+  // forecast_period, units_sold, sales_amount, currency, note, sales_channel
   return writes
     .map((w) => {
       const inventoryIdExpr = sqlNullableBigintExpr(w.inventory_id ?? null);
@@ -182,6 +183,7 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
       const salesAmountExpr = sqlNullableDoubleExpr(w.sales_amount ?? null);
       const currencyExpr = sqlNullableVarcharExpr(w.currency ?? null);
       const noteExpr = sqlNullableVarcharExpr(w.note ?? null);
+      const salesChannelExpr = sqlNullableVarcharExpr(w.sales_channel ?? null);
 
       return `(${[
         inventoryIdExpr,
@@ -195,6 +197,7 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
         salesAmountExpr,
         currencyExpr,
         noteExpr,
+        salesChannelExpr,
       ].join(', ')})`;
     })
     .join(',\n      ');
