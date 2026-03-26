@@ -26,6 +26,7 @@ WITH params AS (
     {{apply_product_family_filter_sql}} AS apply_product_family_filter,
 
     {{scenario_names_array}} AS scenario_names,
+    {{sales_channels_array}} AS sales_channels,
 
     {{compare_mode_sql}} AS compare_mode,
 
@@ -195,6 +196,7 @@ forecast_rows AS (
     )
     AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
     AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
+    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
 ),
 
 actual_rows AS (
@@ -235,6 +237,7 @@ actual_rows AS (
     AND f.dataset = 'actual'
     AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
     AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
+    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
 ),
 
 base_rows AS (

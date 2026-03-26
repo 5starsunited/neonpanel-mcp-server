@@ -53,6 +53,8 @@ const sharedQuerySchema = z
         company_id: z.coerce.number().int().min(1).optional(),
         brand: z.array(z.string()).optional(),
         marketplace: z.array(z.string()).optional(),
+        sales_channel: z.array(z.string()).optional(),
+        country_code: z.array(z.string()).optional(),
         currency: z.array(z.string()).optional(),
         product_family: z.array(z.string()).optional(),
         parent_asin: z.array(z.string()).optional(),
@@ -318,6 +320,8 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
         brands_array: sqlVarcharArrayExpr((filters.brand ?? []).map(String)),
         product_families_array: sqlVarcharArrayExpr((filters.product_family ?? []).map(String)),
         marketplaces_array: sqlVarcharArrayExpr((filters.marketplace ?? []).map((m: any) => String(m).trim().toLowerCase())),
+        sales_channels_array: sqlVarcharArrayExpr((filters.sales_channel ?? []).map((s: any) => String(s).trim().toLowerCase())),
+        country_codes_array: sqlVarcharArrayExpr((filters.country_code ?? []).map((c: any) => String(c).trim().toLowerCase())),
         revenue_abcd_classes_array: sqlVarcharArrayExpr((filters.revenue_abcd_class ?? []).map(String)),
       };
 

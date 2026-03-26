@@ -56,6 +56,8 @@ const inputSchema = z
             company_id: z.coerce.number().int().min(1).optional(),
             scenario: z.array(z.string()).optional(),
             marketplace: z.array(z.string()).optional(),
+            sales_channel: z.array(z.string()).optional(),
+            country_code: z.array(z.string()).optional(),
             calc_period: z.array(z.string()).optional(),
           })
           .catchall(z.unknown()),
@@ -159,6 +161,14 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
         .map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''))
         .filter((v) => v.length > 0);
 
+      const salesChannels = ((filters.sales_channel ?? []) as unknown[])
+        .map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''))
+        .filter((v) => v.length > 0);
+
+      const countryCodes = ((filters.country_code ?? []) as unknown[])
+        .map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''))
+        .filter((v) => v.length > 0);
+
       const calcPeriods = ((filters.calc_period ?? []) as unknown[])
         .filter((v): v is string => typeof v === 'string' && /^\d{4}-\d{2}$/.test(v.trim()))
         .map((v) => v.trim());
@@ -179,6 +189,8 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         datasets_array: sqlVarcharArrayExpr(datasets),
         marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+        sales_channels_array: sqlVarcharArrayExpr(salesChannels),
+        country_codes_array: sqlVarcharArrayExpr(countryCodes),
         calc_periods_array: sqlVarcharArrayExpr(calcPeriods),
         limit_top_n: Number(limit),
       });
@@ -198,6 +210,8 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
         // Parse JSON arrays back into native arrays
         let marketplaceIds: string[] = [];
         let currencies: string[] = [];
+        let salesChannels: string[] = [];
+        let countryCodes: string[] = [];
         try {
           if (typeof r.marketplace_ids === 'string') {
             marketplaceIds = JSON.parse(r.marketplace_ids);
@@ -206,6 +220,16 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
         try {
           if (typeof r.currencies === 'string') {
             currencies = JSON.parse(r.currencies);
+          }
+        } catch { /* ignore */ }
+        try {
+          if (typeof r.sales_channels === 'string') {
+            salesChannels = JSON.parse(r.sales_channels);
+          }
+        } catch { /* ignore */ }
+        try {
+          if (typeof r.country_codes === 'string') {
+            countryCodes = JSON.parse(r.country_codes);
           }
         } catch { /* ignore */ }
 
@@ -224,6 +248,8 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
           total_sales_amount: r.total_sales_amount != null ? Number(r.total_sales_amount) : undefined,
           marketplace_ids: marketplaceIds,
           currencies,
+          sales_channels: salesChannels,
+          country_codes: countryCodes,
           sku_count: r.sku_count != null ? Number(r.sku_count) : undefined,
         };
       });

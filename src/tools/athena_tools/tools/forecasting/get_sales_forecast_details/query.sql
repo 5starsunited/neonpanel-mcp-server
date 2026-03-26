@@ -30,6 +30,8 @@ WITH params AS (
     {{brands_array}} AS brands,
     {{product_families_array}} AS product_families,
     {{marketplaces_array}} AS marketplaces,
+    {{sales_channels_array}} AS sales_channels,
+    {{country_codes_array}} AS country_codes,
     {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
 
@@ -66,6 +68,8 @@ forecast_latest_key AS (
       AND f.dataset <> 'actual'
       AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
       AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
+      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+      AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
   ) ranked
   WHERE rn = 1
 ),
@@ -148,6 +152,8 @@ actual_latest_key AS (
     WHERE contains(p.company_ids, f.company_id)
       AND f.dataset = 'actual'
       AND p.include_actuals
+      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+      AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
   ) ranked
   WHERE rn = 1
 ),

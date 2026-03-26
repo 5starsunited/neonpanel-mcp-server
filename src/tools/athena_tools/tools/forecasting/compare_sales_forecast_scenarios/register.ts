@@ -71,6 +71,7 @@ const querySchema = z
         parent_asin: z.array(z.string()).min(1).max(10).optional(),
         product_family: z.array(z.string()).min(1).max(5).optional(),
         asin: z.array(z.string()).max(5).optional(),
+        sales_channel: z.array(z.string()).optional(),
       })
       .catchall(z.unknown()),
     aggregation: z
@@ -409,6 +410,12 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         scenario_names_array: sqlVarcharArrayExpr(
           (Array.isArray(compare.scenario_names) ? compare.scenario_names : [])
             .map((s: any) => String(s).trim())
+            .filter((s: string) => s.length > 0),
+        ),
+
+        sales_channels_array: sqlVarcharArrayExpr(
+          (Array.isArray(filters.sales_channel) ? filters.sales_channel : [])
+            .map((s: any) => String(s).trim().toLowerCase())
             .filter((s: string) => s.length > 0),
         ),
 

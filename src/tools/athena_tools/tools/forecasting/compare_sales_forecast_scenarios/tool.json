@@ -67,6 +67,11 @@
                 "items": { "type": "string" },
                 "maxItems": 5,
                 "description": "Optional constraint filter."
+              },
+              "sales_channel": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter forecast rows by sales channel (e.g. ['Amazon.com']). Case-insensitive."
               }
             },
             "additionalProperties": true

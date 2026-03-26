@@ -21,6 +21,8 @@
 
               "brand": { "type": "array", "items": { "type": "string" } },
               "marketplace": { "type": "array", "items": { "type": "string" } },
+              "sales_channel": { "type": "array", "items": { "type": "string" }, "description": "Filter by sales channel (e.g. ['Amazon.com']). Case-insensitive. Filters on the forecast table directly." },
+              "country_code": { "type": "array", "items": { "type": "string" }, "description": "Filter by country code (e.g. ['US', 'UK']). Case-insensitive. Filters on the forecast table directly." },
               "currency": { "type": "array", "items": { "type": "string" } },
               "product_family": { "type": "array", "items": { "type": "string" } },
               "parent_asin": { "type": "array", "items": { "type": "string" } },
