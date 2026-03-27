@@ -47,7 +47,10 @@ WHERE (company_id, sku, amazon_marketplace_id, forecast_period, scenario_uuid) I
       COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')) AS amazon_marketplace_id,
       NULLIF(TRIM(w.sku), '') AS sku,
       NULLIF(TRIM(w.forecast_period), '') AS forecast_period,
-      COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid
+      CASE WHEN {{is_actual_sql}}
+        THEN 'actual'
+        ELSE COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual')
+      END AS scenario_uuid
     FROM writes_input w
     CROSS JOIN params p
     LEFT JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m

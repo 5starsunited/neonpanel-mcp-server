@@ -72,7 +72,10 @@ normalized AS (
     NULLIF(TRIM(w.sku), '') AS sku,
 
     w.scenario_id,
-    COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid,
+    CASE WHEN {{is_actual_sql}}
+      THEN 'actual'
+      ELSE COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual')
+    END AS scenario_uuid,
     NULLIF(TRIM(w.scenario_name), '') AS scenario_name,
 
     NULLIF(TRIM(w.forecast_period), '') AS forecast_period,

@@ -79,9 +79,12 @@ normalized AS (
     w.units_sold,
     w.sales_amount,
 
-    -- In fc_sales_forecast_iceberg, dataset is fixed to manual and scenario_uuid stores user scenario name.
-    'manual' AS dataset,
-    COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual') AS scenario_uuid,
+    -- dataset and data_type depend on whether writing forecast or actuals.
+    {{dataset_sql}} AS dataset,
+    CASE WHEN {{is_actual_sql}}
+      THEN 'actual'
+      ELSE COALESCE(NULLIF(TRIM(w.scenario_name), ''), NULLIF(TRIM(w.scenario_uuid), ''), 'manual')
+    END AS scenario_uuid,
 
     -- calc_period must be a CONSTANT "run period" (current month) for ALL rows in a write batch.
     -- The read query (list_latest_sales_forecast) picks the latest calc_period per inventory_id
@@ -90,7 +93,7 @@ normalized AS (
     CAST(date_format(current_date, '%Y-%m') AS VARCHAR) AS calc_period,
 
     -- data_type distinguishes forecast vs actual rows.
-    'forecast' AS data_type,
+    {{data_type_sql}} AS data_type,
 
     p.author_name,
 

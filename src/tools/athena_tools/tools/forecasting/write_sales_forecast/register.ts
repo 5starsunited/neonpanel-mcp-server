@@ -133,6 +133,7 @@ const inputSchema = z
     reason: z.string().min(3),
     dry_run: z.boolean().default(true).optional(),
     write_mode: z.enum(['append', 'replace']).default('append').optional(),
+    data_type: z.enum(['forecast', 'actual']).default('forecast').optional(),
     idempotency_key: z.string().optional(),
     debug_sql: z.boolean().optional(),
     writes: z.array(writeItemSchema).min(1).max(500),
@@ -459,6 +460,13 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
       const idempotencyKeySql = sqlNullableVarcharExpr(parsed.idempotency_key ?? null);
       const dryRunSql = sqlBooleanLiteral(dryRun);
 
+      const isActual = (parsed.data_type ?? 'forecast') === 'actual';
+      const dataTypeVars = {
+        dataset_sql: isActual ? "'actual'" : "'manual'",
+        data_type_sql: isActual ? "'actual'" : "'forecast'",
+        is_actual_sql: isActual ? 'TRUE' : 'FALSE',
+      };
+
       const rendered = renderSqlTemplate(template, {
         forecast_catalog: config.athena.catalog,
         forecast_database: config.athena.tables.forecastingDatabase,
@@ -473,6 +481,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
         idempotency_key_sql: idempotencyKeySql,
 
         writes_values_sql: writesValuesSql,
+        ...dataTypeVars,
       });
 
       let athenaResult: Awaited<ReturnType<typeof runAthenaQuery>>;
@@ -588,6 +597,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
             company_id: companyId,
             writes_values_sql: writesValuesSql,
+            ...dataTypeVars,
           });
 
           await runAthenaQuery({
@@ -609,6 +619,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           author_name_sql: authorNameSql,
 
           writes_values_sql: writesValuesSql,
+          ...dataTypeVars,
         });
 
         // Execute INSERT. Athena returns an execution id; result rows are ignored.
