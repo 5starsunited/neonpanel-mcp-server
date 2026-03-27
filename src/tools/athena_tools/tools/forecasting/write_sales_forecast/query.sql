@@ -38,7 +38,8 @@ writes_input AS (
     CAST(v.units_sold AS DOUBLE) AS units_sold,
     CAST(v.sales_amount AS DOUBLE) AS sales_amount,
     CAST(v.currency AS VARCHAR) AS currency,
-    CAST(v.note AS VARCHAR) AS note
+    CAST(v.note AS VARCHAR) AS note,
+    CAST(v.sales_channel AS VARCHAR) AS sales_channel
 
   FROM (
     VALUES
@@ -54,7 +55,8 @@ writes_input AS (
     units_sold,
     sales_amount,
     currency,
-    note
+    note,
+    sales_channel
   )
 ),
 
