@@ -96,4 +96,4 @@ CROSS JOIN params p
 
 ORDER BY fr.calc_period DESC, fr.updated_at DESC
 
-LIMIT p.top_results
+LIMIT {{limit_top_n}}
