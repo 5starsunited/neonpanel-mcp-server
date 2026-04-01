@@ -31,7 +31,10 @@ WITH params AS (
         {{click_trend_colors_array}} AS click_trend_colors,
         {{cart_add_trend_colors_array}} AS cart_add_trend_colors,
         {{purchase_trend_colors_array}} AS purchase_trend_colors,
-        {{ctr_advantage_trend_colors_array}} AS ctr_advantage_trend_colors
+        {{ctr_advantage_trend_colors_array}} AS ctr_advantage_trend_colors,
+        {{diagnostic_scenarios_array}} AS diagnostic_scenarios,
+        {{term_types_array}} AS term_types,
+        {{priority_tiers_array}} AS priority_tiers
 ),
 
 -- ─── RYG threshold values (pivoted from Iceberg table into one row) ──────────
@@ -62,9 +65,23 @@ thresholds AS (
         MAX(CASE WHEN tool = 'sqp' AND signal_group = 'opportunity' AND metric = 'impression_share' AND color = 'green' THEN threshold_value END) AS opp_impression_share_g,
         -- Trend (global)
         MAX(CASE WHEN tool = 'global' AND signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
-        MAX(CASE WHEN tool = 'global' AND signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
+        MAX(CASE WHEN tool = 'global' AND signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r,
+        -- Diagnostic scenario (sqp)
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'diagnostic' AND metric = 'impression_share' AND color = 'red' THEN threshold_value END) AS diag_low_bis_r,
+        MAX(CASE WHEN tool = 'sqp' AND signal_group = 'diagnostic' AND metric = 'efficiency_ratio' AND color = 'red' THEN threshold_value END) AS diag_efficiency_ratio_r
     FROM ryg_ranked
     WHERE rn = 1
+),
+
+-- ─── Brand names for term-type classification ────────────────────────────────
+-- Collects all brand names for the company from the neonpanel_iceberg.brands table.
+-- This allows branded term detection to match multiple brand names registered
+-- for the company — not just the single per-row "brand" column.
+brand_names_cte AS (
+    SELECT DISTINCT lower(name) AS alias
+    FROM "{{catalog}}"."neonpanel_iceberg"."brands"
+    WHERE company_id = {{ryg_company_id}}
+      AND name IS NOT NULL AND length(trim(name)) > 0
 ),
 
 raw AS (
@@ -309,7 +326,30 @@ cvr_base AS (
                 THEN NULL
             ELSE (w.purchasedata_totalonedayshippingpurchasecount / w.clickdata_totalonedayshippingclickcount)
                 / (w.purchasedata_totaltwodayshippingpurchasecount / w.clickdata_totaltwodayshippingclickcount)
-        END AS cvr_one_vs_two_ratio
+        END AS cvr_one_vs_two_ratio,
+        -- ─── Efficiency Ratios (Chapter 1 SQP framework) ─────────────────────────
+        -- Click-through efficiency (BCS ÷ BIS): >1.0 means outperforming market avg
+        CASE
+            WHEN w.kpi_impression_share IS NULL OR w.kpi_impression_share = 0 THEN NULL
+            ELSE w.kpi_click_share / w.kpi_impression_share
+        END AS click_through_efficiency,
+        -- Conversion efficiency (BCVS ÷ BCS): >1.0 means outperforming market avg
+        CASE
+            WHEN w.kpi_click_share IS NULL OR w.kpi_click_share = 0 THEN NULL
+            ELSE w.purchasedata_asinpurchaseshare / w.kpi_click_share
+        END AS conversion_efficiency,
+        -- ─── Term Type Classification ───────────────────────────────────────────────
+        -- Uses brands table (all company brand names) first; falls back to per-row brand column.
+        CASE
+            WHEN EXISTS (
+                SELECT 1 FROM brand_names_cte ba
+                WHERE lower(w.searchquerydata_searchquery) LIKE '%' || ba.alias || '%'
+            ) THEN 'branded'
+            WHEN w.brand IS NOT NULL AND length(w.brand) > 0
+                 AND lower(w.searchquerydata_searchquery) LIKE '%' || lower(w.brand) || '%' THEN 'branded'
+            WHEN cardinality(split(w.searchquerydata_searchquery, ' ')) >= 4 THEN 'long_tail'
+            ELSE 'generic'
+        END AS term_type
     FROM with_deltas w
 ),
 
@@ -374,12 +414,50 @@ signal_base AS (
         -- Threshold / ceiling signal (no sqp rows in table → always green)
         'green' AS threshold_color,
         'no_ceiling' AS threshold_code,
-        'No ceiling detected.' AS threshold_description
+        'No ceiling detected.' AS threshold_description,
+
+        -- ─── Diagnostic Scenario Classification (SQP Chapter 1 Framework) ──────────
+        -- Scenario A: Low visibility, B: Visual competition, C: Listing conversion, D: Protect
+        CASE
+            WHEN w.kpi_impression_share IS NULL THEN 'insufficient_data'
+            WHEN w.kpi_impression_share < COALESCE(t.diag_low_bis_r, 0.05) THEN 'A_visibility'
+            WHEN w.click_through_efficiency < COALESCE(t.diag_efficiency_ratio_r, 0.6)
+                 AND w.kpi_impression_share >= COALESCE(t.diag_low_bis_r, 0.05) THEN 'B_creative'
+            WHEN w.conversion_efficiency IS NOT NULL
+                 AND w.conversion_efficiency < COALESCE(t.diag_efficiency_ratio_r, 0.6) THEN 'C_conversion'
+            ELSE 'D_protect'
+        END AS diagnostic_scenario,
+        CASE
+            WHEN w.kpi_impression_share IS NULL
+                THEN 'Not enough data to classify scenario.'
+            WHEN w.kpi_impression_share < COALESCE(t.diag_low_bis_r, 0.05)
+                THEN 'Scenario A — Low Visibility: BIS is ' || CAST(ROUND(w.kpi_impression_share * 100, 1) AS VARCHAR) || '%, below ' || CAST(ROUND(COALESCE(t.diag_low_bis_r, 0.05) * 100, 0) AS VARCHAR) || '% threshold. Shoppers cannot click what they cannot see. Root causes: poor organic rank, no sponsored coverage, or listing not indexed for this term. Do NOT change listing creative — this is a visibility/advertising problem.'
+            WHEN w.click_through_efficiency < COALESCE(t.diag_efficiency_ratio_r, 0.6)
+                 AND w.kpi_impression_share >= COALESCE(t.diag_low_bis_r, 0.05)
+                THEN 'Scenario B — Visual Competition Problem: BIS=' || CAST(ROUND(w.kpi_impression_share * 100, 1) AS VARCHAR) || '% but click-through efficiency=' || CAST(ROUND(w.click_through_efficiency, 2) AS VARCHAR) || ' (below 0.6). Shoppers see you but click competitors. Root causes: weak main image vs top results, uncompetitive title in first 80 chars, lower star rating, lower review count, or higher price visible in search.'
+            WHEN w.conversion_efficiency IS NOT NULL
+                 AND w.conversion_efficiency < COALESCE(t.diag_efficiency_ratio_r, 0.6)
+                THEN 'Scenario C — Listing Conversion Problem: BCS=' || CAST(ROUND(w.kpi_click_share * 100, 1) AS VARCHAR) || '% but conversion efficiency=' || CAST(ROUND(w.conversion_efficiency, 2) AS VARCHAR) || ' (below 0.6). Shoppers click you but leave without buying. Root causes: price too high on detail page, secondary images missing key info, bullets not addressing objections, unresolved 3-star review concerns, missing A+ content or video.'
+            ELSE 'Scenario D — Protect & Scale: Funnel is healthy (BIS=' || CAST(ROUND(w.kpi_impression_share * 100, 1) AS VARCHAR) || '%, CTE=' || CAST(ROUND(COALESCE(w.click_through_efficiency, 0), 2) AS VARCHAR) || ', CVE=' || CAST(ROUND(COALESCE(w.conversion_efficiency, 0), 2) AS VARCHAR) || '). Defend position: push BIS toward 30%+, add Sponsored Brands/Display, monitor for share erosion weekly.'
+        END AS diagnostic_scenario_description,
+        CASE
+            WHEN w.kpi_impression_share IS NULL
+                THEN 'Gather more data before taking action.'
+            WHEN w.kpi_impression_share < COALESCE(t.diag_low_bis_r, 0.05)
+                THEN 'Add exact-match Sponsored Products campaign with aggressive bids. Verify organic rank — if page 3+, run a ranking push. Ensure term is in title, bullets, and backend keywords for indexation.'
+            WHEN w.click_through_efficiency < COALESCE(t.diag_efficiency_ratio_r, 0.6)
+                 AND w.kpi_impression_share >= COALESCE(t.diag_low_bis_r, 0.05)
+                THEN 'Search this exact term on Amazon and compare your main image to top 5 results. Compare star rating and review count vs top 3. Test main image variant via Manage Experiments A/B testing. Consider 10% pricing experiment for 2 weeks.'
+            WHEN w.conversion_efficiency IS NOT NULL
+                 AND w.conversion_efficiency < COALESCE(t.diag_efficiency_ratio_r, 0.6)
+                THEN 'Read every 3-star review — address the most common objection in bullet 1 or 2. Audit secondary images: sizing, lifestyle-in-use, comparison chart, objection callout. Check Buy Box consistency. Add video if absent. Compare competitor A+ content.'
+            ELSE 'Increase bid/budget to push BIS toward 30%+. Add Sponsored Brands headline ads and Sponsored Display for this term. Pull SQP comparison every 4 weeks — any BIS/BCS decline without your changes means a competitor is gaining.'
+        END AS diagnostic_scenario_action
     FROM cvr_base w
     CROSS JOIN thresholds t
 ),
 
-final AS (
+with_tier_prep AS (
     SELECT
         sb.*,
         -- Trend signals (thresholds from ryg_thresholds table)
@@ -431,9 +509,37 @@ final AS (
         json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.strength_color, sb.strength_code, sb.strength_description]) AS JSON)) AS strength_signal,
         json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.weakness_color, sb.weakness_code, sb.weakness_description]) AS JSON)) AS weakness_signal,
         json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.opportunity_color, sb.opportunity_code, sb.opportunity_description]) AS JSON)) AS opportunity_signal,
-        json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.threshold_color, sb.threshold_code, sb.threshold_description]) AS JSON)) AS threshold_signal
+        json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.threshold_color, sb.threshold_code, sb.threshold_description]) AS JSON)) AS threshold_signal,
+        json_format(CAST(map(
+            ARRAY['scenario','description','action'],
+            ARRAY[sb.diagnostic_scenario, sb.diagnostic_scenario_description, sb.diagnostic_scenario_action]
+        ) AS JSON)) AS diagnostic_scenario_signal,
+        -- Volume group for priority tiering (1 = top half by volume, 2 = bottom half)
+        NTILE(2) OVER (ORDER BY sb.searchquerydata_searchqueryvolume DESC NULLS LAST) AS volume_ntile
     FROM signal_base sb
     CROSS JOIN thresholds t
+),
+
+final AS (
+    SELECT
+        d.*,
+        -- ─── Priority Tier (Chapter 1: Volume × Performance matrix) ──────────────
+        CASE
+            WHEN d.volume_ntile = 1 AND COALESCE(d.conversion_efficiency, 0) >= 0.8 THEN 1
+            WHEN d.volume_ntile = 1 THEN 2
+            WHEN COALESCE(d.conversion_efficiency, 0) >= 0.8 THEN 3
+            ELSE 4
+        END AS priority_tier,
+        CASE
+            WHEN d.volume_ntile = 1 AND COALESCE(d.conversion_efficiency, 0) >= 0.8
+                THEN 'Tier 1: Protect — High volume + strong conversion. Defend at all cost, dominate, scale aggressively.'
+            WHEN d.volume_ntile = 1
+                THEN 'Tier 2: Fix — High volume + underperforming. Highest ROI opportunity — diagnose and fix the funnel.'
+            WHEN COALESCE(d.conversion_efficiency, 0) >= 0.8
+                THEN 'Tier 3: Harvest — Lower volume + strong efficiency. Profit-dense terms — maintain and harvest efficiently.'
+            ELSE 'Tier 4: Deprioritize — Low volume + weak performance. Ignore until higher tiers are resolved.'
+        END AS priority_tier_description
+    FROM with_tier_prep d
 )
 
 SELECT
@@ -450,5 +556,8 @@ WHERE
     AND (cardinality(params.cart_add_trend_colors) = 0 OR any_match(params.cart_add_trend_colors, c -> lower(c) = lower(f.kpi_cart_add_rate_trend_signal)))
     AND (cardinality(params.purchase_trend_colors) = 0 OR any_match(params.purchase_trend_colors, c -> lower(c) = lower(f.kpi_purchase_rate_trend_signal)))
     AND (cardinality(params.ctr_advantage_trend_colors) = 0 OR any_match(params.ctr_advantage_trend_colors, c -> lower(c) = lower(f.kpi_ctr_advantage_trend_signal)))
+    AND (cardinality(params.diagnostic_scenarios) = 0 OR any_match(params.diagnostic_scenarios, s -> lower(s) = lower(f.diagnostic_scenario)))
+    AND (cardinality(params.term_types) = 0 OR any_match(params.term_types, t -> lower(t) = lower(f.term_type)))
+    AND (cardinality(params.priority_tiers) = 0 OR any_match(params.priority_tiers, t -> CAST(t AS INTEGER) = f.priority_tier))
 ORDER BY f.week_start DESC
 LIMIT {{limit_top_n}};

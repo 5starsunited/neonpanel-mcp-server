@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_analyze_search_query_performance",
-  "description": "Analyzes Search Query Performance (SQP) using a precomputed snapshot. Returns KPI metrics, deltas, and 4 high-level RYG signals (strength, weakness, opportunity, threshold) with explanations. Supports filtering by classification and signal color.",
+  "description": "Analyzes Search Query Performance (SQP) using a precomputed snapshot. Returns KPI metrics, deltas, efficiency ratios (click-through and conversion), diagnostic scenario classification (A: visibility, B: creative, C: conversion, D: protect), term type (branded/generic/long_tail), priority tier (1-4), and RYG signals. Supports filtering by all computed dimensions.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -101,6 +101,21 @@
                 "type": "array",
                 "items": { "type": "string", "enum": ["green", "yellow", "red"] },
                 "description": "Filter by CTR advantage trend signal color."
+              },
+              "diagnostic_scenarios": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["A_visibility", "B_creative", "C_conversion", "D_protect", "insufficient_data"] },
+                "description": "Filter by diagnostic scenario. A=low visibility (fix ads/SEO), B=visual competition (fix main image/title), C=listing conversion (fix detail page), D=healthy funnel (protect & scale)."
+              },
+              "term_types": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["branded", "generic", "long_tail"] },
+                "description": "Filter by search term type. branded=contains your brand name (expect 70%+ BCS), generic=category terms (main competitive battleground), long_tail=4+ words (high intent, often most profitable)."
+              },
+              "priority_tiers": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1, "maximum": 4 },
+                "description": "Filter by priority tier. 1=high vol+strong conversion (defend), 2=high vol+underperforming (highest ROI fix), 3=low vol+strong efficiency (profit harvest), 4=low vol+weak (deprioritize)."
               }
             },
             "required": ["company_id"],
@@ -169,6 +184,9 @@
                 "kpi_cart_add_rate_trend_signal", "kpi_purchase_rate_trend_signal", "kpi_ctr_advantage_trend_signal",
                 "strength_signal", "weakness_signal", "opportunity_signal", "threshold_signal",
                 "strength_color", "weakness_color", "opportunity_color", "threshold_color",
+                "click_through_efficiency", "conversion_efficiency",
+                "term_type", "diagnostic_scenario", "diagnostic_scenario_description", "diagnostic_scenario_action", "diagnostic_scenario_signal",
+                "priority_tier", "priority_tier_description",
                 "impressiondata_totalqueryimpressioncount", "impressiondata_asinimpressioncount", "impressiondata_asinimpressionshare",
                 "clickdata_totalclickcount", "clickdata_asinclickcount", "clickdata_asinclickshare",
                 "cartadddata_totalcartaddcount", "cartadddata_asincartaddcount", "cartadddata_asincartaddshare",
@@ -247,7 +265,16 @@
             "strength_signal": { "type": "string", "description": "JSON with color/code/description" },
             "weakness_signal": { "type": "string", "description": "JSON with color/code/description" },
             "opportunity_signal": { "type": "string", "description": "JSON with color/code/description" },
-            "threshold_signal": { "type": "string", "description": "JSON with color/code/description" }
+            "threshold_signal": { "type": "string", "description": "JSON with color/code/description" },
+            "click_through_efficiency": { "type": "number", "description": "BCS÷BIS ratio. >1.0 means outperforming market average click-through. <0.6 indicates visual competition problem (Scenario B)." },
+            "conversion_efficiency": { "type": "number", "description": "BCVS÷BCS ratio. >1.0 means outperforming market average conversion. <0.6 indicates listing conversion problem (Scenario C)." },
+            "term_type": { "type": "string", "enum": ["branded", "generic", "long_tail"], "description": "Search term classification. branded=contains seller brand name (expect 70%+ BCS), generic=category term, long_tail=4+ words (high intent)." },
+            "diagnostic_scenario": { "type": "string", "enum": ["A_visibility", "B_creative", "C_conversion", "D_protect", "insufficient_data"], "description": "Funnel diagnostic scenario identifying WHERE in the funnel you are losing customers." },
+            "diagnostic_scenario_description": { "type": "string", "description": "Detailed explanation of the diagnostic scenario with actual metric values and root causes." },
+            "diagnostic_scenario_action": { "type": "string", "description": "Specific actionable steps to fix the identified problem." },
+            "diagnostic_scenario_signal": { "type": "string", "description": "JSON with scenario/description/action fields." },
+            "priority_tier": { "type": "integer", "minimum": 1, "maximum": 4, "description": "1=defend (high vol+strong CVE), 2=fix (high vol+weak CVE), 3=harvest (low vol+strong CVE), 4=deprioritize (low vol+weak CVE)." },
+            "priority_tier_description": { "type": "string", "description": "Human-readable tier label with strategic guidance." }
           },
           "additionalProperties": true
         }

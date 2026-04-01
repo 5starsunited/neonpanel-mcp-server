@@ -21,6 +21,10 @@ VALUES
 (NULL, 'default', 'sqp', 'opportunity', 'cvr_ratio',        'green',   1.3,   'shipping_alpha',   '1-Day delivery provides >30% CVR lift. Scale FBA.',                    current_timestamp),
 (NULL, 'default', 'sqp', 'opportunity', 'impression_share', 'green',   0.02,  'untapped_volume',  'High CVR but <2% Imp Share. Aggressively raise bids.',                 current_timestamp),
 
+-- SQP Diagnostic scenario thresholds (Chapter 1 framework)
+(NULL, 'default', 'sqp', 'diagnostic', 'impression_share', 'red',    0.05,  'low_visibility',     'BIS below 5% means effectively invisible. Scenario A trigger.',        current_timestamp),
+(NULL, 'default', 'sqp', 'diagnostic', 'efficiency_ratio', 'red',    0.6,   'poor_efficiency',    'Click-through or conversion efficiency below 0.6 triggers Scenario B/C.', current_timestamp),
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SEARCH CATALOG PERFORMANCE (scp) — system defaults (company_id = NULL)
 -- ═══════════════════════════════════════════════════════════════════════════════

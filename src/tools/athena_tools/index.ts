@@ -22,6 +22,7 @@ import { registerBrandAnalyticsGetCrossSellOpportunitiesTool } from './tools/bra
 import { registerBrandAnalyticsAnalyzeRepeatPurchasesTool } from './tools/brand_analytics/analyze_repeat_purchases/register';
 import { registerBrandAnalyticsListRygThresholdsTool } from './tools/brand_analytics/list_ryg_thresholds/register';
 import { registerBrandAnalyticsWriteRygThresholdsTool } from './tools/brand_analytics/write_ryg_thresholds/register';
+import { registerBrandAnalyticsGetConversionLeakAnalysisTool } from './tools/brand_analytics/get_conversion_leak_analysis/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
@@ -71,6 +72,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsAnalyzeRepeatPurchasesTool(registry);
   registerBrandAnalyticsListRygThresholdsTool(registry);
   registerBrandAnalyticsWriteRygThresholdsTool(registry);
+  registerBrandAnalyticsGetConversionLeakAnalysisTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsListLostBatchesTool(registry);
   registerCogsExportUnitCostsTool(registry);

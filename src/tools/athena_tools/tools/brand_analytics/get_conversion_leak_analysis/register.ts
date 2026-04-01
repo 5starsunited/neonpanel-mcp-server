@@ -14,9 +14,6 @@ type CompaniesWithPermissionResponse = {
     company_id?: number;
     companyId?: number;
     id?: number;
-    uuid?: string;
-    name?: string;
-    short_name?: string;
   }>;
 };
 
@@ -48,26 +45,13 @@ const querySchema = z
   .object({
     filters: z
       .object({
-        company_id: z.array(z.coerce.number().int().min(1)).min(1),
-        search_terms: z.array(z.string()).optional(),
-        parent_asins: z.array(z.string()).optional(),
-        asins: z.array(z.string()).optional(),
-        marketplace: z.array(z.string()).min(1).max(1).optional(),
-        row_type: z.array(z.enum(['child', 'parent'])).optional(),
+        company_id: z.coerce.number().int().min(1),
+        asin: z.array(z.string()).max(20).optional(),
+        parent_asin: z.array(z.string()).max(10).optional(),
+        brand: z.array(z.string()).optional(),
+        marketplace: z.array(z.string()).min(1).max(1),
         revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
         pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
-        strength_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        weakness_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        opportunity_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        threshold_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        impression_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        click_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        cart_add_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        purchase_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        ctr_advantage_trend_colors: z.array(z.enum(['green', 'yellow', 'red'])).optional(),
-        diagnostic_scenarios: z.array(z.enum(['A_visibility', 'B_creative', 'C_conversion', 'D_protect', 'insufficient_data'])).optional(),
-        term_types: z.array(z.enum(['branded', 'generic', 'long_tail'])).optional(),
-        priority_tiers: z.array(z.coerce.number().int().min(1).max(4)).optional(),
       })
       .strict(),
     aggregation: z
@@ -76,7 +60,7 @@ const querySchema = z
           .object({
             start_date: z.string().optional(),
             end_date: z.string().optional(),
-            periods_back: z.coerce.number().int().min(1).max(52).optional(),
+            periods_back: z.coerce.number().int().min(1).max(52).default(4).optional(),
           })
           .optional(),
       })
@@ -88,20 +72,54 @@ const querySchema = z
       })
       .optional(),
     select_fields: z.array(z.string()).optional(),
-    ryg_company_id: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50).optional(),
   })
   .strict();
 
 type QueryInput = z.infer<typeof querySchema>;
 
-const inputSchema = z
+const toolSpecificSchema = z
   .object({
-    query: querySchema,
+    leak_thresholds: z
+      .object({
+        impression_to_click_min: z.number().min(0).max(1).default(0.02).optional(),
+        click_to_cart_min: z.number().min(0).max(1).default(0.15).optional(),
+        cart_to_purchase_min: z.number().min(0).max(1).default(0.40).optional(),
+      })
+      .strict()
+      .optional(),
+    include_diagnostic_hints: z.boolean().default(true).optional(),
   })
   .strict();
 
-export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry: ToolRegistry) {
+type ToolSpecific = z.infer<typeof toolSpecificSchema>;
+
+const inputSchema = z
+  .object({
+    query: querySchema,
+    tool_specific: toolSpecificSchema.optional(),
+  })
+  .strict();
+
+const SORTABLE_FIELDS = new Set([
+  'brand_impressions',
+  'brand_clicks',
+  'brand_cart_adds',
+  'brand_purchases',
+  'brand_impression_to_click_rate',
+  'brand_click_to_cart_rate',
+  'brand_cart_to_purchase_rate',
+  'brand_overall_conversion_rate',
+  'click_through_efficiency',
+  'conversion_efficiency',
+  'total_leak_score',
+  'impression_to_click_severity',
+  'click_to_cart_severity',
+  'cart_to_purchase_severity',
+  'keyword_count',
+]);
+
+export function registerBrandAnalyticsGetConversionLeakAnalysisTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
 
@@ -115,10 +133,9 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
   }
 
   registry.register({
-    name: specJson?.name ?? 'brand_analytics_analyze_search_query_performance',
+    name: 'brand_analytics_get_conversion_leak_analysis',
     description:
-      specJson?.description ??
-      'Analyzes Search Query Performance (SQP) snapshot with KPI metrics, deltas, and RYG signals.',
+      'ASIN-level funnel diagnostics identifying where buyers drop off between discovery and purchase. Returns funnel rates, leak severity scores, diagnostic scenarios (A/B/C/D), and actionable hints.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -126,8 +143,9 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
       const query = parsed.query as QueryInput;
+      const toolSpecific = parsed.tool_specific as ToolSpecific | undefined;
 
-      // Permission check – user needs at least ONE of these permissions
+      // Permission check
       const permissions = [
         'view:quicksight_group.sales_and_marketing_new',
         'view:quicksight_group.marketing',
@@ -142,7 +160,8 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
           });
 
           const permittedCompanies = (permissionResponse.companies ?? []).filter(
-            (c): c is { company_id?: number; companyId?: number; id?: number } => c !== null && typeof c === 'object',
+            (c): c is { company_id?: number; companyId?: number; id?: number } =>
+              c !== null && typeof c === 'object',
           );
 
           permittedCompanies.forEach((c) => {
@@ -157,8 +176,7 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
       }
 
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
-
-      const requestedCompanyIds = query.filters.company_id ?? [];
+      const requestedCompanyIds = [query.filters.company_id];
       const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
@@ -168,60 +186,47 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
       const catalog = config.athena.catalog;
       const database = 'sp_api_iceberg';
 
-      const marketplaces = (query.filters.marketplace ?? []).map((m) => m.trim()).filter(Boolean);
-      const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
-      const parentAsins = (query.filters.parent_asins ?? []).map((a) => a.trim()).filter(Boolean);
-      const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
-      const rowTypes = (query.filters.row_type ?? []).map((r) => r.trim()).filter(Boolean);
+      const marketplaces = query.filters.marketplace.map((m) => m.trim()).filter(Boolean);
+      const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
+      const parentAsins = (query.filters.parent_asin ?? []).map((a) => a.trim()).filter(Boolean);
+      const brands = (query.filters.brand ?? []).map((b) => b.trim()).filter(Boolean);
       const revenueClass = (query.filters.revenue_abcd_class ?? []).map((c) => c.trim()).filter(Boolean);
       const paretoClass = (query.filters.pareto_abc_class ?? []).map((c) => c.trim()).filter(Boolean);
-      const strengthColors = (query.filters.strength_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const weaknessColors = (query.filters.weakness_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const opportunityColors = (query.filters.opportunity_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const thresholdColors = (query.filters.threshold_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const impressionTrendColors = (query.filters.impression_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const clickTrendColors = (query.filters.click_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const cartAddTrendColors = (query.filters.cart_add_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const purchaseTrendColors = (query.filters.purchase_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const ctrAdvantageTrendColors = (query.filters.ctr_advantage_trend_colors ?? []).map((c) => c.trim()).filter(Boolean);
-      const diagnosticScenarios = (query.filters.diagnostic_scenarios ?? []).map((s) => s.trim()).filter(Boolean);
-      const termTypes = (query.filters.term_types ?? []).map((t) => t.trim()).filter(Boolean);
-      const priorityTiers = (query.filters.priority_tiers ?? []).map((t) => String(t)).filter(Boolean);
+
+      const leakThresholds = toolSpecific?.leak_thresholds;
+      const impressionToClickMin = leakThresholds?.impression_to_click_min ?? 0.02;
+      const clickToCartMin = leakThresholds?.click_to_cart_min ?? 0.15;
+      const cartToPurchaseMin = leakThresholds?.cart_to_purchase_min ?? 0.40;
 
       const time = query.aggregation?.time;
-      const periodsBack = time?.periods_back ?? 12;
+      const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 50;
       const selectFields = query.select_fields;
-      const rygCompanyId = query.ryg_company_id ?? allowedCompanyIds[0];
+
+      // Sort
+      const sortField = query.sort?.field ?? 'total_leak_score';
+      const sortDirection = query.sort?.direction ?? 'desc';
+      const sortColumn = SORTABLE_FIELDS.has(sortField) ? sortField : 'total_leak_score';
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
-        ryg_company_id: Number(rygCompanyId),
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlDateExpr(time?.start_date),
         end_date_sql: sqlDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
         marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        search_terms_array: sqlVarcharArrayExpr(searchTerms),
-        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
         asins_array: sqlVarcharArrayExpr(asins),
-        row_types_array: sqlVarcharArrayExpr(rowTypes),
+        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
+        brands_array: sqlVarcharArrayExpr(brands),
         revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
         pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
-        strength_colors_array: sqlVarcharArrayExpr(strengthColors),
-        weakness_colors_array: sqlVarcharArrayExpr(weaknessColors),
-        opportunity_colors_array: sqlVarcharArrayExpr(opportunityColors),
-        threshold_colors_array: sqlVarcharArrayExpr(thresholdColors),
-        impression_trend_colors_array: sqlVarcharArrayExpr(impressionTrendColors),
-        click_trend_colors_array: sqlVarcharArrayExpr(clickTrendColors),
-        cart_add_trend_colors_array: sqlVarcharArrayExpr(cartAddTrendColors),
-        purchase_trend_colors_array: sqlVarcharArrayExpr(purchaseTrendColors),
-        ctr_advantage_trend_colors_array: sqlVarcharArrayExpr(ctrAdvantageTrendColors),
-        diagnostic_scenarios_array: sqlVarcharArrayExpr(diagnosticScenarios),
-        term_types_array: sqlVarcharArrayExpr(termTypes),
-        priority_tiers_array: sqlVarcharArrayExpr(priorityTiers),
+        impression_to_click_min: Number(impressionToClickMin),
+        click_to_cart_min: Number(clickToCartMin),
+        cart_to_purchase_min: Number(cartToPurchaseMin),
+        sort_column: sortColumn,
+        sort_direction: sortDirection.toUpperCase(),
       });
 
       const athenaResult = await runAthenaQuery({
