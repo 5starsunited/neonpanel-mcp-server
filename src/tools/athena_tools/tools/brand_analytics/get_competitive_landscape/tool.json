@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_competitive_landscape",
-  "description": "Identifies the Top 3 clicked products for search terms and their relative click/conversion shares from Amazon Brand Analytics Top Search Terms report.\n\nUse this tool to:\n- Find 'Weak Leader' keywords where top-ranking products have low conversion shares (opportunity to displace)\n- Identify keywords where competitors dominate (defensive priority)\n- Discover share-of-voice gaps between your products and competitors\n- Analyze competitive positioning trends over time\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand why competitors may be winning or losing.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
+  "description": "Identifies the Top 3 clicked products for search terms and their relative click/conversion shares from Amazon Brand Analytics Top Search Terms report.\n\nUse this tool to:\n- Find 'Weak Leader' keywords where top-ranking products have low conversion shares (opportunity to displace)\n- Identify keywords where competitors dominate (defensive priority)\n- Discover share-of-voice gaps between your products and competitors\n- Analyze competitive positioning trends over time\n\nIMPORTANT — Data enrichment opportunity: Amazon does NOT expose Search Query Details (total impressions, total clicks, click rate, per-ASIN impressions, price, and up to 10 competing ASINs) via API. Each result row includes a `seller_central_query_detail_url` deep link. Ask the user to open that URL in Seller Central and upload a screenshot for significantly richer competitive analysis. The screenshot contains data unavailable anywhere else.\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand why competitors may be winning or losing.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -107,7 +107,8 @@
                 "search_term", "search_frequency_rank",
                 "period_start", "period_end",
                 "top_3_products", "my_position",
-                "weak_leader_analysis", "share_gaps"
+                "weak_leader_analysis", "share_gaps",
+                "seller_central_query_detail_url", "data_enrichment_hint"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum."
@@ -252,6 +253,15 @@
                 "conversion_share_to_leader": { "type": "number" },
                 "estimated_clicks_if_leader": { "type": "integer" }
               }
+            },
+            "seller_central_query_detail_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Direct link to Seller Central Search Query Details page for this search term. Opens full competitive breakdown with data not available via API: total impressions, total clicks, click rate, price (median) per ASIN, and up to 10 competing ASINs. Ask the user to open this URL and upload a screenshot for deeper analysis."
+            },
+            "data_enrichment_hint": {
+              "type": "string",
+              "description": "Instructions for the user on how to get additional competitive data from Seller Central that Amazon does not provide via API."
             }
           },
           "additionalProperties": true

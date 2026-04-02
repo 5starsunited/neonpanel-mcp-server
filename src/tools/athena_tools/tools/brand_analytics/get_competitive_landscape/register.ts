@@ -212,7 +212,39 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
         maxRows: query.limit ?? 100,
       });
 
-      return applySelectFields(athenaResult.rows ?? [], selectFields);
+      // --- Seller Central deep-link enrichment ---
+      // Amazon does NOT expose Search Query Details data via SP-API.
+      // Generate a per-row deep link so the user/AI can open Seller Central
+      // and screenshot the richer data (total impressions, total clicks,
+      // click rate, price per ASIN, up to 10 competing ASINs).
+      const countryCode = (marketplaces[0] ?? 'us').toLowerCase();
+      const reportingRange =
+        periodicity === 'week' ? 'weekly' : periodicity === 'month' ? 'monthly' : 'quarterly';
+      const primaryAsin = myAsins[0] ?? '';
+
+      const enrichedRows = (athenaResult.rows ?? []).map((row: Record<string, unknown>) => {
+        const searchTerm = String(row.search_term ?? '');
+        const periodEnd = String(row.period_end ?? '');
+
+        const params = new URLSearchParams({
+          'view-id': 'query-detail-asin-view',
+          ...(primaryAsin ? { asin: primaryAsin } : {}),
+          'search-term-freeform': searchTerm,
+          'reporting-range': reportingRange,
+          ...(reportingRange === 'weekly' ? { 'weekly-week': periodEnd } : {}),
+          ...(reportingRange === 'monthly' ? { 'monthly-month': periodEnd } : {}),
+          'country-id': countryCode,
+        });
+
+        return {
+          ...row,
+          seller_central_query_detail_url: `https://sellercentral.amazon.com/brand-analytics/dashboard/query-detail?${params.toString()}`,
+          data_enrichment_hint:
+            'Amazon does not provide Search Query Details via API. Visit the Seller Central URL to see: total impressions, total clicks, click rate, price (median) per ASIN, and up to 10 competing ASINs (vs only top 3 from API). Take a screenshot and share it for deeper competitive analysis.',
+        };
+      });
+
+      return applySelectFields(enrichedRows, selectFields);
     },
   });
 }
