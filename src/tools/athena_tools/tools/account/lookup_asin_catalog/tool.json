@@ -1,0 +1,99 @@
+{
+  "name": "account_lookup_asin_catalog",
+  "description": "ASIN catalog lookup & parent-child mapping. Resolves parent ↔ child ASIN relationships, SKU ↔ ASIN mapping, and returns product attributes from the latest inventory planning snapshot.\n\nUse cases:\n- Look up a child ASIN → find its parent ASIN and all siblings\n- Look up a parent ASIN → list all child variations (colors, sizes)\n- Map SKU → ASIN or ASIN → SKU\n- Identify the 'Hero' variant (highest revenue_share among siblings)\n- Get product attributes: brand, product_family, revenue class, Pareto ABC class\n\nThis is a cross-domain utility tool. Use it before diving into domain-specific tools (brand analytics, supply chain, COGS, advertising) to understand the product catalog structure.\n\nTypical workflow:\n1. Call this tool with parent_asin to list all child variations and their revenue shares.\n2. Identify the Hero variant (is_hero=true) vs. underperformers.\n3. Pass specific child ASINs to domain tools (conversion leak analysis, search query performance, repeat purchases, etc.).\n\nData source: inventory_planning.last_snapshot_inventory_planning (latest snapshot per company+marketplace+SKU).\n\nLookup modes (provide at least one filter):\n- asin: look up by child ASIN(s) → returns their parent, siblings, and attributes\n- parent_asin: look up by parent ASIN(s) → returns all child variations\n- sku: look up by SKU(s) → returns ASIN mapping and attributes\n- brand / product_family: browse catalog by brand or product family\n\nWhen presenting results:\n- Render item_icon_url as an image when possible.\n- Highlight the Hero variant (highest revenue_share) in each parent group.\n- Show variation attributes (color, size) to help users identify specific children.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional: restrict to a specific company_id (must be permitted). Recommended if you have access to multiple companies."
+      },
+      "marketplace": {
+        "type": "string",
+        "enum": ["US", "UK"],
+        "description": "Optional. Marketplace filter (maps to country_code). Recommended to avoid cross-marketplace duplicates."
+      },
+      "asin": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "maxItems": 50,
+        "description": "Optional. Child ASIN(s) to look up. Returns their parent ASIN, sibling variants, and attributes."
+      },
+      "parent_asin": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "maxItems": 20,
+        "description": "Optional. Parent ASIN(s) to look up. Returns all child variations under each parent."
+      },
+      "sku": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "maxItems": 50,
+        "description": "Optional. SKU(s) to look up. Returns ASIN mapping and product attributes."
+      },
+      "brand": {
+        "type": "string",
+        "description": "Optional. Filter by brand name (case-insensitive contains match)."
+      },
+      "product_family": {
+        "type": "string",
+        "description": "Optional. Filter by product family (case-insensitive contains match)."
+      },
+      "include_siblings": {
+        "type": "boolean",
+        "default": true,
+        "description": "When true (default), expands results to include all sibling child ASINs under the same parent(s). Set to false to return only the exact matches."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 50,
+        "description": "Max rows to return. Default: 50."
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, include diagnostics (authorized company_ids, rendered SQL)."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "child_asin": { "type": "string" },
+            "parent_asin": { "type": "string" },
+            "sku": { "type": "string" },
+            "product_name": { "type": "string" },
+            "brand": { "type": "string" },
+            "product_family": { "type": "string" },
+            "color": { "type": "string" },
+            "size": { "type": "string" },
+            "marketplace": { "type": "string" },
+            "revenue_abcd_class": { "type": "string" },
+            "pareto_abc_class": { "type": "string" },
+            "revenue_share": { "type": "number", "description": "Revenue share within the company portfolio (0-1)." },
+            "sibling_count": { "type": "integer", "description": "Number of child ASINs under the same parent." },
+            "is_hero": { "type": "boolean", "description": "True if this child has the highest revenue_share among siblings." },
+            "units_30d": { "type": "number" },
+            "revenue_30d": { "type": "number" },
+            "avg_units_7d": { "type": "number" },
+            "item_icon_url": { "type": "string" },
+            "presentation": { "type": "object" }
+          }
+        }
+      },
+      "total_rows": { "type": "integer" },
+      "diagnostics": { "type": "object" }
+    },
+    "required": ["items", "total_rows"]
+  }
+}

@@ -46,6 +46,7 @@ import { registerFinancialsListChartOfAccountsTool } from './tools/financials/li
 import { registerFinancialsListUnmappedStatementTransactionsTool } from './tools/financials/list_unmapped_statement_transactions/register';
 import { registerShopifyListInventoryBalancesTool } from './tools/shopify/list_shopify_inventory_balances/register';
 import { registerShopifyListOrdersTool } from './tools/shopify/list_shopify_orders/register';
+import { registerAccountLookupAsinCatalogTool } from './tools/account/lookup_asin_catalog/register';
 
 export function registerAthenaTools(registry: ToolRegistry) {
   // Keep this list small and explicit to control ordering in tools/list.
@@ -56,6 +57,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerForecastingListSalesForecastsTool(registry);
   registerForecastingRunSalesForecastJobTool(registry);
   registerForecastingCheckSalesForecastJobStatusTool(registry);
+  registerAccountLookupAsinCatalogTool(registry);
   registerSupplyChainListFbaReplenishmentCandidatesTool(registry);
   registerSupplyChainListPoPlacementCandidatesTool(registry);
   registerSupplyChainListStockReplenishmentRiskItemsTool(registry);
