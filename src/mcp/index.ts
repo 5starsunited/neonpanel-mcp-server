@@ -228,7 +228,32 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
         }
 
         const normalizedArguments = unwrapToolArguments(parsed.arguments ?? {});
-        const args = tool.inputSchema.parse(normalizedArguments);
+
+        // AI clients often send { filters, limit, ... } flat instead of { query: { filters, limit, ... } }.
+        // Auto-wrap into { query: {...} } when the input has `filters` but no `query` key.
+        const QUERY_KEYS = new Set(['filters', 'limit', 'sort', 'aggregation', 'cursor']);
+        let finalArguments: unknown = normalizedArguments;
+        if (
+          normalizedArguments &&
+          typeof normalizedArguments === 'object' &&
+          !Array.isArray(normalizedArguments) &&
+          'filters' in normalizedArguments &&
+          !('query' in normalizedArguments)
+        ) {
+          const record = normalizedArguments as Record<string, unknown>;
+          const query: Record<string, unknown> = {};
+          const rest: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(record)) {
+            if (QUERY_KEYS.has(k)) {
+              query[k] = v;
+            } else {
+              rest[k] = v;
+            }
+          }
+          finalArguments = { query, ...rest };
+        }
+
+        const args = tool.inputSchema.parse(finalArguments);
         const userToken = await provider.getToken(context.validatedToken);
         const toolResult = await tool.execute(args, {
           accessToken: context.token,
