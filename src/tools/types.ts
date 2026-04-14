@@ -111,6 +111,50 @@ export class ToolRegistry {
     return record;
   }
 
+  /**
+   * Many tools declare `{ query: { filters, limit, sort, ... } }` but AI clients
+   * commonly send `{ filters, limit }` flat — then fail client-side schema validation
+   * before the request ever reaches our server.
+   *
+   * This method promotes `query`'s sub-properties to the top level in the *emitted*
+   * inputSchema so clients see the flat shape.  The server-side auto-wrap in
+   * `createRpcDispatcher` re-adds the `query` wrapper before Zod validation.
+   */
+  private flattenQueryWrapper(schema: Record<string, unknown>): Record<string, unknown> {
+    const props = schema.properties as Record<string, unknown> | undefined;
+    if (!props || typeof props !== 'object') return schema;
+
+    const queryProp = props.query;
+    if (!queryProp || typeof queryProp !== 'object') return schema;
+
+    const queryObj = queryProp as Record<string, unknown>;
+    const querySubProps = queryObj.properties as Record<string, unknown> | undefined;
+    if (!querySubProps || typeof querySubProps !== 'object') return schema;
+
+    // Only flatten when query contains `filters` (the query-pattern indicator).
+    if (!querySubProps.filters) return schema;
+
+    // Promote query sub-properties to top level alongside any siblings (e.g. tool_specific).
+    const { query: _q, ...otherTopLevelProps } = props;
+    const newProps = { ...querySubProps, ...otherTopLevelProps };
+
+    // Merge required arrays: drop 'query', add query's own required fields.
+    const oldRequired = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+    const queryRequired = Array.isArray(queryObj.required) ? (queryObj.required as string[]) : [];
+    const newRequired = [
+      ...oldRequired.filter((r: string) => r !== 'query'),
+      ...queryRequired,
+    ];
+
+    const newSchema: Record<string, unknown> = { ...schema };
+    newSchema.properties = newProps;
+    newSchema.required = newRequired.length > 0 ? newRequired : undefined;
+    // Remove additionalProperties: false since we've restructured the shape.
+    delete newSchema.additionalProperties;
+
+    return newSchema;
+  }
+
   private inferConsequentiality(toolName: string): boolean {
     const lowered = toolName.toLowerCase();
     // Conservative: anything that suggests creation/import/write is consequential.
@@ -157,6 +201,10 @@ export class ToolRegistry {
       // Some strict tool validators require the root schema type to be exactly "object".
       // Guard against schemas that flatten to a $ref-only or otherwise non-object shape.
       inputSchema = this.normalizeToolInputSchema(inputSchema);
+
+      // Flatten { query: { filters, limit, ... } } → { filters, limit, ... } in the
+      // emitted schema so AI clients can send the simple flat shape.
+      inputSchema = this.flattenQueryWrapper(inputSchema);
 
       const isConsequential =
         spec?.isConsequential ?? tool.isConsequential ?? this.inferConsequentiality(tool.name);
