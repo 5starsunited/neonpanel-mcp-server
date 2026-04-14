@@ -403,15 +403,24 @@
               "description": "Velocity thresholds (units/day) at which stockout occurs for each scenario. Useful for understanding velocity sensitivity.",
               "properties": {
                 "p50_units_per_day": {
-                  "type": "number",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
                   "description": "Velocity (units/day) at which you stockout at p50 arrival."
                 },
                 "p80_units_per_day": {
-                  "type": "number",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
                   "description": "Velocity (units/day) at which you stockout at p80 arrival."
                 },
                 "p95_units_per_day": {
-                  "type": "number",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
                   "description": "Velocity (units/day) at which you stockout at p95 arrival."
                 }
               }
@@ -421,15 +430,24 @@
               "description": "Velocity thresholds (units/day) at which you fall below min_days_of_supply for each scenario. Guides replenishment targets.",
               "properties": {
                 "p50_units_per_day": {
-                  "type": "number",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
                   "description": "Velocity (units/day) at which supply drops below min threshold at p50 arrival."
                 },
                 "p80_units_per_day": {
-                  "type": "number",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
                   "description": "Velocity (units/day) at which supply drops below min threshold at p80 arrival."
                 },
                 "p95_units_per_day": {
-                  "type": "number",
+                  "type": [
+                    "number",
+                    "null"
+                  ],
                   "description": "Velocity (units/day) at which supply drops below min threshold at p95 arrival."
                 }
               }

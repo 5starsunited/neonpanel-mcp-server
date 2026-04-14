@@ -279,7 +279,10 @@
                 "type": "object",
                 "properties": {
                   "position": {
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "asin": {
                     "type": "string"
@@ -294,19 +297,34 @@
                     "type": "boolean"
                   },
                   "click_share": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "click_share_trend": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "conversion_share": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "conversion_share_trend": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "position_change": {
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   }
                 }
               }
@@ -325,10 +343,16 @@
                   "type": "boolean"
                 },
                 "leader_conversion_share": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "displacement_opportunity_score": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "recommended_action": {
                   "type": "string"
@@ -339,13 +363,22 @@
               "type": "object",
               "properties": {
                 "click_share_to_leader": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "conversion_share_to_leader": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "estimated_clicks_if_leader": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               }
             },

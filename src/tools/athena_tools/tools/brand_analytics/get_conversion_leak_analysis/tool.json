@@ -264,16 +264,28 @@
               "type": "object",
               "properties": {
                 "impressions": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "clicks": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "cart_adds": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "purchases": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               }
             },
@@ -281,16 +293,28 @@
               "type": "object",
               "properties": {
                 "impression_to_click": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "click_to_cart": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "cart_to_purchase": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "overall_conversion": {
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 }
               }
             },
@@ -303,13 +327,22 @@
                     "type": "string"
                   },
                   "drop_rate": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "vs_threshold": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "vs_category": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "severity": {
                     "type": "string",
@@ -324,7 +357,10 @@
                     "type": "string"
                   },
                   "lost_volume": {
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   }
                 }
               }
@@ -353,7 +389,10 @@
                     "type": "string"
                   },
                   "volume_lost": {
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   }
                 }
               }

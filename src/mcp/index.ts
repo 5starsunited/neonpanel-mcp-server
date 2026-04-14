@@ -62,6 +62,11 @@ function coerceToSchema(value: unknown, schema: Record<string, unknown> | undefi
   // null is valid when the schema includes "null" in its type list
   if (value === null && types.includes('null')) return null;
 
+  // NaN / Infinity (number values) → null when schema allows null
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    return types.includes('null') ? null : 0;
+  }
+
   // --- object ---------------------------------------------------------------
   if (types.includes('object')) {
     // JSON-encoded string → parse into object
@@ -111,12 +116,18 @@ function coerceToSchema(value: unknown, schema: Record<string, unknown> | undefi
   if (types.includes('integer') && typeof value === 'string') {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return Math.round(parsed);
+    // "NaN" / "Infinity" → null when schema allows null, otherwise 0
+    if (types.includes('null')) return null;
+    return 0;
   }
 
   // --- number ---------------------------------------------------------------
   if (types.includes('number') && typeof value === 'string') {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
+    // "NaN" / "Infinity" → null when schema allows null, otherwise 0
+    if (types.includes('null')) return null;
+    return 0;
   }
 
   // --- string (null → '') ---------------------------------------------------

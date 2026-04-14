@@ -20,35 +20,48 @@
               },
               "asin": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "maxItems": 50,
                 "description": "ASINs to check for repeat buyer behavior."
               },
               "parent_asin": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "maxItems": 20,
                 "description": "Alternative selector: analyze by parent ASIN."
               },
               "brand": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by brand name(s)."
               },
               "product_family": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by product family."
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 1,
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
               }
             },
-            "required": ["company_id", "marketplace"],
+            "required": [
+              "company_id",
+              "marketplace"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -58,9 +71,17 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["asin", "parent_asin", "brand", "product_family", "category"]
+                  "enum": [
+                    "asin",
+                    "parent_asin",
+                    "brand",
+                    "product_family",
+                    "category"
+                  ]
                 },
-                "default": ["asin"],
+                "default": [
+                  "asin"
+                ],
                 "description": "Aggregation level for retention metrics."
               },
               "time": {
@@ -68,18 +89,34 @@
                 "properties": {
                   "periodicity": {
                     "type": "string",
-                    "enum": ["month", "quarter", "year"],
+                    "enum": [
+                      "month",
+                      "quarter",
+                      "year"
+                    ],
                     "default": "quarter",
                     "description": "Retention is typically analyzed quarterly or yearly."
                   },
                   "cohort_window": {
                     "type": "string",
-                    "enum": ["30_days", "60_days", "90_days", "180_days", "365_days"],
+                    "enum": [
+                      "30_days",
+                      "60_days",
+                      "90_days",
+                      "180_days",
+                      "365_days"
+                    ],
                     "default": "90_days",
                     "description": "Time window to measure repeat purchases."
                   },
-                  "start_date": { "type": "string", "format": "date" },
-                  "end_date": { "type": "string", "format": "date" },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
                   "periods_back": {
                     "type": "integer",
                     "minimum": 1,
@@ -110,7 +147,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc"
               }
             },
@@ -123,7 +163,9 @@
             "default": 50
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       },
       "tool_specific": {
@@ -142,18 +184,39 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["new_to_brand", "one_time", "occasional", "loyal", "champion"]
+                  "enum": [
+                    "new_to_brand",
+                    "one_time",
+                    "occasional",
+                    "loyal",
+                    "champion"
+                  ]
                 },
-                "default": ["new_to_brand", "one_time", "occasional", "loyal", "champion"],
+                "default": [
+                  "new_to_brand",
+                  "one_time",
+                  "occasional",
+                  "loyal",
+                  "champion"
+                ],
                 "description": "Customer segments to include in analysis."
               },
               "segment_thresholds": {
                 "type": "object",
                 "description": "Custom thresholds for segment definitions.",
                 "properties": {
-                  "occasional_min_purchases": { "type": "integer", "default": 2 },
-                  "loyal_min_purchases": { "type": "integer", "default": 4 },
-                  "champion_min_purchases": { "type": "integer", "default": 8 }
+                  "occasional_min_purchases": {
+                    "type": "integer",
+                    "default": 2
+                  },
+                  "loyal_min_purchases": {
+                    "type": "integer",
+                    "default": 4
+                  },
+                  "champion_min_purchases": {
+                    "type": "integer",
+                    "default": 8
+                  }
                 },
                 "additionalProperties": false
               }
@@ -172,7 +235,7 @@
                 "type": "number",
                 "minimum": 0,
                 "maximum": 1,
-                "default": 0.10,
+                "default": 0.1,
                 "description": "Flag as at-risk if repeat rate dropped more than this vs prior period."
               },
               "low_retention_threshold": {
@@ -222,7 +285,9 @@
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -233,56 +298,178 @@
         "items": {
           "type": "object",
           "properties": {
-            "asin": { "type": "string" },
-            "parent_asin": { "type": "string" },
-            "title": { "type": "string" },
-            "period_start": { "type": "string", "format": "date" },
-            "period_end": { "type": "string", "format": "date" },
+            "asin": {
+              "type": "string"
+            },
+            "parent_asin": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "period_start": {
+              "type": "string",
+              "format": "date"
+            },
+            "period_end": {
+              "type": "string",
+              "format": "date"
+            },
             "retention_metrics": {
               "type": "object",
               "properties": {
-                "total_customers": { "type": "integer" },
-                "repeat_customers": { "type": "integer" },
-                "repeat_purchase_rate": { "type": "number" },
-                "repeat_purchase_rate_trend": { "type": "number" },
-                "avg_purchases_per_customer": { "type": "number" },
-                "repeat_sales_revenue": { "type": "number" },
-                "repeat_revenue_share": { "type": "number" }
+                "total_customers": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "repeat_customers": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "repeat_purchase_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "repeat_purchase_rate_trend": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "avg_purchases_per_customer": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "repeat_sales_revenue": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "repeat_revenue_share": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
               }
             },
             "customer_segments": {
               "type": "object",
               "properties": {
-                "new_to_brand_count": { "type": "integer" },
-                "new_to_brand_rate": { "type": "number" },
-                "one_time_count": { "type": "integer" },
-                "occasional_count": { "type": "integer" },
-                "loyal_count": { "type": "integer" },
-                "champion_count": { "type": "integer" }
+                "new_to_brand_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "new_to_brand_rate": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "one_time_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "occasional_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "loyal_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "champion_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
               }
             },
             "risk_assessment": {
               "type": "object",
               "properties": {
-                "retention_risk_score": { "type": "number" },
-                "risk_level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-                "risk_factors": { "type": "array", "items": { "type": "string" } },
-                "recommended_actions": { "type": "array", "items": { "type": "string" } }
+                "retention_risk_score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "risk_level": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "critical"
+                  ]
+                },
+                "risk_factors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "recommended_actions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               }
             },
             "subscribe_save_potential": {
               "type": "object",
               "properties": {
-                "score": { "type": "number" },
-                "estimated_subscribers": { "type": "integer" },
-                "recommended": { "type": "boolean" }
+                "score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "estimated_subscribers": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "recommended": {
+                  "type": "boolean"
+                }
               }
             },
             "customer_lifetime_value": {
               "type": "object",
               "properties": {
-                "avg_ltv": { "type": "number" },
-                "projected_revenue_12m": { "type": "number" }
+                "avg_ltv": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "projected_revenue_12m": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
               }
             }
           },
@@ -292,23 +479,45 @@
       "summary": {
         "type": "object",
         "properties": {
-          "total_asins_analyzed": { "type": "integer" },
-          "avg_repeat_rate": { "type": "number" },
-          "at_risk_asins": { "type": "integer" },
-          "subscribe_save_candidates": { "type": "integer" },
-          "total_customer_base": { "type": "integer" }
+          "total_asins_analyzed": {
+            "type": "integer"
+          },
+          "avg_repeat_rate": {
+            "type": "number"
+          },
+          "at_risk_asins": {
+            "type": "integer"
+          },
+          "subscribe_save_candidates": {
+            "type": "integer"
+          },
+          "total_customer_base": {
+            "type": "integer"
+          }
         }
       },
       "meta": {
         "type": "object",
         "properties": {
-          "cohort_window": { "type": "string" },
-          "data_freshness": { "type": "string", "format": "date" },
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "cohort_window": {
+            "type": "string"
+          },
+          "data_freshness": {
+            "type": "string",
+            "format": "date"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   }
 }

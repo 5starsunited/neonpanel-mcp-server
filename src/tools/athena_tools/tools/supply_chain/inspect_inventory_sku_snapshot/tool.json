@@ -49,10 +49,16 @@
               "type": "object",
               "properties": {
                 "company_id": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "inventory_id": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "sku": {
                   "type": "string"
@@ -84,9 +90,21 @@
               "type": "object",
               "description": "Sales forecast scenario metadata for this snapshot row.",
               "properties": {
-                "id": { "type": "integer", "description": "Scenario id (snapshot column sales_forecast_scenario_id)." },
-                "name": { "type": "string", "description": "Scenario name (snapshot column sales_forecast_scenario_name)." },
-                "uuid": { "type": "string", "description": "Scenario uuid (snapshot column sales_forecast_scenario_uuid)." }
+                "id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Scenario id (snapshot column sales_forecast_scenario_id)."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Scenario name (snapshot column sales_forecast_scenario_name)."
+                },
+                "uuid": {
+                  "type": "string",
+                  "description": "Scenario uuid (snapshot column sales_forecast_scenario_uuid)."
+                }
               }
             },
             "presentation": {
@@ -96,10 +114,21 @@
                 "identity": {
                   "type": "object",
                   "properties": {
-                    "sku": { "type": "string" },
-                    "asin": { "type": "string" },
-                    "inventory_id": { "type": "integer" },
-                    "marketplace_code": { "type": "string" }
+                    "sku": {
+                      "type": "string"
+                    },
+                    "asin": {
+                      "type": "string"
+                    },
+                    "inventory_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "marketplace_code": {
+                      "type": "string"
+                    }
                   }
                 },
                 "media": {
@@ -108,15 +137,30 @@
                     "primary_image": {
                       "type": "object",
                       "properties": {
-                        "url": { "type": "string" },
-                        "derived_from": { "type": "string", "enum": ["sku"] },
-                        "source_field": { "type": "string" },
-                        "sku": { "type": "string" }
+                        "url": {
+                          "type": "string"
+                        },
+                        "derived_from": {
+                          "type": "string",
+                          "enum": [
+                            "sku"
+                          ]
+                        },
+                        "source_field": {
+                          "type": "string"
+                        },
+                        "sku": {
+                          "type": "string"
+                        }
                       },
-                      "required": ["derived_from"]
+                      "required": [
+                        "derived_from"
+                      ]
                     }
                   },
-                  "required": ["primary_image"]
+                  "required": [
+                    "primary_image"
+                  ]
                 },
                 "links": {
                   "type": "object",
@@ -124,27 +168,61 @@
                     "neonpanel_inventory": {
                       "type": "object",
                       "properties": {
-                        "url": { "type": "string" },
-                        "derived_from": { "type": "string", "enum": ["inventory_id"] },
-                        "inventory_id": { "type": "integer" }
+                        "url": {
+                          "type": "string"
+                        },
+                        "derived_from": {
+                          "type": "string",
+                          "enum": [
+                            "inventory_id"
+                          ]
+                        },
+                        "inventory_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
                       },
-                      "required": ["derived_from"]
+                      "required": [
+                        "derived_from"
+                      ]
                     },
                     "amazon_storefront": {
                       "type": "object",
                       "properties": {
-                        "url": { "type": "string" },
-                        "derived_from": { "type": "string", "enum": ["asin"] },
-                        "asin": { "type": "string" },
-                        "marketplace_code": { "type": "string" }
+                        "url": {
+                          "type": "string"
+                        },
+                        "derived_from": {
+                          "type": "string",
+                          "enum": [
+                            "asin"
+                          ]
+                        },
+                        "asin": {
+                          "type": "string"
+                        },
+                        "marketplace_code": {
+                          "type": "string"
+                        }
                       },
-                      "required": ["derived_from"]
+                      "required": [
+                        "derived_from"
+                      ]
                     }
                   },
-                  "required": ["neonpanel_inventory", "amazon_storefront"]
+                  "required": [
+                    "neonpanel_inventory",
+                    "amazon_storefront"
+                  ]
                 }
               },
-              "required": ["identity", "media", "links"]
+              "required": [
+                "identity",
+                "media",
+                "links"
+              ]
             },
             "snapshot_partition": {
               "type": "object",
