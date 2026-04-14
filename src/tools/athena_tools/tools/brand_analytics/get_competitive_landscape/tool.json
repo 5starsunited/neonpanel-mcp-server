@@ -40,7 +40,7 @@
                 "items": { "type": "string" },
                 "minItems": 1,
                 "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Strongly recommended — without it, results span all marketplaces and may include globally popular terms not specific to your products."
               },
               "category": {
                 "type": "array",

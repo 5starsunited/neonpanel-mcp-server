@@ -122,9 +122,9 @@ keyword_agg AS (
     w.week_start                                                  AS period_start,
     date_add('day', 6, w.week_start)                              AS period_end,
 
-    -- Search frequency (use max since it's the same per keyword per period)
+    -- Search volume and score (use max since it's the same per keyword per period)
     MAX(w.searchquerydata_searchqueryvolume)                      AS search_query_volume,
-    MAX(w.searchquerydata_searchqueryscore)                       AS search_frequency_rank,
+    MAX(w.searchquerydata_searchqueryscore)                       AS search_query_score,
 
     -- Impressions (total is same per keyword; brand = sum across ASINs)
     MAX(w.impressiondata_totalqueryimpressioncount)               AS total_impressions,
@@ -236,8 +236,8 @@ final AS (
     AND f.period_start = lp.max_period_start
   CROSS JOIN params p
   WHERE
-    -- Optional min_search_frequency_rank (lower rank = higher volume)
-    (p.min_search_frequency_rank = 0 OR f.search_frequency_rank <= p.min_search_frequency_rank)
+    -- Optional min_search_query_score filter
+    (p.min_search_frequency_rank = 0 OR f.search_query_score <= p.min_search_frequency_rank)
     -- Optional min_impressions
     AND (p.min_impressions = 0 OR COALESCE(f.total_impressions, 0) >= p.min_impressions)
 )

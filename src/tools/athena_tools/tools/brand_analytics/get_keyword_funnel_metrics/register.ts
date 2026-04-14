@@ -198,7 +198,7 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const minImpressions = toolSpecific?.min_impressions ?? 0;
 
       const SORTABLE_FIELDS = new Set([
-        'search_frequency_rank', 'total_impressions', 'brand_impression_share',
+        'search_query_score', 'search_query_volume', 'total_impressions', 'brand_impression_share',
         'total_clicks', 'brand_click_share', 'total_cart_adds', 'brand_cart_add_share',
         'total_purchases', 'brand_purchase_share',
         'market_impression_to_click_rate', 'market_click_to_cart_rate',
@@ -211,8 +211,8 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 100;
       const selectFields = query.select_fields;
-      const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_frequency_rank';
-      const sortDirection = query.sort?.direction ?? (sortField === 'search_frequency_rank' ? 'asc' : 'desc');
+      const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_query_volume';
+      const sortDirection = query.sort?.direction ?? 'desc';
 
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);

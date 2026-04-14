@@ -1,5 +1,17 @@
 -- List RYG thresholds: returns system defaults + company overrides.
 -- is_override = true when a company-specific row exists for that metric slot.
+-- Deduplicate by keeping only the latest row per unique key.
+WITH ranked AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY COALESCE(company_id, -1), tool, signal_group, metric, color
+      ORDER BY updated_at DESC
+    ) AS rn
+  FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
+  WHERE (company_id = {{company_id_sql}} OR ({{include_defaults}} AND company_id IS NULL))
+    AND ({{tool_filter_sql}})
+)
 SELECT
     company_id,
     CASE WHEN company_id IS NOT NULL THEN true ELSE false END AS is_override,
@@ -11,9 +23,8 @@ SELECT
     signal_code,
     signal_description,
     updated_at
-FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
-WHERE (company_id = {{company_id_sql}} OR ({{include_defaults}} AND company_id IS NULL))
-  AND ({{tool_filter_sql}})
+FROM ranked
+WHERE rn = 1
 ORDER BY
     tool,
     signal_group,

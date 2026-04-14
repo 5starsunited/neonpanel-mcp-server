@@ -170,21 +170,18 @@ windowed AS (
 ),
 
 -- ─── 6. Pick latest week per (search_term, asin, marketplace) ──────────────
-latest_per_term AS (
-  SELECT search_term, asin, marketplace_country_code,
-         MAX(week_start) AS max_week
-  FROM windowed
-  GROUP BY search_term, asin, marketplace_country_code
-),
-
+-- Use ROW_NUMBER to deduplicate in case of multiple snapshot rows per key.
 current_rows AS (
-  SELECT w.*
-  FROM windowed w
-  INNER JOIN latest_per_term lp
-    ON  w.search_term              = lp.search_term
-    AND w.asin                     = lp.asin
-    AND w.marketplace_country_code = lp.marketplace_country_code
-    AND w.week_start               = lp.max_week
+  SELECT *
+  FROM (
+    SELECT w.*,
+      ROW_NUMBER() OVER (
+        PARTITION BY w.search_term, w.asin, w.marketplace_country_code
+        ORDER BY w.week_start DESC
+      ) AS rn
+    FROM windowed w
+  )
+  WHERE rn = 1
 ),
 
 -- ─── 7. Enrich with computed fields ────────────────────────────────────────

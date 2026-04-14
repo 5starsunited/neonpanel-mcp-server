@@ -103,7 +103,8 @@
               "field": {
                 "type": "string",
                 "enum": [
-                  "search_frequency_rank",
+                  "search_query_volume",
+                  "search_query_score",
                   "total_impressions",
                   "brand_impression_share",
                   "total_clicks",
@@ -117,14 +118,14 @@
                   "brand_cart_to_purchase_rate",
                   "brand_impression_to_purchase_rate"
                 ],
-                "default": "search_frequency_rank",
-                "description": "Column to sort and rank by. A 'rank' column (1-based) is added to the output. Default: search_frequency_rank ASC (highest volume first). Use total_impressions DESC for broadest reach, brand_purchase_share DESC for best conversion."
+                "default": "search_query_volume",
+                "description": "Column to sort and rank by. A 'rank' column (1-based) is added to the output. Default: search_query_volume DESC (highest volume first). Use total_impressions DESC for broadest reach, brand_purchase_share DESC for best conversion."
               },
               "direction": {
                 "type": "string",
                 "enum": ["asc", "desc"],
-                "default": "asc",
-                "description": "Sort direction. For search_frequency_rank use ASC (lower rank = higher volume). For most other metrics use DESC (higher = better)."
+                "default": "desc",
+                "description": "Sort direction. DESC for most metrics (higher = better)."
               }
             },
             "additionalProperties": false
@@ -135,7 +136,7 @@
               "type": "string",
               "enum": [
                 "rank", "keyword", "marketplace", "period_start", "period_end",
-                "search_query_volume", "search_frequency_rank",
+                "search_query_volume", "search_query_score",
                 "total_impressions", "brand_impressions", "brand_impression_share", "brand_impression_share_wow",
                 "total_clicks", "brand_clicks", "brand_click_share", "brand_click_share_wow",
                 "total_cart_adds", "brand_cart_adds", "brand_cart_add_share", "brand_cart_add_share_wow",
@@ -227,7 +228,7 @@
             "marketplace": { "type": "string" },
             "period_start": { "type": "string", "format": "date" },
             "period_end": { "type": "string", "format": "date" },
-            "search_frequency_rank": { "type": "integer", "description": "Amazon SFR (lower = higher search volume)" },
+            "search_query_score": { "type": "number", "description": "Amazon Search Query Score (relevance metric, typically close to 1.0)" },
             "total_impressions": { "type": "integer", "description": "Total market impressions for this keyword" },
             "brand_impressions": { "type": "integer", "description": "Your brand's impressions for this keyword" },
             "brand_impression_share": { "type": "number", "description": "Your share of total impressions (0-1)" },
