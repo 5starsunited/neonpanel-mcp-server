@@ -32,6 +32,88 @@ function toText(value: unknown): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Schema-based type coercion for structuredContent
+// ---------------------------------------------------------------------------
+// Athena returns all values as VarCharValue strings. When the outputSchema
+// declares integer/number/object/boolean types, we coerce the raw strings
+// so structuredContent passes client-side schema validation.
+
+function coerceToSchema(value: unknown, schema: Record<string, unknown> | undefined): unknown {
+  if (!schema || value === undefined) return value;
+
+  const schemaType = schema.type as string | string[] | undefined;
+
+  // Handle anyOf / oneOf (pick first matching primitive hint)
+  if (!schemaType) {
+    const candidates = (schema.anyOf ?? schema.oneOf) as Record<string, unknown>[] | undefined;
+    if (candidates && Array.isArray(candidates)) {
+      for (const candidate of candidates) {
+        const coerced = coerceToSchema(value, candidate);
+        if (coerced !== value) return coerced;
+      }
+    }
+    return value;
+  }
+
+  // Normalise type to a single string (JSON Schema allows arrays)
+  const types = Array.isArray(schemaType) ? schemaType : [schemaType];
+
+  // --- object ---------------------------------------------------------------
+  if (types.includes('object')) {
+    // JSON-encoded string → parse into object
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try { return JSON.parse(trimmed); } catch { /* keep as-is */ }
+      }
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
+      if (!properties) return value;
+      const record = value as Record<string, unknown>;
+      const result: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(record)) {
+        result[key] = properties[key] ? coerceToSchema(val, properties[key]) : val;
+      }
+      return result;
+    }
+    return value;
+  }
+
+  // --- array ----------------------------------------------------------------
+  if (types.includes('array') && Array.isArray(value)) {
+    const items = schema.items as Record<string, unknown> | undefined;
+    if (!items) return value;
+    return value.map((item) => coerceToSchema(item, items));
+  }
+
+  // --- integer --------------------------------------------------------------
+  if (types.includes('integer') && typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.round(parsed);
+  }
+
+  // --- number ---------------------------------------------------------------
+  if (types.includes('number') && typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  // --- string (null → '') ---------------------------------------------------
+  if (types.includes('string') && (value === null || value === 'None')) {
+    return '';
+  }
+
+  // --- boolean --------------------------------------------------------------
+  if (types.includes('boolean') && typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true;
+    if (value.toLowerCase() === 'false') return false;
+  }
+
+  return value;
+}
+
 export function unwrapToolArguments(raw: unknown): unknown {
   // Some MCP/OpenAPI clients wrap tool arguments like: { params: { ...actualArgs } }.
   // To keep tool schemas focused on the actual payload, unwrap this single wrapper.
@@ -158,10 +240,15 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
 
         // MCP 2025-03-26: tools with outputSchema must return structuredContent.
         // Keep text content alongside for backward compatibility with older clients.
-        const structuredContent =
+        const outputSchema = tool.specJson?.outputSchema ?? tool.outputSchema;
+        const rawStructured =
           toolResult && typeof toolResult === 'object' && !Array.isArray(toolResult)
             ? (toolResult as Record<string, unknown>)
             : { result: toolResult };
+
+        // Coerce Athena string values to the types declared in outputSchema
+        // (integers, numbers, booleans, nested objects from JSON strings, etc.)
+        const structuredContent = coerceToSchema(rawStructured, outputSchema) as Record<string, unknown>;
 
         const result: McpToolCallResult = {
           content: [{ type: 'text', text: toText(toolResult) }],
