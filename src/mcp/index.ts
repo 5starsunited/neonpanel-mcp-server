@@ -59,6 +59,9 @@ function coerceToSchema(value: unknown, schema: Record<string, unknown> | undefi
   // Normalise type to a single string (JSON Schema allows arrays)
   const types = Array.isArray(schemaType) ? schemaType : [schemaType];
 
+  // null is valid when the schema includes "null" in its type list
+  if (value === null && types.includes('null')) return null;
+
   // --- object ---------------------------------------------------------------
   if (types.includes('object')) {
     // JSON-encoded string → parse into object
@@ -82,10 +85,26 @@ function coerceToSchema(value: unknown, schema: Record<string, unknown> | undefi
   }
 
   // --- array ----------------------------------------------------------------
-  if (types.includes('array') && Array.isArray(value)) {
-    const items = schema.items as Record<string, unknown> | undefined;
-    if (!items) return value;
-    return value.map((item) => coerceToSchema(item, items));
+  if (types.includes('array')) {
+    // JSON-encoded string → parse into array
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            const items = schema.items as Record<string, unknown> | undefined;
+            return items ? parsed.map((item: unknown) => coerceToSchema(item, items)) : parsed;
+          }
+        } catch { /* keep as-is */ }
+      }
+    }
+    if (Array.isArray(value)) {
+      const items = schema.items as Record<string, unknown> | undefined;
+      if (!items) return value;
+      return value.map((item) => coerceToSchema(item, items));
+    }
+    return value;
   }
 
   // --- integer --------------------------------------------------------------

@@ -20,22 +20,30 @@
               },
               "statement_ids": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by specific statement IDs."
               },
               "marketplace_codes": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by marketplace country code (e.g., 'US', 'DE', 'SE', 'GB', 'FR', 'IT', 'ES'). Derived from amazon_marketplaces via marketplace_name. Case-insensitive."
               },
               "currencies": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by statement currency code (e.g., 'SEK', 'EUR', 'GBP', 'USD'). Case-insensitive."
               },
               "seller_ids": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by Amazon seller ID (e.g., 'A1CBIAOO7JTYUK')."
               },
               "min_amount": {
@@ -47,7 +55,9 @@
                 "description": "Maximum total_amount (inclusive). Use to find statements below a threshold."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "time": {
@@ -69,7 +79,10 @@
           },
           "sort_direction": {
             "type": "string",
-            "enum": ["asc", "desc"],
+            "enum": [
+              "asc",
+              "desc"
+            ],
             "default": "desc",
             "description": "Sort by deposit_date. 'desc' = newest first (default), 'asc' = oldest first."
           },
@@ -81,11 +94,15 @@
             "description": "Maximum rows to return (default 50, max 500)."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -96,28 +113,99 @@
         "items": {
           "type": "object",
           "properties": {
-            "row_num": { "type": "integer", "description": "1-based row position by deposit_date." },
-            "company_name": { "type": "string", "description": "Company name." },
-            "company_short_name": { "type": ["string", "null"], "description": "Company short name." },
-            "company_id": { "type": "integer", "description": "Numeric company identifier." },
-            "main_currency": { "type": "string", "description": "Company's main/base currency." },
-            "statement_id": { "type": "string", "description": "Unique statement identifier. Use this to drill into details with financials_analyze_amazon_statement." },
-            "statement_start_date": { "type": "string", "description": "Statement period start date/time." },
-            "statement_end_date": { "type": "string", "description": "Statement period end date/time." },
-            "deposit_date": { "type": "string", "description": "Date Amazon deposited the funds." },
-            "total_amount": { "type": "number", "description": "Net statement payout in statement currency." },
-            "currency": { "type": "string", "description": "Statement currency code (e.g., 'SEK', 'EUR', 'GBP')." },
-            "seller_id": { "type": "string", "description": "Amazon seller ID." },
-            "marketplace_name": { "type": ["string", "null"], "description": "Amazon marketplace name (e.g., 'Amazon.de')." },
-            "marketplace_code": { "type": ["string", "null"], "description": "Marketplace country code (e.g., 'US', 'DE', 'SE')." },
-            "marketplace_country": { "type": ["string", "null"], "description": "Marketplace country name." },
-            "marketplace_currency": { "type": ["string", "null"], "description": "Marketplace local currency ISO code." }
+            "row_num": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "1-based row position by deposit_date."
+            },
+            "company_name": {
+              "type": "string",
+              "description": "Company name."
+            },
+            "company_short_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Company short name."
+            },
+            "company_id": {
+              "type": "integer",
+              "description": "Numeric company identifier."
+            },
+            "main_currency": {
+              "type": "string",
+              "description": "Company's main/base currency."
+            },
+            "statement_id": {
+              "type": "string",
+              "description": "Unique statement identifier. Use this to drill into details with financials_analyze_amazon_statement."
+            },
+            "statement_start_date": {
+              "type": "string",
+              "description": "Statement period start date/time."
+            },
+            "statement_end_date": {
+              "type": "string",
+              "description": "Statement period end date/time."
+            },
+            "deposit_date": {
+              "type": "string",
+              "description": "Date Amazon deposited the funds."
+            },
+            "total_amount": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net statement payout in statement currency."
+            },
+            "currency": {
+              "type": "string",
+              "description": "Statement currency code (e.g., 'SEK', 'EUR', 'GBP')."
+            },
+            "seller_id": {
+              "type": "string",
+              "description": "Amazon seller ID."
+            },
+            "marketplace_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Amazon marketplace name (e.g., 'Amazon.de')."
+            },
+            "marketplace_code": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Marketplace country code (e.g., 'US', 'DE', 'SE')."
+            },
+            "marketplace_country": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Marketplace country name."
+            },
+            "marketplace_currency": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Marketplace local currency ISO code."
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -125,7 +213,9 @@
       "description": "Browse the most recent statements.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
+          "filters": {
+            "company_id": 211
+          },
           "sort_direction": "desc",
           "limit": 20
         }
@@ -136,8 +226,13 @@
       "description": "Find statements deposited in January 2026.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
+          "filters": {
+            "company_id": 211
+          },
+          "time": {
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31"
+          },
           "sort_direction": "desc"
         }
       }
@@ -147,7 +242,12 @@
       "description": "Look up a statement by ID.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "statement_ids": ["26557463082"] }
+          "filters": {
+            "company_id": 211,
+            "statement_ids": [
+              "26557463082"
+            ]
+          }
         }
       }
     },
@@ -156,7 +256,12 @@
       "description": "List statements for the German marketplace.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "marketplace_codes": ["DE"] },
+          "filters": {
+            "company_id": 211,
+            "marketplace_codes": [
+              "DE"
+            ]
+          },
           "sort_direction": "desc"
         }
       }
@@ -166,7 +271,12 @@
       "description": "List only Euro-denominated statements.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "currencies": ["EUR"] },
+          "filters": {
+            "company_id": 211,
+            "currencies": [
+              "EUR"
+            ]
+          },
           "sort_direction": "desc"
         }
       }
@@ -176,7 +286,10 @@
       "description": "Find statements with total payout above 10,000.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "min_amount": 10000 },
+          "filters": {
+            "company_id": 211,
+            "min_amount": 10000
+          },
           "sort_direction": "desc",
           "limit": 50
         }

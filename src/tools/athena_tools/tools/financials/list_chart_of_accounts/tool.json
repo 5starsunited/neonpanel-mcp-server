@@ -20,60 +20,96 @@
               },
               "account_numbers": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by account number (exact match). E.g., ['40100', '51030']."
               },
               "account_names": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by account name. Use account_name_match_type to control matching."
               },
               "account_name_match_type": {
                 "type": "string",
-                "enum": ["exact", "contains", "starts_with"],
+                "enum": [
+                  "exact",
+                  "contains",
+                  "starts_with"
+                ],
                 "default": "contains",
                 "description": "How to match account_names: 'exact', 'contains' (default), 'starts_with'."
               },
               "account_types": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by account type (from account_types table). Common values: 'Bank', 'Expense', 'Income', 'Cost of Goods Sold', 'Other Income', 'Other Expense', 'Accounts Receivable', 'Accounts Payable', 'Fixed Asset', 'Other Current Asset', 'Other Current Liability', 'Long Term Liability', 'Equity'. Case-insensitive."
               },
               "classifications": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["Asset", "Liability", "Equity", "Revenue", "Expense"]
+                  "enum": [
+                    "Asset",
+                    "Liability",
+                    "Equity",
+                    "Revenue",
+                    "Expense"
+                  ]
                 },
                 "description": "Filter by classification: Asset, Liability, Equity, Revenue, Expense."
               },
               "statements": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["PL", "BS"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "PL",
+                    "BS"
+                  ]
+                },
                 "description": "Filter by financial statement: 'PL' (Profit & Loss) or 'BS' (Balance Sheet)."
               },
               "sde": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by SDE flag: 1 = SDE accounts only, 0 = non-SDE. Omit for no filter."
               },
               "ebitda": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by EBITDA flag: 1 = EBITDA-relevant only. Omit for no filter."
               },
               "pnl": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by P&L flag. Omit for no filter."
               },
               "active": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by active status: 1 = active accounts only. Omit for all."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "limit": {
@@ -84,11 +120,15 @@
             "description": "Maximum rows to return (default 200, max 500)."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -99,32 +139,145 @@
         "items": {
           "type": "object",
           "properties": {
-            "row_num": { "type": "integer", "description": "Sequential row number." },
-            "account_id": { "type": "integer", "description": "Account ID." },
-            "account_number": { "type": ["string", "null"], "description": "Account number (e.g., '40100')." },
-            "account_name": { "type": "string", "description": "Account name." },
-            "account_full_name": { "type": ["string", "null"], "description": "Full account name with number prefix." },
-            "account_description": { "type": ["string", "null"], "description": "Account description." },
-            "account_type": { "type": ["string", "null"], "description": "Account type from account_types table (e.g., 'Income', 'Expense', 'Cost of Goods Sold')." },
-            "classification": { "type": ["string", "null"], "description": "Classification from account_types (Asset, Liability, Equity, Revenue, Expense)." },
-            "account_type_description": { "type": ["string", "null"], "description": "Description of the account type." },
-            "statement": { "type": ["string", "null"], "description": "Financial statement: PL or BS." },
-            "report_chart": { "type": ["string", "null"], "description": "Report chart category (e.g., 'Legal & Professional Fees', 'Interest')." },
-            "sde": { "type": ["integer", "null"], "description": "SDE flag: 1 = included in Seller's Discretionary Earnings." },
-            "ebitda": { "type": ["integer", "null"], "description": "EBITDA flag: 1 = included in EBITDA calculation." },
-            "pnl": { "type": ["integer", "null"], "description": "P&L flag: 1 = included in P&L." },
-            "active": { "type": "integer", "description": "1 = active, 0 = inactive." },
-            "parent_account_name": { "type": ["string", "null"], "description": "Parent account name. NULL if top-level." },
-            "grandparent_account_name": { "type": ["string", "null"], "description": "Grandparent account name. NULL if no grandparent." },
-            "account_path": { "type": ["string", "null"], "description": "Full breadcrumb path: 'Number Grandparent: Parent: Account'." },
-            "company_name": { "type": "string", "description": "Company name." },
-            "main_currency": { "type": "string", "description": "Company's main currency code (e.g., 'USD')." }
+            "row_num": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Sequential row number."
+            },
+            "account_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Account ID."
+            },
+            "account_number": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account number (e.g., '40100')."
+            },
+            "account_name": {
+              "type": "string",
+              "description": "Account name."
+            },
+            "account_full_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Full account name with number prefix."
+            },
+            "account_description": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account description."
+            },
+            "account_type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account type from account_types table (e.g., 'Income', 'Expense', 'Cost of Goods Sold')."
+            },
+            "classification": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Classification from account_types (Asset, Liability, Equity, Revenue, Expense)."
+            },
+            "account_type_description": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Description of the account type."
+            },
+            "statement": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Financial statement: PL or BS."
+            },
+            "report_chart": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Report chart category (e.g., 'Legal & Professional Fees', 'Interest')."
+            },
+            "sde": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "SDE flag: 1 = included in Seller's Discretionary Earnings."
+            },
+            "ebitda": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "EBITDA flag: 1 = included in EBITDA calculation."
+            },
+            "pnl": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "P&L flag: 1 = included in P&L."
+            },
+            "active": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "1 = active, 0 = inactive."
+            },
+            "parent_account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Parent account name. NULL if top-level."
+            },
+            "grandparent_account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Grandparent account name. NULL if no grandparent."
+            },
+            "account_path": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Full breadcrumb path: 'Number Grandparent: Parent: Account'."
+            },
+            "company_name": {
+              "type": "string",
+              "description": "Company name."
+            },
+            "main_currency": {
+              "type": "string",
+              "description": "Company's main currency code (e.g., 'USD')."
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -132,7 +285,10 @@
       "description": "List all active accounts ordered by account number.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "active": 1 },
+          "filters": {
+            "company_id": 85,
+            "active": 1
+          },
           "limit": 500
         }
       }
@@ -142,7 +298,12 @@
       "description": "Find a specific account by its number.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_numbers": ["60031"] }
+          "filters": {
+            "company_id": 85,
+            "account_numbers": [
+              "60031"
+            ]
+          }
         }
       }
     },
@@ -151,7 +312,14 @@
       "description": "Find all accounts with 'FBA' in the name.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_names": ["FBA"], "account_name_match_type": "contains", "active": 1 }
+          "filters": {
+            "company_id": 85,
+            "account_names": [
+              "FBA"
+            ],
+            "account_name_match_type": "contains",
+            "active": 1
+          }
         }
       }
     },
@@ -160,7 +328,13 @@
       "description": "List all active Income-type accounts.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_types": ["Income"], "active": 1 }
+          "filters": {
+            "company_id": 85,
+            "account_types": [
+              "Income"
+            ],
+            "active": 1
+          }
         }
       }
     },
@@ -169,7 +343,16 @@
       "description": "List all active expense accounts on the Profit & Loss statement.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "classifications": ["Expense"], "statements": ["PL"], "active": 1 }
+          "filters": {
+            "company_id": 85,
+            "classifications": [
+              "Expense"
+            ],
+            "statements": [
+              "PL"
+            ],
+            "active": 1
+          }
         }
       }
     },
@@ -178,7 +361,13 @@
       "description": "List all active Balance Sheet accounts.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "statements": ["BS"], "active": 1 },
+          "filters": {
+            "company_id": 85,
+            "statements": [
+              "BS"
+            ],
+            "active": 1
+          },
           "limit": 500
         }
       }
@@ -188,7 +377,11 @@
       "description": "List accounts included in Seller's Discretionary Earnings.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "sde": 1, "active": 1 }
+          "filters": {
+            "company_id": 85,
+            "sde": 1,
+            "active": 1
+          }
         }
       }
     }

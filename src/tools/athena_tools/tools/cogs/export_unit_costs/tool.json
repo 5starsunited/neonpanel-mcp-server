@@ -51,19 +51,29 @@
                 "description": "Optional: End date (YYYY-MM-DD) - defaults to today"
               }
             },
-            "required": ["company_id"]
+            "required": [
+              "company_id"
+            ]
           },
           "sort": {
             "type": "object",
             "properties": {
               "field": {
                 "type": "string",
-                "enum": ["year_month", "sku", "marketplace", "landed_cost"],
+                "enum": [
+                  "year_month",
+                  "sku",
+                  "marketplace",
+                  "landed_cost"
+                ],
                 "description": "Field to sort by"
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "description": "Sort direction"
               }
             }
@@ -75,10 +85,14 @@
             "description": "Maximum number of rows to return (default: 10000)"
           }
         },
-        "required": ["filters"]
+        "required": [
+          "filters"
+        ]
       }
     },
-    "required": ["query"]
+    "required": [
+      "query"
+    ]
   },
   "outputSchema": {
     "type": "object",
@@ -109,11 +123,17 @@
               "description": "Product SKU"
             },
             "year": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Year"
             },
             "month": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Month (1-12)"
             },
             "year_month": {
@@ -121,15 +141,24 @@
               "description": "YYYY-MM format for sorting"
             },
             "purchase_price": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Item purchase price (supplier cost)"
             },
             "logistics_cost": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Item logistics/shipping cost"
             },
             "landed_cost": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Total landed cost (purchase + logistics)"
             },
             "last_updated": {
@@ -157,7 +186,9 @@
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "isConsequential": false
 }

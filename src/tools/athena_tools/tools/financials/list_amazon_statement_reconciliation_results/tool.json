@@ -26,7 +26,14 @@
               },
               "statuses": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["Match", "Discrepancy", "Unknown"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "Match",
+                    "Discrepancy",
+                    "Unknown"
+                  ]
+                },
                 "description": "Filter by overall reconciliation status. Use ['Discrepancy'] to find unresolved items."
               },
               "include_details": {
@@ -35,7 +42,9 @@
                 "description": "When true, also return per-category detail rows (category, item_description, debit/credit, status, memo)."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "time": {
@@ -57,7 +66,10 @@
           },
           "sort_direction": {
             "type": "string",
-            "enum": ["asc", "desc"],
+            "enum": [
+              "asc",
+              "desc"
+            ],
             "default": "desc",
             "description": "Sort by created_at. 'desc' = newest first (default), 'asc' = oldest first."
           },
@@ -69,11 +81,15 @@
             "description": "Maximum rows to return (default 50, max 500)."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -85,19 +101,88 @@
         "items": {
           "type": "object",
           "properties": {
-            "row_num": { "type": "integer", "description": "1-based position by created_at." },
-            "company_id": { "type": "integer", "description": "Company identifier." },
-            "year": { "type": "integer", "description": "Report year." },
-            "legal_name": { "type": ["string", "null"], "description": "Legal entity name from the payments report." },
-            "total_income": { "type": "number", "description": "Total income amount." },
-            "total_expenses": { "type": "number", "description": "Total expenses amount (typically negative)." },
-            "total_tax": { "type": "number", "description": "Total tax amount." },
-            "total_transfers": { "type": "number", "description": "Total transfers amount." },
-            "status": { "type": "string", "description": "Overall reconciliation status: Match / Discrepancy / Unknown." },
-            "author_type": { "type": ["string", "null"], "description": "Author type: user / ai / system." },
-            "author_name": { "type": ["string", "null"], "description": "Author display name." },
-            "reason": { "type": ["string", "null"], "description": "Human-readable reason for the reconciliation." },
-            "created_at": { "type": "string", "description": "Timestamp when the reconciliation was saved." }
+            "row_num": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "1-based position by created_at."
+            },
+            "company_id": {
+              "type": "integer",
+              "description": "Company identifier."
+            },
+            "year": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Report year."
+            },
+            "legal_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Legal entity name from the payments report."
+            },
+            "total_income": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Total income amount."
+            },
+            "total_expenses": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Total expenses amount (typically negative)."
+            },
+            "total_tax": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Total tax amount."
+            },
+            "total_transfers": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Total transfers amount."
+            },
+            "status": {
+              "type": "string",
+              "description": "Overall reconciliation status: Match / Discrepancy / Unknown."
+            },
+            "author_type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Author type: user / ai / system."
+            },
+            "author_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Author display name."
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Human-readable reason for the reconciliation."
+            },
+            "created_at": {
+              "type": "string",
+              "description": "Timestamp when the reconciliation was saved."
+            }
           },
           "additionalProperties": true
         }
@@ -108,21 +193,48 @@
         "items": {
           "type": "object",
           "properties": {
-            "company_id": { "type": "integer" },
-            "year": { "type": "integer" },
-            "category": { "type": "string", "description": "Classification category (e.g., 'Income', 'Amazon Fees')." },
-            "item_description": { "type": "string", "description": "Line item description (e.g., 'Product Sales', 'Referral Fees')." },
-            "debit_amount": { "type": "number" },
-            "credit_amount": { "type": "number" },
-            "status": { "type": "string", "description": "Per-row status: Match / Discrepancy / Unknown." },
-            "memo": { "type": ["string", "null"], "description": "Optional explanatory memo." },
-            "created_at": { "type": "string" }
+            "company_id": {
+              "type": "integer"
+            },
+            "year": {
+              "type": "integer"
+            },
+            "category": {
+              "type": "string",
+              "description": "Classification category (e.g., 'Income', 'Amazon Fees')."
+            },
+            "item_description": {
+              "type": "string",
+              "description": "Line item description (e.g., 'Product Sales', 'Referral Fees')."
+            },
+            "debit_amount": {
+              "type": "number"
+            },
+            "credit_amount": {
+              "type": "number"
+            },
+            "status": {
+              "type": "string",
+              "description": "Per-row status: Match / Discrepancy / Unknown."
+            },
+            "memo": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Optional explanatory memo."
+            },
+            "created_at": {
+              "type": "string"
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -130,7 +242,9 @@
       "description": "List the most recent reconciliation results for a company.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
+          "filters": {
+            "company_id": 211
+          },
           "sort_direction": "desc",
           "limit": 10
         }
@@ -141,7 +255,12 @@
       "description": "List only reconciliations with discrepancy status.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "statuses": ["Discrepancy"] },
+          "filters": {
+            "company_id": 211,
+            "statuses": [
+              "Discrepancy"
+            ]
+          },
           "sort_direction": "desc"
         }
       }
@@ -151,7 +270,11 @@
       "description": "Get full reconciliation results including per-category detail rows.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "year": 2025, "include_details": true },
+          "filters": {
+            "company_id": 211,
+            "year": 2025,
+            "include_details": true
+          },
           "sort_direction": "desc"
         }
       }
@@ -161,8 +284,13 @@
       "description": "Find reconciliations saved during a specific time period.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
+          "filters": {
+            "company_id": 211
+          },
+          "time": {
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31"
+          },
           "sort_direction": "desc"
         }
       }

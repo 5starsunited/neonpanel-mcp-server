@@ -22,31 +22,44 @@
               },
               "scenario": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by dataset/scenario name (e.g. 'rwlt_monthly_plan', 'manual', 'actual')."
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by marketplace (e.g. ['US']). Case-insensitive."
               },
               "sales_channel": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by sales channel (e.g. ['Amazon.com']). Case-insensitive."
               },
               "country_code": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by country code (e.g. ['US', 'UK']). Case-insensitive."
               },
               "calc_period": {
                 "type": "array",
-                "items": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" },
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}$"
+                },
                 "description": "Filter to specific calc_period(s) in YYYY-MM format."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": true
           },
           "limit": {
@@ -57,11 +70,15 @@
             "description": "Max rows returned. Use limit=1 to get only the latest forecast run."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": true
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -72,23 +89,87 @@
         "items": {
           "type": "object",
           "properties": {
-            "company_id": { "type": "integer" },
-            "calc_period": { "type": "string" },
-            "updated_at": { "type": "string" },
-            "dataset": { "type": "string" },
-            "scenario_uuid": { "type": "string" },
-            "item_count": { "type": "integer" },
-            "period_count": { "type": "integer" },
-            "period_start": { "type": "string" },
-            "period_end": { "type": "string" },
-            "total_rows": { "type": "integer" },
-            "total_units": { "type": "number" },
-            "total_sales_amount": { "type": "number" },
-            "marketplace_ids": { "type": "array", "items": { "type": "string" } },
-            "currencies": { "type": "array", "items": { "type": "string" } },
-            "sales_channels": { "type": "array", "items": { "type": "string" } },
-            "country_codes": { "type": "array", "items": { "type": "string" } },
-            "sku_count": { "type": "integer" }
+            "company_id": {
+              "type": "integer"
+            },
+            "calc_period": {
+              "type": "string"
+            },
+            "updated_at": {
+              "type": "string"
+            },
+            "dataset": {
+              "type": "string"
+            },
+            "scenario_uuid": {
+              "type": "string"
+            },
+            "item_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "period_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "period_start": {
+              "type": "string"
+            },
+            "period_end": {
+              "type": "string"
+            },
+            "total_rows": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "total_units": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "total_sales_amount": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "marketplace_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "currencies": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sales_channels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "country_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sku_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
           },
           "additionalProperties": true
         }
@@ -96,7 +177,12 @@
       "meta": {
         "type": "object",
         "properties": {
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }

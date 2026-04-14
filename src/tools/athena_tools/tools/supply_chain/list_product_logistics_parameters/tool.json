@@ -7,7 +7,10 @@
     "properties": {
       "inventory_ids": {
         "type": "array",
-        "items": { "type": "integer", "minimum": 1 },
+        "items": {
+          "type": "integer",
+          "minimum": 1
+        },
         "description": "Provide a list of inventory_id values to look up logistics parameters for. Use this OR sku+company_id."
       },
       "sku": {
@@ -39,49 +42,137 @@
             "item_ref": {
               "type": "object",
               "properties": {
-                "inventory_id": { "type": "integer" },
-                "sku": { "type": "string" },
-                "asin": { "type": "string" },
-                "marketplace": { "type": "string" },
-                "item_name": { "type": "string" },
-                "item_icon_url": { "type": "string" }
+                "inventory_id": {
+                  "type": "integer"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "asin": {
+                  "type": "string"
+                },
+                "marketplace": {
+                  "type": "string"
+                },
+                "item_name": {
+                  "type": "string"
+                },
+                "item_icon_url": {
+                  "type": "string"
+                }
               }
             },
-            "presentation": { "type": "object", "additionalProperties": true },
-
-            "company_id": { "type": "integer" },
-            "vendor": { "type": "string" },
-            "brand": { "type": "string" },
-            "product_family": { "type": "string" },
+            "presentation": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "company_id": {
+              "type": "integer"
+            },
+            "vendor": {
+              "type": "string"
+            },
+            "brand": {
+              "type": "string"
+            },
+            "product_family": {
+              "type": "string"
+            },
             "product_spec": {
               "type": "string",
               "description": "Vendor-facing product specification/name used for purchase orders (often sourced from vendor_product_specs in NeonPanel)."
             },
-            "optional_product_code": { "type": "string" },
-            "optional_product_code_type": { "type": "string" },
-
-            "product_weight": { "type": "number" },
-            "product_length": { "type": "number" },
-            "product_depth": { "type": "number" },
-            "product_height": { "type": "number" },
-            "length_and_girth": { "type": "number" },
-
-            "box_quantity": { "type": "integer" },
-            "box_length": { "type": "number" },
-            "box_depth": { "type": "number" },
-            "box_height": { "type": "number" },
-            "box_weight": { "type": "number" },
-            "moq": { "type": "integer" },
-
-            "snapshot_year": { "type": "string" },
-            "snapshot_month": { "type": "string" },
-            "snapshot_day": { "type": "string" }
+            "optional_product_code": {
+              "type": "string"
+            },
+            "optional_product_code_type": {
+              "type": "string"
+            },
+            "product_weight": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "product_length": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "product_depth": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "product_height": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "length_and_girth": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "box_quantity": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "box_length": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "box_depth": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "box_height": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "box_weight": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "moq": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "snapshot_year": {
+              "type": "string"
+            },
+            "snapshot_month": {
+              "type": "string"
+            },
+            "snapshot_day": {
+              "type": "string"
+            }
           },
-          "required": ["item_ref"]
+          "required": [
+            "item_ref"
+          ]
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {

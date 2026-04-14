@@ -114,18 +114,39 @@
             "items": {
               "type": "string",
               "enum": [
-                "rank", "asin", "product_family", "asin_brand",
-                "pareto_abc_class", "revenue_abcd_class", "revenue_share",
-                "marketplace", "currency",
-                "total_orders", "total_unique_customers", "total_repeat_revenue",
-                "avg_weekly_orders", "avg_weekly_unique_customers",
-                "avg_repeat_customers_pct", "avg_weekly_repeat_revenue", "avg_repeat_revenue_pct",
-                "max_repeat_customers_pct", "max_repeat_revenue_pct",
-                "weeks_with_data", "total_weeks",
-                "latest_week_orders", "latest_week_unique_customers",
-                "latest_week_repeat_customers_pct", "latest_week_repeat_revenue", "latest_week_repeat_revenue_pct",
-                "repeat_customers_pct_wow", "repeat_revenue_pct_wow", "orders_wow",
-                "first_seen", "last_seen", "window_start", "window_end"
+                "rank",
+                "asin",
+                "product_family",
+                "asin_brand",
+                "pareto_abc_class",
+                "revenue_abcd_class",
+                "revenue_share",
+                "marketplace",
+                "currency",
+                "total_orders",
+                "total_unique_customers",
+                "total_repeat_revenue",
+                "avg_weekly_orders",
+                "avg_weekly_unique_customers",
+                "avg_repeat_customers_pct",
+                "avg_weekly_repeat_revenue",
+                "avg_repeat_revenue_pct",
+                "max_repeat_customers_pct",
+                "max_repeat_revenue_pct",
+                "weeks_with_data",
+                "total_weeks",
+                "latest_week_orders",
+                "latest_week_unique_customers",
+                "latest_week_repeat_customers_pct",
+                "latest_week_repeat_revenue",
+                "latest_week_repeat_revenue_pct",
+                "repeat_customers_pct_wow",
+                "repeat_revenue_pct_wow",
+                "orders_wow",
+                "first_seen",
+                "last_seen",
+                "window_start",
+                "window_end"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum — e.g., 'avg_repeat_customers_pct' not 'repeat_customer_pct'."
@@ -195,7 +216,10 @@
               "description": "Revenue ABCD class (A/B/C/D) based on revenue contribution. 'unknown' if not mapped."
             },
             "revenue_share": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Revenue share of the ASIN within the company's portfolio (0-1 scale). null if not mapped."
             },
             "marketplace": {
@@ -207,83 +231,143 @@
               "description": "Revenue currency code (e.g., USD)."
             },
             "total_orders": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Total orders across all weeks in the window."
             },
             "total_unique_customers": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Total unique customers across all weeks."
             },
             "total_repeat_revenue": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Total repeat purchase revenue across all weeks."
             },
             "avg_weekly_orders": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Average orders per week."
             },
             "avg_weekly_unique_customers": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Average unique customers per week."
             },
             "avg_repeat_customers_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Average repeat customer % across weeks (0-1 scale). Higher = more loyal."
             },
             "avg_weekly_repeat_revenue": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Average weekly repeat revenue."
             },
             "avg_repeat_revenue_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Average repeat revenue % across weeks (0-1 scale)."
             },
             "max_repeat_customers_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Highest repeat customer % in any single week (peak loyalty)."
             },
             "max_repeat_revenue_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Highest repeat revenue % in any single week."
             },
             "weeks_with_data": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Number of weeks this ASIN had data."
             },
             "total_weeks": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Total weeks in the analysis window."
             },
             "latest_week_orders": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Orders in the most recent week."
             },
             "latest_week_unique_customers": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Unique customers in the most recent week."
             },
             "latest_week_repeat_customers_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Repeat customer % in the most recent week."
             },
             "latest_week_repeat_revenue": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Repeat revenue in the most recent week."
             },
             "latest_week_repeat_revenue_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Repeat revenue % in the most recent week."
             },
             "repeat_customers_pct_wow": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Week-over-week change in repeat customer % (positive = improving loyalty)."
             },
             "repeat_revenue_pct_wow": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Week-over-week change in repeat revenue %."
             },
             "orders_wow": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Week-over-week change in orders (positive = growing)."
             },
             "first_seen": {
@@ -337,7 +421,7 @@
     },
     {
       "title": "Most loyal products (highest repeat customer rate)",
-      "description": "Find ASINs with the highest fraction of repeat buyers \u2014 candidates for Subscribe & Save.",
+      "description": "Find ASINs with the highest fraction of repeat buyers — candidates for Subscribe & Save.",
       "request": {
         "query": {
           "filters": {
@@ -381,7 +465,7 @@
     },
     {
       "title": "Products with declining repeat rates (churn alert)",
-      "description": "ASINs where repeat customer % is dropping \u2014 possible quality/satisfaction issues.",
+      "description": "ASINs where repeat customer % is dropping — possible quality/satisfaction issues.",
       "request": {
         "query": {
           "filters": {

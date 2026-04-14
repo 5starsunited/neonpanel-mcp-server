@@ -20,22 +20,33 @@
               },
               "customer_names": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by customer name on journal entry detail lines. Use customer_name_match_type to control matching. To filter by Amazon marketplace, pass the marketplace domain name (e.g., ['Amazon.com'] for US, ['Amazon.co.uk'] for UK, ['Amazon.de'] for Germany). Each marketplace is a separate customer in QuickBooks."
               },
               "customer_name_match_type": {
                 "type": "string",
-                "enum": ["exact", "contains", "starts_with"],
+                "enum": [
+                  "exact",
+                  "contains",
+                  "starts_with"
+                ],
                 "default": "contains",
                 "description": "How to match customer_names: 'exact' = full match, 'contains' = substring (default), 'starts_with' = prefix."
               },
               "customer_ids": {
                 "type": "array",
-                "items": { "type": "integer", "minimum": 1 },
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
                 "description": "Filter by numeric customer ID (exact match)."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "time": {
@@ -55,22 +66,34 @@
           },
           "periodicity": {
             "type": "string",
-            "enum": ["month", "quarter", "year", "total"],
+            "enum": [
+              "month",
+              "quarter",
+              "year",
+              "total"
+            ],
             "default": "month",
             "description": "Time granularity for aggregation. 'month' (default) returns one row per month, 'quarter' per quarter (2025-Q1), 'year' per year, 'total' aggregates everything into one row."
           },
           "group_by_company": {
             "type": "integer",
-            "enum": [0, 1],
+            "enum": [
+              0,
+              1
+            ],
             "default": 0,
             "description": "Set to 1 to add company_id / company_name / main_currency columns (useful when comparing multiple companies, though only one company_id can be passed per request)."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -81,31 +104,181 @@
         "items": {
           "type": "object",
           "properties": {
-            "time_period": { "type": ["string", "null"], "description": "Period label: '2025-01' (month), '2025-Q1' (quarter), '2025' (year), 'total'." },
-            "company_id": { "type": ["integer", "null"], "description": "Company ID (only when group_by_company=1)." },
-            "company_name": { "type": ["string", "null"], "description": "Company name (only when group_by_company=1)." },
-            "main_currency": { "type": ["string", "null"], "description": "Company main currency (only when group_by_company=1)." },
-            "gross_revenue": { "type": "number", "description": "Gross Revenue = Sales + VAT Collected." },
-            "vat_collected": { "type": "number", "description": "VAT collected on sales." },
-            "sales": { "type": "number", "description": "Amazon product sales." },
-            "reimbursements": { "type": "number", "description": "Amazon FBA reimbursements." },
-            "promo_discounts": { "type": "number", "description": "Promotional discounts & coupons (negative)." },
-            "refunds": { "type": "number", "description": "Customer refunds (negative)." },
-            "liquidations": { "type": "number", "description": "Inventory liquidation proceeds." },
-            "revenue": { "type": "number", "description": "Total revenue (all Income-type accounts)." },
-            "cost_of_inventory_sold": { "type": "number", "description": "Product cost at landed cost (negative)." },
-            "cm1": { "type": "number", "description": "Contribution Margin 1 = Revenue + Cost of Inventory Sold." },
-            "cm1_pct": { "type": ["number", "null"], "description": "CM1 / Revenue ratio (0.78 = 78%)." },
-            "amazon_fees": { "type": "number", "description": "Amazon platform fees = −COGS − Cost of Inventory Sold (negative)." },
-            "cm2": { "type": "number", "description": "Contribution Margin 2 = Revenue − Cost of Goods Sold." },
-            "cm2_pct": { "type": ["number", "null"], "description": "CM2 / Revenue ratio." },
-            "amazon_promotion": { "type": "number", "description": "Amazon advertising & promotional spend (negative)." },
-            "cm3": { "type": "number", "description": "Contribution Margin 3 = CM2 + Amazon Promotion." },
-            "cm3_pct": { "type": ["number", "null"], "description": "CM3 / Revenue ratio." },
-            "expenses": { "type": "number", "description": "Operating expenses excluding Amazon Promotion (negative)." },
-            "ebitda": { "type": "number", "description": "EBITDA = CM3 + Expenses." },
-            "margin": { "type": ["number", "null"], "description": "EBITDA Margin = EBITDA / Revenue." },
-            "net_income": { "type": "number", "description": "Net Income = Revenue − COGS − all Expenses." }
+            "time_period": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Period label: '2025-01' (month), '2025-Q1' (quarter), '2025' (year), 'total'."
+            },
+            "company_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Company ID (only when group_by_company=1)."
+            },
+            "company_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Company name (only when group_by_company=1)."
+            },
+            "main_currency": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Company main currency (only when group_by_company=1)."
+            },
+            "gross_revenue": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Gross Revenue = Sales + VAT Collected."
+            },
+            "vat_collected": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "VAT collected on sales."
+            },
+            "sales": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Amazon product sales."
+            },
+            "reimbursements": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Amazon FBA reimbursements."
+            },
+            "promo_discounts": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Promotional discounts & coupons (negative)."
+            },
+            "refunds": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Customer refunds (negative)."
+            },
+            "liquidations": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Inventory liquidation proceeds."
+            },
+            "revenue": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Total revenue (all Income-type accounts)."
+            },
+            "cost_of_inventory_sold": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Product cost at landed cost (negative)."
+            },
+            "cm1": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Contribution Margin 1 = Revenue + Cost of Inventory Sold."
+            },
+            "cm1_pct": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "CM1 / Revenue ratio (0.78 = 78%)."
+            },
+            "amazon_fees": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Amazon platform fees = −COGS − Cost of Inventory Sold (negative)."
+            },
+            "cm2": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Contribution Margin 2 = Revenue − Cost of Goods Sold."
+            },
+            "cm2_pct": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "CM2 / Revenue ratio."
+            },
+            "amazon_promotion": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Amazon advertising & promotional spend (negative)."
+            },
+            "cm3": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Contribution Margin 3 = CM2 + Amazon Promotion."
+            },
+            "cm3_pct": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "CM3 / Revenue ratio."
+            },
+            "expenses": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Operating expenses excluding Amazon Promotion (negative)."
+            },
+            "ebitda": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "EBITDA = CM3 + Expenses."
+            },
+            "margin": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "EBITDA Margin = EBITDA / Revenue."
+            },
+            "net_income": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net Income = Revenue − COGS − all Expenses."
+            }
           }
         }
       }
@@ -116,8 +289,13 @@
       "description": "Monthly P&L for 2025",
       "input": {
         "query": {
-          "filters": { "company_id": 42 },
-          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "filters": {
+            "company_id": 42
+          },
+          "time": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31"
+          },
           "periodicity": "month"
         }
       }
@@ -126,8 +304,13 @@
       "description": "Quarterly P&L for last year",
       "input": {
         "query": {
-          "filters": { "company_id": 42 },
-          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "filters": {
+            "company_id": 42
+          },
+          "time": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31"
+          },
           "periodicity": "quarter"
         }
       }
@@ -136,8 +319,13 @@
       "description": "Annual total P&L",
       "input": {
         "query": {
-          "filters": { "company_id": 42 },
-          "time": { "start_date": "2025-01-01", "end_date": "2025-12-31" },
+          "filters": {
+            "company_id": 42
+          },
+          "time": {
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31"
+          },
           "periodicity": "total"
         }
       }
@@ -146,7 +334,9 @@
       "description": "Last month P&L (default)",
       "input": {
         "query": {
-          "filters": { "company_id": 42 }
+          "filters": {
+            "company_id": 42
+          }
         }
       }
     }

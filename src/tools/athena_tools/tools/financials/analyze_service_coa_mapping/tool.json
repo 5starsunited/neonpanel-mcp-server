@@ -20,7 +20,10 @@
               },
               "mapping_status": {
                 "type": "string",
-                "enum": ["mapped", "unmapped"],
+                "enum": [
+                  "mapped",
+                  "unmapped"
+                ],
                 "description": "Filter by mapping status: 'mapped' = services with an income account assigned, 'unmapped' = services missing an income account. Omit to see both."
               },
               "service_name_search": {
@@ -29,21 +32,30 @@
               },
               "account_names": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by mapped account name (substring match, case-insensitive). E.g., ['shipping', 'freight'] to find services mapped to shipping/freight accounts."
               },
               "account_numbers": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by mapped account number (exact match). E.g., ['40100', '51030']."
               },
               "active": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by service active status: 1 = active only, 0 = inactive only. Omit for all."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "limit": {
@@ -54,11 +66,15 @@
             "description": "Maximum rows to return (default 200, max 500)."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -69,34 +85,163 @@
         "items": {
           "type": "object",
           "properties": {
-            "row_num": { "type": "integer", "description": "Sequential row number." },
-            "service_id": { "type": "integer", "description": "Service ID." },
-            "service_name": { "type": ["string", "null"], "description": "Service name." },
-            "service_description": { "type": ["string", "null"], "description": "Service description." },
-            "service_group_name": { "type": ["string", "null"], "description": "Service group name." },
-            "item_price": { "type": ["number", "null"], "description": "Service sale/item price." },
-            "purchase_cost": { "type": ["number", "null"], "description": "Service purchase cost." },
-            "mapping_status": { "type": "string", "enum": ["mapped", "unmapped"], "description": "'mapped' if service has an income account assigned, 'unmapped' otherwise." },
-            "income_account_id": { "type": ["integer", "null"], "description": "Foreign key to accounts table. NULL when unmapped." },
-            "account_number": { "type": ["string", "null"], "description": "Mapped account number. NULL when unmapped." },
-            "account_name": { "type": ["string", "null"], "description": "Mapped account name. NULL when unmapped." },
-            "account_full_name": { "type": ["string", "null"], "description": "Full account name including number prefix. NULL when unmapped." },
-            "account_type": { "type": ["string", "null"], "description": "Account type name from account_types table (e.g., 'Income', 'Other Income', 'Cost of Goods Sold'). NULL when unmapped." },
-            "account_classification": { "type": ["string", "null"], "description": "Account classification from account_types (Asset, Liability, Equity, Revenue, Expense). NULL when unmapped." },
-            "account_type_description": { "type": ["string", "null"], "description": "Account type description from account_types table. NULL when unmapped." },
-            "account_statement": { "type": ["string", "null"], "description": "Financial statement (PL or BS). NULL when unmapped." },
-            "parent_account_name": { "type": ["string", "null"], "description": "Parent account name in the COA hierarchy. NULL when unmapped or no parent." },
-            "grandparent_account_name": { "type": ["string", "null"], "description": "Grandparent account name in the COA hierarchy. NULL when unmapped or no grandparent." },
-            "account_path": { "type": ["string", "null"], "description": "Full account breadcrumb path: 'Number Grandparent: Parent: Account'. NULL when unmapped." },
-            "service_active": { "type": "integer", "description": "1 = active, 0 = inactive." },
-            "company_name": { "type": "string", "description": "Company name." },
-            "main_currency": { "type": "string", "description": "Company's main currency code (e.g., 'USD')." }
+            "row_num": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Sequential row number."
+            },
+            "service_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Service ID."
+            },
+            "service_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Service name."
+            },
+            "service_description": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Service description."
+            },
+            "service_group_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Service group name."
+            },
+            "item_price": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Service sale/item price."
+            },
+            "purchase_cost": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Service purchase cost."
+            },
+            "mapping_status": {
+              "type": "string",
+              "enum": [
+                "mapped",
+                "unmapped"
+              ],
+              "description": "'mapped' if service has an income account assigned, 'unmapped' otherwise."
+            },
+            "income_account_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Foreign key to accounts table. NULL when unmapped."
+            },
+            "account_number": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Mapped account number. NULL when unmapped."
+            },
+            "account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Mapped account name. NULL when unmapped."
+            },
+            "account_full_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Full account name including number prefix. NULL when unmapped."
+            },
+            "account_type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account type name from account_types table (e.g., 'Income', 'Other Income', 'Cost of Goods Sold'). NULL when unmapped."
+            },
+            "account_classification": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account classification from account_types (Asset, Liability, Equity, Revenue, Expense). NULL when unmapped."
+            },
+            "account_type_description": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account type description from account_types table. NULL when unmapped."
+            },
+            "account_statement": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Financial statement (PL or BS). NULL when unmapped."
+            },
+            "parent_account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Parent account name in the COA hierarchy. NULL when unmapped or no parent."
+            },
+            "grandparent_account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Grandparent account name in the COA hierarchy. NULL when unmapped or no grandparent."
+            },
+            "account_path": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Full account breadcrumb path: 'Number Grandparent: Parent: Account'. NULL when unmapped."
+            },
+            "service_active": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "1 = active, 0 = inactive."
+            },
+            "company_name": {
+              "type": "string",
+              "description": "Company name."
+            },
+            "main_currency": {
+              "type": "string",
+              "description": "Company's main currency code (e.g., 'USD')."
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -104,7 +249,11 @@
       "description": "Find services that are missing an income account assignment.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "mapping_status": "unmapped", "active": 1 }
+          "filters": {
+            "company_id": 85,
+            "mapping_status": "unmapped",
+            "active": 1
+          }
         }
       }
     },
@@ -113,7 +262,10 @@
       "description": "Show all active services with their mapped accounts.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "active": 1 },
+          "filters": {
+            "company_id": 85,
+            "active": 1
+          },
           "limit": 500
         }
       }
@@ -123,7 +275,11 @@
       "description": "Find services with 'shipping' in the name and see which accounts they map to.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "service_name_search": "shipping", "active": 1 }
+          "filters": {
+            "company_id": 85,
+            "service_name_search": "shipping",
+            "active": 1
+          }
         }
       }
     },
@@ -132,7 +288,12 @@
       "description": "Show all services mapped to account number 40100.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_numbers": ["40100"] }
+          "filters": {
+            "company_id": 85,
+            "account_numbers": [
+              "40100"
+            ]
+          }
         }
       }
     },
@@ -141,7 +302,12 @@
       "description": "Find services mapped to accounts with 'income' in the name.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_names": ["income"] }
+          "filters": {
+            "company_id": 85,
+            "account_names": [
+              "income"
+            ]
+          }
         }
       }
     }

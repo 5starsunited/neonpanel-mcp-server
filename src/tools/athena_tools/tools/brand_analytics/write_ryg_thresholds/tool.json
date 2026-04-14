@@ -17,7 +17,10 @@
       },
       "action": {
         "type": "string",
-        "enum": ["write", "reset"],
+        "enum": [
+          "write",
+          "reset"
+        ],
         "default": "write",
         "description": "write (default): upsert threshold overrides. reset: delete ALL company overrides (reverts to system defaults)."
       },
@@ -36,12 +39,22 @@
           "properties": {
             "tool": {
               "type": "string",
-              "enum": ["sqp", "scp", "global"],
+              "enum": [
+                "sqp",
+                "scp",
+                "global"
+              ],
               "description": "Tool this threshold applies to."
             },
             "signal_group": {
               "type": "string",
-              "enum": ["strength", "weakness", "opportunity", "threshold", "trend"],
+              "enum": [
+                "strength",
+                "weakness",
+                "opportunity",
+                "threshold",
+                "trend"
+              ],
               "description": "Signal group."
             },
             "metric": {
@@ -50,7 +63,11 @@
             },
             "color": {
               "type": "string",
-              "enum": ["green", "yellow", "red"],
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ],
               "description": "Signal color tier."
             },
             "threshold_value": {
@@ -66,38 +83,86 @@
               "description": "Human-readable explanation of the signal."
             }
           },
-          "required": ["tool", "signal_group", "metric", "color", "threshold_value", "signal_code", "signal_description"],
+          "required": [
+            "tool",
+            "signal_group",
+            "metric",
+            "color",
+            "threshold_value",
+            "signal_code",
+            "signal_description"
+          ],
           "additionalProperties": false
         }
       }
     },
-    "required": ["company_id", "reason"],
+    "required": [
+      "company_id",
+      "reason"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "dry_run": { "type": "boolean" },
-      "action": { "type": "string" },
-      "accepted": { "type": "integer" },
-      "written": { "type": "integer" },
-      "deleted": { "type": "integer" },
+      "dry_run": {
+        "type": "boolean"
+      },
+      "action": {
+        "type": "string"
+      },
+      "accepted": {
+        "type": "integer"
+      },
+      "written": {
+        "type": "integer"
+      },
+      "deleted": {
+        "type": "integer"
+      },
       "items": {
         "type": "array",
         "items": {
           "type": "object",
           "properties": {
-            "status": { "type": "string", "enum": ["ok", "skipped", "error"] },
-            "tool": { "type": "string" },
-            "signal_group": { "type": "string" },
-            "metric": { "type": "string" },
-            "color": { "type": "string" },
-            "threshold_value": { "type": "number" },
-            "message": { "type": "string" }
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "skipped",
+                "error"
+              ]
+            },
+            "tool": {
+              "type": "string"
+            },
+            "signal_group": {
+              "type": "string"
+            },
+            "metric": {
+              "type": "string"
+            },
+            "color": {
+              "type": "string"
+            },
+            "threshold_value": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
           }
         }
       }
     },
-    "required": ["dry_run", "action", "accepted", "written"]
+    "required": [
+      "dry_run",
+      "action",
+      "accepted",
+      "written"
+    ]
   }
 }

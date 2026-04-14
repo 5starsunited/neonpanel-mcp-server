@@ -12,7 +12,11 @@
       },
       "tool": {
         "type": "string",
-        "enum": ["sqp", "scp", "global"],
+        "enum": [
+          "sqp",
+          "scp",
+          "global"
+        ],
         "description": "Optional: filter by tool name (sqp = Search Query Performance, scp = Search Catalog Performance, global = shared trend thresholds)."
       },
       "include_defaults": {
@@ -21,7 +25,9 @@
         "description": "If true (default), include system default thresholds alongside company overrides. Set false to see only company-specific overrides."
       }
     },
-    "required": ["company_id"],
+    "required": [
+      "company_id"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -32,16 +38,42 @@
         "items": {
           "type": "object",
           "properties": {
-            "company_id": { "type": ["integer", "null"] },
-            "is_override": { "type": "boolean" },
-            "tool": { "type": "string" },
-            "signal_group": { "type": "string" },
-            "metric": { "type": "string" },
-            "color": { "type": "string" },
-            "threshold_value": { "type": "number" },
-            "signal_code": { "type": "string" },
-            "signal_description": { "type": "string" },
-            "updated_at": { "type": "string" }
+            "company_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "is_override": {
+              "type": "boolean"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "signal_group": {
+              "type": "string"
+            },
+            "metric": {
+              "type": "string"
+            },
+            "color": {
+              "type": "string"
+            },
+            "threshold_value": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "signal_code": {
+              "type": "string"
+            },
+            "signal_description": {
+              "type": "string"
+            },
+            "updated_at": {
+              "type": "string"
+            }
           }
         }
       }

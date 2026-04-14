@@ -121,10 +121,32 @@ date_bounds AS (
 ),
 
 -- ─── 3. Expanded window: requested range + 12-week lookback for rolling avgs ─
+-- Pre-filter to top search terms by volume to prevent OOM on large companies.
+-- Keep up to 10× the requested limit to have enough candidates after post-filters.
+term_volumes AS (
+  SELECT search_term, MAX(volume) AS max_vol
+  FROM base_filtered f
+  CROSS JOIN date_bounds d
+  WHERE f.week_start BETWEEN d.start_date AND d.end_date
+  GROUP BY search_term
+),
+
+top_terms AS (
+  SELECT search_term
+  FROM (
+    SELECT search_term,
+           ROW_NUMBER() OVER (ORDER BY max_vol DESC NULLS LAST) AS rn
+    FROM term_volumes
+  )
+  CROSS JOIN params p
+  WHERE rn <= GREATEST(p.limit_top_n * 10, 2000)
+),
+
 expanded AS (
   SELECT f.*
   FROM base_filtered f
   CROSS JOIN date_bounds d
+  INNER JOIN top_terms tt ON f.search_term = tt.search_term
   WHERE f.week_start BETWEEN date_add('week', -12, d.start_date) AND d.end_date
     AND f.year BETWEEN year(date_add('week', -12, d.start_date)) AND year(d.end_date)
 ),

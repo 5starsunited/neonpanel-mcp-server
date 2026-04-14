@@ -14,11 +14,27 @@
         "type": "object",
         "description": "Who/what is making this change (for audit). If type='ai', name MUST be provided (ask the user for their name or team).",
         "properties": {
-          "type": { "type": "string", "enum": ["user", "ai", "system"], "default": "user" },
-          "name": { "type": "string", "description": "Display name or agent name. Required when type='ai'." },
-          "id": { "type": "string", "description": "Optional stable identifier for the actor (user id / agent id)." }
+          "type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "ai",
+              "system"
+            ],
+            "default": "user"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name or agent name. Required when type='ai'."
+          },
+          "id": {
+            "type": "string",
+            "description": "Optional stable identifier for the actor (user id / agent id)."
+          }
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": false
       },
       "reason": {
@@ -33,7 +49,10 @@
       },
       "write_mode": {
         "type": "string",
-        "enum": ["append", "replace"],
+        "enum": [
+          "append",
+          "replace"
+        ],
         "default": "append",
         "description": "append (default) inserts new rows; replace deletes existing rows for the same inventory_id (or sku+marketplace) + forecast_period + scenario_uuid before inserting."
       },
@@ -48,7 +67,10 @@
       },
       "data_type": {
         "type": "string",
-        "enum": ["forecast", "actual"],
+        "enum": [
+          "forecast",
+          "actual"
+        ],
         "default": "forecast",
         "description": "Type of data being written. 'forecast' (default) writes manual forecast adjustments (dataset='manual'). 'actual' writes sales history/actuals data — forces dataset='actual' and scenario_uuid='actual' regardless of per-write scenario_uuid values. Use 'actual' when importing historical sales data."
       },
@@ -78,19 +100,16 @@
               "default": "Amazon",
               "description": "Sales channel name. Defaults to 'Amazon' for Amazon marketplace forecasts. Use 'Amazon' unless writing non-Amazon channel data."
             },
-
             "scenario_uuid": {
               "type": "string",
               "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
               "description": "REQUIRED. Scenario identifier (slug). Stored in scenario_uuid and treated as the scenario name. Lowercase letters/numbers plus '-' or '_', 1–64 chars."
             },
-
             "forecast_period": {
               "type": "string",
               "pattern": "^\\d{4}-\\d{2}$",
               "description": "Forecast period key in YYYY-MM format (e.g., 2026-01)."
             },
-
             "units_sold": {
               "type": "number",
               "minimum": 0,
@@ -107,43 +126,94 @@
               "maxLength": 3,
               "description": "Required currency code for sales_amount (e.g., USD, GBP, EUR)."
             },
-
             "note": {
               "type": "string",
               "description": "Optional per-write note (e.g., promo, stockout, seasonality adjustment)."
             }
           },
-          "required": ["scenario_uuid", "forecast_period", "units_sold", "sales_amount", "currency"],
+          "required": [
+            "scenario_uuid",
+            "forecast_period",
+            "units_sold",
+            "sales_amount",
+            "currency"
+          ],
           "additionalProperties": false,
           "anyOf": [
-            { "type": "object", "required": ["inventory_id"] },
-            { "type": "object", "required": ["sku", "marketplace"] }
+            {
+              "type": "object",
+              "required": [
+                "inventory_id"
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "sku",
+                "marketplace"
+              ]
+            }
           ]
         }
       }
     },
-    "required": ["company_id", "reason", "writes"],
+    "required": [
+      "company_id",
+      "reason",
+      "writes"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
     "type": "object",
     "properties": {
-      "dry_run": { "type": "boolean" },
-      "accepted": { "type": "integer", "description": "Count of writes accepted for processing." },
-      "written": { "type": "integer", "description": "Count of rows actually written (0 in dry-run)." },
+      "dry_run": {
+        "type": "boolean"
+      },
+      "accepted": {
+        "type": "integer",
+        "description": "Count of writes accepted for processing."
+      },
+      "written": {
+        "type": "integer",
+        "description": "Count of rows actually written (0 in dry-run)."
+      },
       "items": {
         "type": "array",
         "description": "Per-write results (success/error) for transparency.",
         "items": {
           "type": "object",
           "properties": {
-            "status": { "type": "string", "enum": ["ok", "skipped", "error"] },
-            "inventory_id": { "type": "integer" },
-            "sku": { "type": "string" },
-            "marketplace": { "type": "string" },
-            "forecast_period": { "type": "string" },
-            "scenario": { "type": "object", "additionalProperties": true },
-            "message": { "type": "string" }
+            "status": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "skipped",
+                "error"
+              ]
+            },
+            "inventory_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "sku": {
+              "type": "string"
+            },
+            "marketplace": {
+              "type": "string"
+            },
+            "forecast_period": {
+              "type": "string"
+            },
+            "scenario": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "message": {
+              "type": "string"
+            }
           },
           "additionalProperties": true
         }
@@ -151,12 +221,21 @@
       "meta": {
         "type": "object",
         "properties": {
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }
     },
-    "required": ["dry_run", "accepted", "written"],
+    "required": [
+      "dry_run",
+      "accepted",
+      "written"
+    ],
     "additionalProperties": true
   }
 }

@@ -20,14 +20,22 @@
               },
               "account_types": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by account type (accounts.type column). Common values: 'Bank', 'Other Current Asset', 'Fixed Asset', 'Other Asset', 'Accounts Receivable', 'Accounts Payable', 'Other Current Liability', 'Long Term Liability', 'Equity', 'Income', 'Other Income', 'Cost of Goods Sold', 'Expense', 'Other Expense'. Case-insensitive."
               },
               "classifications": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["Asset", "Liability", "Equity", "Revenue", "Expense"]
+                  "enum": [
+                    "Asset",
+                    "Liability",
+                    "Equity",
+                    "Revenue",
+                    "Expense"
+                  ]
                 },
                 "description": "Filter by accounting classification. Values: 'Asset', 'Liability', 'Equity', 'Revenue', 'Expense'."
               },
@@ -35,64 +43,97 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["PL", "BS"]
+                  "enum": [
+                    "PL",
+                    "BS"
+                  ]
                 },
                 "description": "Filter by financial statement: 'PL' = Profit & Loss (income statement), 'BS' = Balance Sheet."
               },
               "account_names": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by account name. Use account_name_match_type to control matching."
               },
               "account_name_match_type": {
                 "type": "string",
-                "enum": ["exact", "contains", "starts_with"],
+                "enum": [
+                  "exact",
+                  "contains",
+                  "starts_with"
+                ],
                 "default": "contains",
                 "description": "How to match account_names: 'exact' = full match, 'contains' = substring (default), 'starts_with' = prefix."
               },
               "account_numbers": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by account number (exact match). E.g., ['51030', '60031']."
               },
               "document_types": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by source document type of the journal entry (e.g., 'Invoice', 'Journal Entry', 'Bill')."
               },
               "sde": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by SDE (Seller's Discretionary Earnings) flag: 1 = SDE accounts only, 0 = non-SDE only. Omit for no filter."
               },
               "ebitda": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by EBITDA flag: 1 = EBITDA-relevant accounts only, 0 = non-EBITDA only. Omit for no filter."
               },
               "pnl": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by P&L flag: 1 = P&L accounts only, 0 = non-P&L only. Omit for no filter."
               },
               "active": {
                 "type": "integer",
-                "enum": [0, 1],
+                "enum": [
+                  0,
+                  1
+                ],
                 "description": "Filter by active status: 1 = active accounts only (default behavior if omitted), 0 = inactive only. Omit for no filter."
               },
               "customer_names": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by customer name (on journal entry header). Use customer_name_match_type to control matching. E.g., ['Amazon', 'Walmart']."
               },
               "customer_name_match_type": {
                 "type": "string",
-                "enum": ["exact", "contains", "starts_with"],
+                "enum": [
+                  "exact",
+                  "contains",
+                  "starts_with"
+                ],
                 "default": "contains",
                 "description": "How to match customer_names: 'exact' = full match, 'contains' = substring (default), 'starts_with' = prefix."
-              },
+              }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -124,7 +165,13 @@
               },
               "periodicity": {
                 "type": "string",
-                "enum": ["day", "month", "quarter", "year", "total"],
+                "enum": [
+                  "day",
+                  "month",
+                  "quarter",
+                  "year",
+                  "total"
+                ],
                 "default": "total",
                 "description": "Time grouping: 'day' = daily, 'month' = YYYY-MM, 'quarter' = YYYY-Q#, 'year' = YYYY, 'total' = single aggregate."
               },
@@ -142,7 +189,9 @@
                     "customer"
                   ]
                 },
-                "default": ["account"],
+                "default": [
+                  "account"
+                ],
                 "description": "Dimensions to group by. 'account' = individual account (number + name), 'account_type' = type + detail, 'classification' = Asset/Liability/Equity/Revenue/Expense, 'statement' = PL/BS, 'report_chart' = reporting chart category, 'company' = company name + currency, 'customer' = customer name from journal entry detail. Combine freely. Default: ['account']."
               }
             },
@@ -167,7 +216,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc",
                 "description": "Sort direction. 'desc' = largest first (e.g., biggest expenses), 'asc' = smallest first."
               }
@@ -182,11 +234,15 @@
             "description": "Maximum rows to return (default 100, max 500). Only the top N rows by the chosen sort order are returned."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -197,33 +253,158 @@
         "items": {
           "type": "object",
           "properties": {
-            "rank": { "type": "integer", "description": "1-based position according to sort field and direction." },
-            "time_period": { "type": ["string", "null"], "description": "Time bucket label: date string (day), YYYY-MM (month), YYYY-Q# (quarter), YYYY (year), or null (total)." },
-            "account_number": { "type": ["string", "null"], "description": "Account number (e.g., '51030'). Null when 'account' not in group_by." },
-            "account_name": { "type": ["string", "null"], "description": "Account name (e.g., 'FBA Selling fee refunds'). Null when 'account' not in group_by." },
-            "account_full_name": { "type": ["string", "null"], "description": "Full account name with number prefix. Null when 'account' not in group_by." },
-            "account_type": { "type": ["string", "null"], "description": "Account type (e.g., 'Expense', 'Income', 'Bank'). Null when 'account_type' not in group_by." },
-            "account_type_detail": { "type": ["string", "null"], "description": "Account type detail (e.g., 'LegalProfessionalFees', 'InterestPaid'). Null when 'account_type' not in group_by." },
-            "classification": { "type": ["string", "null"], "description": "Accounting classification (Asset, Liability, Equity, Revenue, Expense). Null when 'classification' not in group_by." },
-            "statement": { "type": ["string", "null"], "description": "Financial statement: 'PL' or 'BS'. Null when 'statement' not in group_by." },
-            "report_chart": { "type": ["string", "null"], "description": "Report chart category (e.g., 'Legal & Professional Fees', 'Interest'). Null when 'report_chart' not in group_by." },
-            "company_id": { "type": ["integer", "null"], "description": "Company identifier. Null when 'company' not in group_by." },
-            "company_name": { "type": ["string", "null"], "description": "Company name. Null when 'company' not in group_by." },
-            "main_currency": { "type": ["string", "null"], "description": "Company's main currency code (e.g., 'USD'). Null when 'company' not in group_by." },
-            "customer_id": { "type": ["integer", "null"], "description": "Customer identifier from journal entry detail line. Null when 'customer' not in group_by or no customer linked." },
-            "customer_name": { "type": ["string", "null"], "description": "Customer name. Null when 'customer' not in group_by or no customer linked." },
-            "total_debit": { "type": "number", "description": "Sum of debit amounts in main currency." },
-            "total_credit": { "type": "number", "description": "Sum of credit amounts in main currency." },
-            "net": { "type": "number", "description": "Net = total_debit − total_credit. Expense/Asset accounts: typically positive (net debit). Revenue/Liability/Equity accounts: typically negative (net credit). Sort DESC for top expenses, ASC for top revenue." },
-            "line_count": { "type": "integer", "description": "Number of journal entry detail lines." },
-            "journal_entry_count": { "type": "integer", "description": "Number of distinct journal entries." },
-            "account_count": { "type": "integer", "description": "Number of distinct accounts in the group." }
+            "rank": {
+              "type": "integer",
+              "description": "1-based position according to sort field and direction."
+            },
+            "time_period": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Time bucket label: date string (day), YYYY-MM (month), YYYY-Q# (quarter), YYYY (year), or null (total)."
+            },
+            "account_number": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account number (e.g., '51030'). Null when 'account' not in group_by."
+            },
+            "account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account name (e.g., 'FBA Selling fee refunds'). Null when 'account' not in group_by."
+            },
+            "account_full_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Full account name with number prefix. Null when 'account' not in group_by."
+            },
+            "account_type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account type (e.g., 'Expense', 'Income', 'Bank'). Null when 'account_type' not in group_by."
+            },
+            "account_type_detail": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Account type detail (e.g., 'LegalProfessionalFees', 'InterestPaid'). Null when 'account_type' not in group_by."
+            },
+            "classification": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Accounting classification (Asset, Liability, Equity, Revenue, Expense). Null when 'classification' not in group_by."
+            },
+            "statement": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Financial statement: 'PL' or 'BS'. Null when 'statement' not in group_by."
+            },
+            "report_chart": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Report chart category (e.g., 'Legal & Professional Fees', 'Interest'). Null when 'report_chart' not in group_by."
+            },
+            "company_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Company identifier. Null when 'company' not in group_by."
+            },
+            "company_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Company name. Null when 'company' not in group_by."
+            },
+            "main_currency": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Company's main currency code (e.g., 'USD'). Null when 'company' not in group_by."
+            },
+            "customer_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Customer identifier from journal entry detail line. Null when 'customer' not in group_by or no customer linked."
+            },
+            "customer_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Customer name. Null when 'customer' not in group_by or no customer linked."
+            },
+            "total_debit": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Sum of debit amounts in main currency."
+            },
+            "total_credit": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Sum of credit amounts in main currency."
+            },
+            "net": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net = total_debit − total_credit. Expense/Asset accounts: typically positive (net debit). Revenue/Liability/Equity accounts: typically negative (net credit). Sort DESC for top expenses, ASC for top revenue."
+            },
+            "line_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Number of journal entry detail lines."
+            },
+            "journal_entry_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Number of distinct journal entries."
+            },
+            "account_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Number of distinct accounts in the group."
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -231,9 +412,22 @@
       "description": "Which accounts have the highest net debit (expense) in the last 3 months?",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "classifications": ["Expense"], "active": 1 },
-          "aggregation": { "group_by": ["account"] },
-          "sort": { "field": "net", "direction": "desc" },
+          "filters": {
+            "company_id": 85,
+            "classifications": [
+              "Expense"
+            ],
+            "active": 1
+          },
+          "aggregation": {
+            "group_by": [
+              "account"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          },
           "limit": 20
         }
       }
@@ -243,9 +437,22 @@
       "description": "High-level P&L breakdown: total Revenue vs. total Expenses. Revenue rows will have negative net (credits), Expense rows will have positive net (debits).",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "statements": ["PL"], "active": 1 },
-          "aggregation": { "group_by": ["classification"] },
-          "sort": { "field": "net", "direction": "desc" }
+          "filters": {
+            "company_id": 85,
+            "statements": [
+              "PL"
+            ],
+            "active": 1
+          },
+          "aggregation": {
+            "group_by": [
+              "classification"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          }
         }
       }
     },
@@ -254,13 +461,26 @@
       "description": "Track how expense categories change month-over-month.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "classifications": ["Expense"], "active": 1 },
-          "aggregation": {
-            "time": { "periods_back": 26 },
-            "periodicity": "month",
-            "group_by": ["account_type"]
+          "filters": {
+            "company_id": 85,
+            "classifications": [
+              "Expense"
+            ],
+            "active": 1
           },
-          "sort": { "field": "net", "direction": "desc" },
+          "aggregation": {
+            "time": {
+              "periods_back": 26
+            },
+            "periodicity": "month",
+            "group_by": [
+              "account_type"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          },
           "limit": 200
         }
       }
@@ -270,13 +490,26 @@
       "description": "See quarterly roll-ups by reporting chart line items (e.g., 'Legal & Professional Fees', 'Interest').",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "statements": ["PL"] },
-          "aggregation": {
-            "time": { "start_date": "2024-01-01", "end_date": "2024-12-31" },
-            "periodicity": "quarter",
-            "group_by": ["report_chart"]
+          "filters": {
+            "company_id": 85,
+            "statements": [
+              "PL"
+            ]
           },
-          "sort": { "field": "net", "direction": "desc" },
+          "aggregation": {
+            "time": {
+              "start_date": "2024-01-01",
+              "end_date": "2024-12-31"
+            },
+            "periodicity": "quarter",
+            "group_by": [
+              "report_chart"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          },
           "limit": 200
         }
       }
@@ -286,9 +519,19 @@
       "description": "Show all SDE (Seller's Discretionary Earnings) accounts with their totals.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "sde": 1 },
-          "aggregation": { "group_by": ["account"] },
-          "sort": { "field": "net", "direction": "desc" },
+          "filters": {
+            "company_id": 85,
+            "sde": 1
+          },
+          "aggregation": {
+            "group_by": [
+              "account"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          },
           "limit": 50
         }
       }
@@ -300,15 +543,26 @@
         "query": {
           "filters": {
             "company_id": 85,
-            "account_names": ["Advertising", "Sponsored"],
+            "account_names": [
+              "Advertising",
+              "Sponsored"
+            ],
             "account_name_match_type": "contains"
           },
           "aggregation": {
-            "time": { "start_date": "2024-01-01", "end_date": "2024-12-31" },
+            "time": {
+              "start_date": "2024-01-01",
+              "end_date": "2024-12-31"
+            },
             "periodicity": "month",
-            "group_by": ["account"]
+            "group_by": [
+              "account"
+            ]
           },
-          "sort": { "field": "net", "direction": "desc" }
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          }
         }
       }
     },
@@ -317,9 +571,22 @@
       "description": "Aggregate debit/credit activity on Balance Sheet accounts (Assets, Liabilities, Equity) over the period. Asset increases show as positive net; Liability/Equity increases show as negative net.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "statements": ["BS"], "active": 1 },
-          "aggregation": { "group_by": ["classification"] },
-          "sort": { "field": "net", "direction": "desc" }
+          "filters": {
+            "company_id": 85,
+            "statements": [
+              "BS"
+            ],
+            "active": 1
+          },
+          "aggregation": {
+            "group_by": [
+              "classification"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          }
         }
       }
     },
@@ -328,13 +595,24 @@
       "description": "Track EBITDA-relevant accounts year-over-year.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "ebitda": 1, "active": 1 },
-          "aggregation": {
-            "time": { "periods_back": 104 },
-            "periodicity": "year",
-            "group_by": ["account_type"]
+          "filters": {
+            "company_id": 85,
+            "ebitda": 1,
+            "active": 1
           },
-          "sort": { "field": "net", "direction": "desc" },
+          "aggregation": {
+            "time": {
+              "periods_back": 104
+            },
+            "periodicity": "year",
+            "group_by": [
+              "account_type"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          },
           "limit": 50
         }
       }
@@ -344,12 +622,25 @@
       "description": "Which Cost of Goods Sold accounts have the highest amounts? Useful for understanding landed cost composition (FBA fees, shipping, product cost).",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_types": ["Cost of Goods Sold"], "active": 1 },
-          "aggregation": {
-            "time": { "periods_back": 13 },
-            "group_by": ["account"]
+          "filters": {
+            "company_id": 85,
+            "account_types": [
+              "Cost of Goods Sold"
+            ],
+            "active": 1
           },
-          "sort": { "field": "net", "direction": "desc" },
+          "aggregation": {
+            "time": {
+              "periods_back": 13
+            },
+            "group_by": [
+              "account"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "desc"
+          },
           "limit": 30
         }
       }
@@ -359,9 +650,22 @@
       "description": "Which Income accounts generate the most revenue? Revenue accounts have negative net (credits > debits), so sort ASC to find the largest.",
       "request": {
         "query": {
-          "filters": { "company_id": 85, "account_types": ["Income"], "active": 1 },
-          "aggregation": { "group_by": ["account"] },
-          "sort": { "field": "net", "direction": "asc" },
+          "filters": {
+            "company_id": 85,
+            "account_types": [
+              "Income"
+            ],
+            "active": 1
+          },
+          "aggregation": {
+            "group_by": [
+              "account"
+            ]
+          },
+          "sort": {
+            "field": "net",
+            "direction": "asc"
+          },
           "limit": 20
         }
       }

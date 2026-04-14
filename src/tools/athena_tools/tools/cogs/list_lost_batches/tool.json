@@ -42,7 +42,10 @@
               },
               "transaction_direction": {
                 "type": "string",
-                "enum": ["inbound", "outbound"],
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ],
                 "description": "Optional: Filter by transaction direction (inbound = purchases, outbound = sales)"
               },
               "start_date": {
@@ -56,7 +59,9 @@
                 "description": "Optional: End date (YYYY-MM-DD) - defaults to today"
               }
             },
-            "required": ["company_id"]
+            "required": [
+              "company_id"
+            ]
           },
           "limit": {
             "type": "integer",
@@ -65,10 +70,14 @@
             "description": "Maximum number of transactions to return (default: 5)"
           }
         },
-        "required": ["filters"]
+        "required": [
+          "filters"
+        ]
       }
     },
-    "required": ["query"]
+    "required": [
+      "query"
+    ]
   },
   "outputSchema": {
     "type": "object",
@@ -79,7 +88,10 @@
           "type": "object",
           "properties": {
             "transaction_id": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Transaction ID"
             },
             "company_id": {
@@ -111,23 +123,38 @@
               "description": "inbound or outbound"
             },
             "quantity": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Transaction quantity"
             },
             "item_purchase_price": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Item purchase price"
             },
             "item_logistics_cost": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Item logistics cost"
             },
             "item_landed_cost": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Total item cost (lost amount)"
             },
             "lost_amount_total": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Total lost amount (quantity * item_landed_cost)"
             },
             "destination_warehouse": {
@@ -159,7 +186,9 @@
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "isConsequential": false
 }

@@ -12,24 +12,36 @@
       },
       "marketplace": {
         "type": "string",
-        "enum": ["US", "UK"],
+        "enum": [
+          "US",
+          "UK"
+        ],
         "description": "Optional. Marketplace filter (maps to country_code). Recommended to avoid cross-marketplace duplicates."
       },
       "asin": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 },
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
         "maxItems": 50,
         "description": "Optional. Child ASIN(s) to look up. Returns their parent ASIN, sibling variants, and attributes."
       },
       "parent_asin": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 },
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
         "maxItems": 20,
         "description": "Optional. Parent ASIN(s) to look up. Returns all child variations under each parent."
       },
       "sku": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 },
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
         "maxItems": 50,
         "description": "Optional. SKU(s) to look up. Returns ASIN mapping and product attributes."
       },
@@ -69,31 +81,94 @@
         "items": {
           "type": "object",
           "properties": {
-            "child_asin": { "type": "string" },
-            "parent_asin": { "type": "string" },
-            "sku": { "type": "string" },
-            "product_name": { "type": "string" },
-            "brand": { "type": "string" },
-            "product_family": { "type": "string" },
-            "color": { "type": "string" },
-            "size": { "type": "string" },
-            "marketplace": { "type": "string" },
-            "revenue_abcd_class": { "type": "string" },
-            "pareto_abc_class": { "type": "string" },
-            "revenue_share": { "type": "number", "description": "Revenue share within the company portfolio (0-1)." },
-            "sibling_count": { "type": "integer", "description": "Number of child ASINs under the same parent." },
-            "is_hero": { "type": "boolean", "description": "True if this child has the highest revenue_share among siblings." },
-            "units_30d": { "type": "number" },
-            "revenue_30d": { "type": "number" },
-            "avg_units_7d": { "type": "number" },
-            "item_icon_url": { "type": "string" },
-            "presentation": { "type": "object" }
+            "child_asin": {
+              "type": "string"
+            },
+            "parent_asin": {
+              "type": "string"
+            },
+            "sku": {
+              "type": "string"
+            },
+            "product_name": {
+              "type": "string"
+            },
+            "brand": {
+              "type": "string"
+            },
+            "product_family": {
+              "type": "string"
+            },
+            "color": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            },
+            "marketplace": {
+              "type": "string"
+            },
+            "revenue_abcd_class": {
+              "type": "string"
+            },
+            "pareto_abc_class": {
+              "type": "string"
+            },
+            "revenue_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Revenue share within the company portfolio (0-1)."
+            },
+            "sibling_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Number of child ASINs under the same parent."
+            },
+            "is_hero": {
+              "type": "boolean",
+              "description": "True if this child has the highest revenue_share among siblings."
+            },
+            "units_30d": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "revenue_30d": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "avg_units_7d": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "item_icon_url": {
+              "type": "string"
+            },
+            "presentation": {
+              "type": "object"
+            }
           }
         }
       },
-      "total_rows": { "type": "integer" },
-      "diagnostics": { "type": "object" }
+      "total_rows": {
+        "type": "integer"
+      },
+      "diagnostics": {
+        "type": "object"
+      }
     },
-    "required": ["items", "total_rows"]
+    "required": [
+      "items",
+      "total_rows"
+    ]
   }
 }

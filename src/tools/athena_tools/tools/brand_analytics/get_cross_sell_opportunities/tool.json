@@ -106,14 +106,32 @@
             "items": {
               "type": "string",
               "enum": [
-                "rank", "primary_asin", "primary_product_family", "primary_brand",
-                "primary_pareto_abc_class", "primary_revenue_abcd_class", "primary_revenue_share",
-                "co_purchased_asin", "co_purchased_product_family", "co_purchased_brand",
-                "co_purchased_pareto_abc_class", "co_purchased_revenue_abcd_class", "co_purchased_revenue_share",
-                "marketplace", "best_rank",
-                "avg_combination_pct", "max_combination_pct", "min_combination_pct",
-                "weeks_appearing", "total_weeks", "consistency_score", "co_purchased_is_own",
-                "first_seen", "last_seen", "window_start", "window_end"
+                "rank",
+                "primary_asin",
+                "primary_product_family",
+                "primary_brand",
+                "primary_pareto_abc_class",
+                "primary_revenue_abcd_class",
+                "primary_revenue_share",
+                "co_purchased_asin",
+                "co_purchased_product_family",
+                "co_purchased_brand",
+                "co_purchased_pareto_abc_class",
+                "co_purchased_revenue_abcd_class",
+                "co_purchased_revenue_share",
+                "marketplace",
+                "best_rank",
+                "avg_combination_pct",
+                "max_combination_pct",
+                "min_combination_pct",
+                "weeks_appearing",
+                "total_weeks",
+                "consistency_score",
+                "co_purchased_is_own",
+                "first_seen",
+                "last_seen",
+                "window_start",
+                "window_end"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum — e.g., 'primary_asin' not 'purchased_asin', 'avg_combination_pct' not 'combination_pct'."
@@ -191,7 +209,10 @@
               "description": "Revenue ABCD class of the primary ASIN (A/B/C/D). 'unknown' if not mapped."
             },
             "primary_revenue_share": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Revenue share of the primary ASIN within the company's portfolio (0-1 scale). null if not mapped."
             },
             "co_purchased_asin": {
@@ -215,7 +236,10 @@
               "description": "Revenue ABCD class of the co-purchased ASIN. 'unknown' if not mapped."
             },
             "co_purchased_revenue_share": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Revenue share of the co-purchased ASIN. null if not mapped."
             },
             "marketplace": {
@@ -223,31 +247,52 @@
               "description": "Marketplace country code (e.g., US, DE)."
             },
             "best_rank": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Best (lowest) co-purchase rank observed (1=top)."
             },
             "avg_combination_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Average combination pct across weeks in the window."
             },
             "max_combination_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Highest combination pct observed in any single week."
             },
             "min_combination_pct": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "Lowest combination pct observed in any single week."
             },
             "weeks_appearing": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Number of weeks this pair appeared in the data."
             },
             "total_weeks": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Total weeks in the analysis window."
             },
             "consistency_score": {
-              "type": "number",
+              "type": [
+                "number",
+                "null"
+              ],
               "description": "weeks_appearing / total_weeks (1.0 = every week)."
             },
             "co_purchased_is_own": {

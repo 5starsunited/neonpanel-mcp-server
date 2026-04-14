@@ -17,58 +17,113 @@
                 "type": "string",
                 "description": "Numeric company ID as string. Deprecated; use company_id (integer) instead. If both provided, company_id takes precedence."
               },
-              "company_id": { "type": "integer", "minimum": 1 },
-
-              "brand": { "type": "array", "items": { "type": "string" } },
-              "marketplace": { "type": "array", "items": { "type": "string" } },
-              "product_family": { "type": "array", "items": { "type": "string" } },
-              "parent_asin": { "type": "array", "items": { "type": "string" } },
-              "asin": { "type": "array", "items": { "type": "string" } },
-              "sku": { "type": "array", "items": { "type": "string" } },
-
+              "company_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "brand": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketplace": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "product_family": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "parent_asin": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "asin": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sku": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "revenue_abcd_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
-                "default": ["A", "B"],
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C",
+                    "D"
+                  ]
+                },
+                "default": [
+                  "A",
+                  "B"
+                ],
                 "description": "Filter by revenue class (A=top 20%, B=next 30%, C=next 30%, D=tail 20%). Default: A+B (high-revenue focus). Override to include C or D if needed."
               },
-
               "tags": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter-only tags. Multi-agent safe. Agent must not infer meaning. Not supported by this tool yet."
               }
             },
             "additionalProperties": true
           },
-
           "sort": {
             "type": "object",
             "description": "Sort by any returned output field/KPI. Default: sort by risk_tier (critical first), then by days_of_supply ascending.",
             "properties": {
-              "field": { 
+              "field": {
                 "type": "string",
                 "description": "Field name to sort by (e.g., days_of_supply, sales_velocity_30d, current_fba_stock, risk_tier)"
               },
-              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "asc" },
-              "nulls": { "type": "string", "enum": ["first", "last"], "default": "last" }
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
+                "default": "asc"
+              },
+              "nulls": {
+                "type": "string",
+                "enum": [
+                  "first",
+                  "last"
+                ],
+                "default": "last"
+              }
             },
             "additionalProperties": false
           },
-
           "select_fields": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Optional output field selection (projection). If omitted, tool returns defaults."
           },
-
           "limit": {
             "type": "integer",
             "minimum": 1,
             "default": 50,
             "description": "Max items to return."
           },
-
           "cursor": {
             "type": "string",
             "description": "Opaque cursor for pagination (if supported)."
@@ -76,7 +131,6 @@
         },
         "additionalProperties": false
       },
-
       "tool_specific": {
         "type": "object",
         "description": "Stock replenishment risk analysis knobs.",
@@ -88,7 +142,6 @@
             "default": 28,
             "description": "Minimum days-of-supply threshold. Items below this are flagged as 'warning'. Items below threshold/2 are flagged as 'critical'."
           },
-
           "velocity_weighting": {
             "type": "object",
             "description": "Weights for precalculated velocity windows (30d, 7d, 3d) in weighted days-of-supply formula. Default: balanced (long-term biased).",
@@ -117,37 +170,51 @@
             },
             "additionalProperties": false
           },
-
           "velocity_weighting_mode": {
             "type": "string",
-            "enum": ["balanced", "conservative", "aggressive"],
+            "enum": [
+              "balanced",
+              "conservative",
+              "aggressive"
+            ],
             "description": "Quick preset for velocity weighting. Overrides individual weight_* if provided. balanced=(0.5, 0.3, 0.2), conservative=(0.7, 0.2, 0.1), aggressive=(0.2, 0.3, 0.5)."
           },
-
           "include_warehouse_stock": {
             "type": "boolean",
             "default": true,
             "description": "If true, include non-FBA warehouse/3PL inventory in available supply calculation. If false, only count FBA stock."
           },
-
           "stockout_risk_filter": {
             "type": "array",
-            "items": { "type": "string", "enum": ["high", "moderate", "low", "ok"] },
+            "items": {
+              "type": "string",
+              "enum": [
+                "high",
+                "moderate",
+                "low",
+                "ok"
+              ]
+            },
             "description": "Optional: filter by stockout risk tier. Returns items matching these tiers (OR logic). Example: ['high', 'moderate'] returns all items with high OR moderate stockout risk. If omitted, all tiers included."
           },
-
           "supply_buffer_risk_filter": {
             "type": "array",
-            "items": { "type": "string", "enum": ["high", "moderate", "low", "ok"] },
+            "items": {
+              "type": "string",
+              "enum": [
+                "high",
+                "moderate",
+                "low",
+                "ok"
+              ]
+            },
             "description": "Optional: filter by supply buffer risk tier. Returns items matching these tiers (OR logic). Example: ['high'] returns only items with high buffer risk (below min_days_of_supply even at p50). If omitted, all tiers included."
           },
-
           "include_inbound_details": {
             "type": "boolean",
             "default": true,
             "description": "If true, include detailed FBA inbound shipment information (shipment count, total units, p80 arrival date, shipped dates)."
           },
-
           "p80_arrival_buffer_days": {
             "type": "integer",
             "minimum": 0,
@@ -159,10 +226,11 @@
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
-
   "outputSchema": {
     "type": "object",
     "properties": {
@@ -172,88 +240,255 @@
         "items": {
           "type": "object",
           "properties": {
-            "inventory_id": { "type": "integer" },
-            "sku": { "type": "string" },
-            "child_asin": { "type": "string" },
-            "parent_asin": { "type": "string" },
-            "brand": { "type": "string" },
-            "product_family": { "type": "string" },
-            "product_name": { "type": "string" },
-            "revenue_abcd_class": { "type": "string", "description": "Revenue class from sales_last_30_days (A/B/C/D)." },
-            "pareto_abc_class": { "type": "string", "description": "Pareto ABC class from inventory snapshot." },
-
-            "current_fba_stock": { "type": "integer", "description": "Current available units in FBA inventory." },
-            "warehouse_stock": { "type": "integer", "description": "Current units in non-FBA warehouses/3PL (if include_warehouse_stock=true)." },
-            "total_available_stock": { "type": "integer", "description": "sum(current_fba_stock, warehouse_stock)." },
-            "inbound_shipments_json": { "type": "string", "description": "Raw FBA inbound shipments JSON from snapshot." },
-            "warehouse_balance_details_json": { "type": "string", "description": "Raw warehouse balance details JSON from snapshot." },
-
-            "sales_velocity_30d": { "type": "number", "description": "Avg daily sales rate (units/day) over last 30 days." },
-            "sales_velocity_7d": { "type": "number", "description": "Avg daily sales rate over last 7 days." },
-            "sales_velocity_3d": { "type": "number", "description": "Avg daily sales rate over last 3 days." },
-
-            "inbound_units": { "type": "integer", "description": "Total units in FBA inbound shipments." },
-            "inbound_p50_days": { "type": "number", "description": "p50 likelihood (days) for inbound shipments to arrive (after p80_arrival_buffer_days applied)." },
-            "inbound_p80_days": { "type": "number", "description": "p80 likelihood (days) for inbound shipments to arrive (after p80_arrival_buffer_days applied)." },
-            "inbound_p95_days": { "type": "number", "description": "p95 likelihood (days) for inbound shipments to arrive (after p80_arrival_buffer_days applied)." },
-            "inbound_shipment_count": { "type": "integer", "description": "Number of active inbound shipments." },
-
-            "days_of_supply_p50": { "type": "number", "description": "Days-of-supply if inbound arrives at p50 (median) likelihood." },
-            "days_of_supply_p80": { "type": "number", "description": "Days-of-supply if inbound arrives at p80 likelihood." },
-            "days_of_supply_p95": { "type": "number", "description": "Days-of-supply if inbound arrives at p95 likelihood (optimistic)." },
-
-            "stockout_risk_tier": { "type": "string", "enum": ["high", "moderate", "low", "ok"], "description": "Physical stockout risk classification based on p50/p80/p95 scenarios." },
-            "supply_buffer_risk_tier": { "type": "string", "enum": ["high", "moderate", "low", "ok"], "description": "Days-of-supply buffer risk classification (vs min_days_of_supply threshold) based on p50/p80/p95 scenarios." },
-
+            "inventory_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "sku": {
+              "type": "string"
+            },
+            "child_asin": {
+              "type": "string"
+            },
+            "parent_asin": {
+              "type": "string"
+            },
+            "brand": {
+              "type": "string"
+            },
+            "product_family": {
+              "type": "string"
+            },
+            "product_name": {
+              "type": "string"
+            },
+            "revenue_abcd_class": {
+              "type": "string",
+              "description": "Revenue class from sales_last_30_days (A/B/C/D)."
+            },
+            "pareto_abc_class": {
+              "type": "string",
+              "description": "Pareto ABC class from inventory snapshot."
+            },
+            "current_fba_stock": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Current available units in FBA inventory."
+            },
+            "warehouse_stock": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Current units in non-FBA warehouses/3PL (if include_warehouse_stock=true)."
+            },
+            "total_available_stock": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "sum(current_fba_stock, warehouse_stock)."
+            },
+            "inbound_shipments_json": {
+              "type": "string",
+              "description": "Raw FBA inbound shipments JSON from snapshot."
+            },
+            "warehouse_balance_details_json": {
+              "type": "string",
+              "description": "Raw warehouse balance details JSON from snapshot."
+            },
+            "sales_velocity_30d": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Avg daily sales rate (units/day) over last 30 days."
+            },
+            "sales_velocity_7d": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Avg daily sales rate over last 7 days."
+            },
+            "sales_velocity_3d": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Avg daily sales rate over last 3 days."
+            },
+            "inbound_units": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Total units in FBA inbound shipments."
+            },
+            "inbound_p50_days": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "p50 likelihood (days) for inbound shipments to arrive (after p80_arrival_buffer_days applied)."
+            },
+            "inbound_p80_days": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "p80 likelihood (days) for inbound shipments to arrive (after p80_arrival_buffer_days applied)."
+            },
+            "inbound_p95_days": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "p95 likelihood (days) for inbound shipments to arrive (after p80_arrival_buffer_days applied)."
+            },
+            "inbound_shipment_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Number of active inbound shipments."
+            },
+            "days_of_supply_p50": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Days-of-supply if inbound arrives at p50 (median) likelihood."
+            },
+            "days_of_supply_p80": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Days-of-supply if inbound arrives at p80 likelihood."
+            },
+            "days_of_supply_p95": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Days-of-supply if inbound arrives at p95 likelihood (optimistic)."
+            },
+            "stockout_risk_tier": {
+              "type": "string",
+              "enum": [
+                "high",
+                "moderate",
+                "low",
+                "ok"
+              ],
+              "description": "Physical stockout risk classification based on p50/p80/p95 scenarios."
+            },
+            "supply_buffer_risk_tier": {
+              "type": "string",
+              "enum": [
+                "high",
+                "moderate",
+                "low",
+                "ok"
+              ],
+              "description": "Days-of-supply buffer risk classification (vs min_days_of_supply threshold) based on p50/p80/p95 scenarios."
+            },
             "stockout_critical_velocity": {
               "type": "object",
               "description": "Velocity thresholds (units/day) at which stockout occurs for each scenario. Useful for understanding velocity sensitivity.",
               "properties": {
-                "p50_units_per_day": { "type": "number", "description": "Velocity (units/day) at which you stockout at p50 arrival." },
-                "p80_units_per_day": { "type": "number", "description": "Velocity (units/day) at which you stockout at p80 arrival." },
-                "p95_units_per_day": { "type": "number", "description": "Velocity (units/day) at which you stockout at p95 arrival." }
+                "p50_units_per_day": {
+                  "type": "number",
+                  "description": "Velocity (units/day) at which you stockout at p50 arrival."
+                },
+                "p80_units_per_day": {
+                  "type": "number",
+                  "description": "Velocity (units/day) at which you stockout at p80 arrival."
+                },
+                "p95_units_per_day": {
+                  "type": "number",
+                  "description": "Velocity (units/day) at which you stockout at p95 arrival."
+                }
               }
             },
-
             "supply_buffer_critical_velocity": {
               "type": "object",
               "description": "Velocity thresholds (units/day) at which you fall below min_days_of_supply for each scenario. Guides replenishment targets.",
               "properties": {
-                "p50_units_per_day": { "type": "number", "description": "Velocity (units/day) at which supply drops below min threshold at p50 arrival." },
-                "p80_units_per_day": { "type": "number", "description": "Velocity (units/day) at which supply drops below min threshold at p80 arrival." },
-                "p95_units_per_day": { "type": "number", "description": "Velocity (units/day) at which supply drops below min threshold at p95 arrival." }
+                "p50_units_per_day": {
+                  "type": "number",
+                  "description": "Velocity (units/day) at which supply drops below min threshold at p50 arrival."
+                },
+                "p80_units_per_day": {
+                  "type": "number",
+                  "description": "Velocity (units/day) at which supply drops below min threshold at p80 arrival."
+                },
+                "p95_units_per_day": {
+                  "type": "number",
+                  "description": "Velocity (units/day) at which supply drops below min threshold at p95 arrival."
+                }
               }
             },
-
-            "po_recommended": { "type": "boolean", "description": "True when a PO is recommended based on risk tiers." },
-            "po_recommendation_note": { "type": "string", "description": "Next-step guidance to review PO placement candidates." },
-
-            "recommendation": { "type": "string", "description": "Actionable suggestion based on both risk tiers, inbound timing, velocity trends, and risk severity (e.g., 'Urgent: expedite 500 units (p50 arrival in 12d, buffer critical)', 'Monitor velocity spike: p80 arrival covers 22d vs 28d target', 'Order 300 units (p95 scenario tight)')." }
+            "po_recommended": {
+              "type": "boolean",
+              "description": "True when a PO is recommended based on risk tiers."
+            },
+            "po_recommendation_note": {
+              "type": "string",
+              "description": "Next-step guidance to review PO placement candidates."
+            },
+            "recommendation": {
+              "type": "string",
+              "description": "Actionable suggestion based on both risk tiers, inbound timing, velocity trends, and risk severity (e.g., 'Urgent: expedite 500 units (p50 arrival in 12d, buffer critical)', 'Monitor velocity spike: p80 arrival covers 22d vs 28d target', 'Order 300 units (p95 scenario tight)')."
+            }
           },
           "additionalProperties": true
         }
       },
-
       "meta": {
         "type": "object",
         "properties": {
-          "applied_sort": { "type": "object", "additionalProperties": true },
-          "selected_fields": { "type": "array", "items": { "type": "string" } },
-          "included_fields": { "type": "array", "items": { "type": "string" } },
-          "risk_distribution": { 
+          "applied_sort": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "selected_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "included_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk_distribution": {
             "type": "object",
             "description": "Counts by risk tier for both dimensions. Example: {stockout_risk: {high: 2, moderate: 5, low: 12, ok: 1043}, supply_buffer_risk: {high: 8, moderate: 15, low: 20, ok: 1019}}",
             "additionalProperties": true
           },
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }
     },
-    "required": ["items"],
+    "required": [
+      "items"
+    ],
     "additionalProperties": true
   },
-
   "examples": [
     {
       "description": "List all high-risk stockout items for company 42 (revenue class A+B default)",
@@ -265,7 +500,9 @@
           "limit": 20
         },
         "tool_specific": {
-          "stockout_risk_filter": ["high"]
+          "stockout_risk_filter": [
+            "high"
+          ]
         }
       }
     },
@@ -275,7 +512,11 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "revenue_abcd_class": ["A", "B", "C"]
+            "revenue_abcd_class": [
+              "A",
+              "B",
+              "C"
+            ]
           },
           "sort": {
             "field": "days_of_supply_p80",
@@ -285,7 +526,10 @@
         },
         "tool_specific": {
           "min_days_of_supply": 28,
-          "supply_buffer_risk_filter": ["high", "moderate"]
+          "supply_buffer_risk_filter": [
+            "high",
+            "moderate"
+          ]
         }
       }
     },
@@ -295,15 +539,23 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "brand": ["Nike", "Adidas"]
+            "brand": [
+              "Nike",
+              "Adidas"
+            ]
           },
           "limit": 30
         },
         "tool_specific": {
           "velocity_weighting_mode": "aggressive",
           "include_warehouse_stock": false,
-          "stockout_risk_filter": ["high", "moderate"],
-          "supply_buffer_risk_filter": ["high"]
+          "stockout_risk_filter": [
+            "high",
+            "moderate"
+          ],
+          "supply_buffer_risk_filter": [
+            "high"
+          ]
         }
       }
     },
@@ -313,15 +565,21 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "product_family": ["Electronics"]
+            "product_family": [
+              "Electronics"
+            ]
           },
           "limit": 15
         },
         "tool_specific": {
           "include_warehouse_stock": true,
           "include_inbound_details": true,
-          "supply_buffer_risk_filter": ["high", "moderate"]
+          "supply_buffer_risk_filter": [
+            "high",
+            "moderate"
+          ]
         }
       }
     }
   ]
+}

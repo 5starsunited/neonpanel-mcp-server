@@ -20,35 +20,47 @@
               },
               "search_terms": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 100,
                 "description": "Keywords to research for competitor performance."
               },
               "competitor_asins": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: Focus on keywords where these competitor ASINs appear in top 3."
               },
               "my_asins": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: Your ASINs to track competitive position against."
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 1,
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Strongly recommended — without it, results span all marketplaces and may include globally popular terms not specific to your products."
               },
               "category": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: Filter by browse node category."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -59,11 +71,21 @@
                 "properties": {
                   "periodicity": {
                     "type": "string",
-                    "enum": ["week", "month", "quarter"],
+                    "enum": [
+                      "week",
+                      "month",
+                      "quarter"
+                    ],
                     "default": "week"
                   },
-                  "start_date": { "type": "string", "format": "date" },
-                  "end_date": { "type": "string", "format": "date" },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
                   "periods_back": {
                     "type": "integer",
                     "minimum": 1,
@@ -93,7 +115,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc"
               }
             },
@@ -104,11 +129,16 @@
             "items": {
               "type": "string",
               "enum": [
-                "search_term", "search_frequency_rank",
-                "period_start", "period_end",
-                "top_3_products", "my_position",
-                "weak_leader_analysis", "share_gaps",
-                "seller_central_query_detail_url", "data_enrichment_hint"
+                "search_term",
+                "search_frequency_rank",
+                "period_start",
+                "period_end",
+                "top_3_products",
+                "my_position",
+                "weak_leader_analysis",
+                "share_gaps",
+                "seller_central_query_detail_url",
+                "data_enrichment_hint"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum."
@@ -120,7 +150,9 @@
             "default": 100
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       },
       "tool_specific": {
@@ -129,7 +161,12 @@
         "properties": {
           "analysis_mode": {
             "type": "string",
-            "enum": ["all_keywords", "my_keywords_only", "competitor_keywords_only", "head_to_head"],
+            "enum": [
+              "all_keywords",
+              "my_keywords_only",
+              "competitor_keywords_only",
+              "head_to_head"
+            ],
             "default": "all_keywords",
             "description": "Focus the analysis: all matching keywords, only where I appear, only where competitors appear, or direct comparison."
           },
@@ -169,7 +206,11 @@
           },
           "share_calculation": {
             "type": "string",
-            "enum": ["click_share", "conversion_share", "combined"],
+            "enum": [
+              "click_share",
+              "conversion_share",
+              "combined"
+            ],
             "default": "combined",
             "description": "Primary metric for competitive ranking."
           },
@@ -190,7 +231,9 @@
               },
               "exclude_brands": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Brand names to exclude from competitor analysis."
               }
             },
@@ -200,7 +243,9 @@
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -211,47 +256,97 @@
         "items": {
           "type": "object",
           "properties": {
-            "search_term": { "type": "string" },
-            "search_frequency_rank": { "type": "integer" },
-            "period_start": { "type": "string", "format": "date" },
-            "period_end": { "type": "string", "format": "date" },
+            "search_term": {
+              "type": "string"
+            },
+            "search_frequency_rank": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "period_start": {
+              "type": "string",
+              "format": "date"
+            },
+            "period_end": {
+              "type": "string",
+              "format": "date"
+            },
             "top_3_products": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "position": { "type": "integer" },
-                  "asin": { "type": "string" },
-                  "title": { "type": "string" },
-                  "brand": { "type": "string" },
-                  "is_mine": { "type": "boolean" },
-                  "click_share": { "type": "number" },
-                  "click_share_trend": { "type": "number" },
-                  "conversion_share": { "type": "number" },
-                  "conversion_share_trend": { "type": "number" },
-                  "position_change": { "type": "integer" }
+                  "position": {
+                    "type": "integer"
+                  },
+                  "asin": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "brand": {
+                    "type": "string"
+                  },
+                  "is_mine": {
+                    "type": "boolean"
+                  },
+                  "click_share": {
+                    "type": "number"
+                  },
+                  "click_share_trend": {
+                    "type": "number"
+                  },
+                  "conversion_share": {
+                    "type": "number"
+                  },
+                  "conversion_share_trend": {
+                    "type": "number"
+                  },
+                  "position_change": {
+                    "type": "integer"
+                  }
                 }
               }
             },
             "my_position": {
-              "type": ["integer", "null"],
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "My ASIN's position (1-3) or null if not in top 3."
             },
             "weak_leader_analysis": {
               "type": "object",
               "properties": {
-                "is_weak_leader": { "type": "boolean" },
-                "leader_conversion_share": { "type": "number" },
-                "displacement_opportunity_score": { "type": "number" },
-                "recommended_action": { "type": "string" }
+                "is_weak_leader": {
+                  "type": "boolean"
+                },
+                "leader_conversion_share": {
+                  "type": "number"
+                },
+                "displacement_opportunity_score": {
+                  "type": "number"
+                },
+                "recommended_action": {
+                  "type": "string"
+                }
               }
             },
             "share_gaps": {
               "type": "object",
               "properties": {
-                "click_share_to_leader": { "type": "number" },
-                "conversion_share_to_leader": { "type": "number" },
-                "estimated_clicks_if_leader": { "type": "integer" }
+                "click_share_to_leader": {
+                  "type": "number"
+                },
+                "conversion_share_to_leader": {
+                  "type": "number"
+                },
+                "estimated_clicks_if_leader": {
+                  "type": "integer"
+                }
               }
             },
             "seller_central_query_detail_url": {
@@ -270,18 +365,32 @@
       "summary": {
         "type": "object",
         "properties": {
-          "total_keywords_analyzed": { "type": "integer" },
-          "keywords_where_i_rank": { "type": "integer" },
-          "weak_leader_opportunities": { "type": "integer" },
+          "total_keywords_analyzed": {
+            "type": "integer"
+          },
+          "keywords_where_i_rank": {
+            "type": "integer"
+          },
+          "weak_leader_opportunities": {
+            "type": "integer"
+          },
           "top_competitors": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "brand": { "type": "string" },
-                "asin_count": { "type": "integer" },
-                "avg_position": { "type": "number" },
-                "total_click_share": { "type": "number" }
+                "brand": {
+                  "type": "string"
+                },
+                "asin_count": {
+                  "type": "integer"
+                },
+                "avg_position": {
+                  "type": "number"
+                },
+                "total_click_share": {
+                  "type": "number"
+                }
               }
             }
           }
@@ -290,12 +399,22 @@
       "meta": {
         "type": "object",
         "properties": {
-          "data_freshness": { "type": "string", "format": "date" },
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "data_freshness": {
+            "type": "string",
+            "format": "date"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   }
 }

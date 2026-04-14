@@ -12,82 +12,125 @@
             "properties": {
               "company_id": {
                 "type": "array",
-                "items": { "type": "integer" },
+                "items": {
+                  "type": "integer"
+                },
                 "minItems": 1,
                 "description": "REQUIRED: Company IDs for portfolio analysis"
               },
               "sku": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by SKU(s)"
               },
               "brand": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by brand name(s)"
               },
               "product_family": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by product family/families"
               },
               "child_asin": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by child ASIN(s)"
               },
               "parent_asin": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by parent ASIN(s)"
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by marketplace(s)"
               },
               "country": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by country/countries"
               },
               "marketplace_currency": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by currency/currencies"
               },
               "revenue_abcd_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C",
+                    "D"
+                  ]
+                },
                 "description": "Filter by revenue classification"
               },
               "pareto_abc_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C"
+                  ]
+                },
                 "description": "Filter by Pareto classification"
               },
               "inventory_id": {
                 "type": "array",
-                "items": { "type": "integer" },
+                "items": {
+                  "type": "integer"
+                },
                 "description": "Filter by inventory item ID(s)"
               },
               "vendor": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by supplier/vendor name(s)"
               },
               "origin_warehouse": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by source warehouse(s)"
               },
               "destination_warehouse": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by destination/current warehouse(s)"
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -125,7 +168,11 @@
                 "properties": {
                   "periodicity": {
                     "type": "string",
-                    "enum": ["total", "month", "year"],
+                    "enum": [
+                      "total",
+                      "month",
+                      "year"
+                    ],
                     "default": "total",
                     "description": "Time aggregation: 'total' = single snapshot, 'month'/'year' = time series"
                   },
@@ -157,7 +204,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc",
                 "description": "Sort direction"
               }
@@ -172,11 +222,15 @@
             "description": "Maximum number of rows to return"
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -187,11 +241,33 @@
         "items": {
           "type": "object",
           "properties": {
-            "time_period": { "type": "string" },
-            "balance_quantity": { "type": "number" },
-            "balance_amount": { "type": "number" },
-            "batches_count": { "type": "integer" },
-            "avg_unit_cost": { "type": "number" }
+            "time_period": {
+              "type": "string"
+            },
+            "balance_quantity": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "balance_amount": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "batches_count": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "avg_unit_cost": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
           },
           "additionalProperties": true
         }
@@ -199,14 +275,24 @@
       "meta": {
         "type": "object",
         "properties": {
-          "query": { "type": "object" },
-          "aggregation": { "type": "object" },
-          "row_count": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "query": {
+            "type": "object"
+          },
+          "aggregation": {
+            "type": "object"
+          },
+          "row_count": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "isConsequential": false
 }

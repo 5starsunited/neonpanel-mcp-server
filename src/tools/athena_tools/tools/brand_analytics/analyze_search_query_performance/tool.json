@@ -15,110 +15,230 @@
             "properties": {
               "company_id": {
                 "type": "array",
-                "items": { "type": "integer", "minimum": 1 },
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
                 "minItems": 1,
                 "description": "Company identifier(s) - required for multi-tenant isolation. Single company: [103], Portfolio analysis: [103, 104]."
               },
               "search_terms": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter by search queries."
               },
               "parent_asins": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter by parent ASINs."
               },
               "asins": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter by child ASINs."
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 1,
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
               },
               "row_type": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["child", "parent"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "child",
+                    "parent"
+                  ]
+                },
                 "description": "Optional: restrict to child or parent rows."
               },
               "revenue_abcd_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
-                "default": ["A", "B"],
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C",
+                    "D"
+                  ]
+                },
+                "default": [
+                  "A",
+                  "B"
+                ],
                 "description": "Filter by revenue classification (A=top 70%, B=next 20%, C=next 8%, D=bottom 2%). Default: A,B."
               },
               "pareto_abc_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C"
+                  ]
+                },
                 "description": "Filter by Pareto classification (A=top 80%, B=next 15%, C=bottom 5%)."
               },
               "strength_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by strength signal color."
               },
               "weakness_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by weakness signal color."
               },
               "opportunity_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by opportunity signal color."
               },
               "threshold_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by threshold signal color."
               },
               "impression_trend_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by impression share trend signal color."
               },
               "click_trend_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by click share trend signal color."
               },
               "cart_add_trend_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by cart add rate trend signal color."
               },
               "purchase_trend_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by purchase rate trend signal color."
               },
               "ctr_advantage_trend_colors": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["green", "yellow", "red"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "green",
+                    "yellow",
+                    "red"
+                  ]
+                },
                 "description": "Filter by CTR advantage trend signal color."
               },
               "diagnostic_scenarios": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A_visibility", "B_creative", "C_conversion", "D_protect", "insufficient_data"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A_visibility",
+                    "B_creative",
+                    "C_conversion",
+                    "D_protect",
+                    "insufficient_data"
+                  ]
+                },
                 "description": "Filter by diagnostic scenario. A=low visibility (fix ads/SEO), B=visual competition (fix main image/title), C=listing conversion (fix detail page), D=healthy funnel (protect & scale)."
               },
               "term_types": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["branded", "generic", "long_tail"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "branded",
+                    "generic",
+                    "long_tail"
+                  ]
+                },
                 "description": "Filter by search term type. branded=contains your brand name (expect 70%+ BCS), generic=category terms (main competitive battleground), long_tail=4+ words (high intent, often most profitable)."
               },
               "priority_tiers": {
                 "type": "array",
-                "items": { "type": "integer", "minimum": 1, "maximum": 4 },
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                },
                 "description": "Filter by priority tier. 1=high vol+strong conversion (defend), 2=high vol+underperforming (highest ROI fix), 3=low vol+strong efficiency (profit harvest), 4=low vol+weak (deprioritize)."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -127,8 +247,14 @@
               "time": {
                 "type": "object",
                 "properties": {
-                  "start_date": { "type": "string", "format": "date" },
-                  "end_date": { "type": "string", "format": "date" },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
                   "periods_back": {
                     "type": "integer",
                     "minimum": 1,
@@ -158,7 +284,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc"
               }
             },
@@ -169,29 +298,83 @@
             "items": {
               "type": "string",
               "enum": [
-                "week_start", "company_id", "marketplace_country_code", "marketplace",
-                "parent_asin", "asin", "row_type", "brand", "title",
-                "revenue_abcd_class", "pareto_abc_class", "product_family", "revenue_share",
-                "searchquerydata_searchquery", "searchquerydata_searchqueryscore", "searchquerydata_searchqueryvolume",
-                "kpi_impression_share", "kpi_click_share", "kpi_cart_add_rate", "kpi_purchase_rate", "kpi_ctr_advantage",
-                "kpi_impression_share_wow", "kpi_impression_share_wolast4", "kpi_impression_share_wolast12",
-                "kpi_click_share_wow", "kpi_click_share_wolast4", "kpi_click_share_wolast12",
-                "kpi_cart_add_rate_wow", "kpi_cart_add_rate_wolast4", "kpi_cart_add_rate_wolast12",
-                "kpi_purchase_rate_wow", "kpi_purchase_rate_wolast4", "kpi_purchase_rate_wolast12",
-                "kpi_ctr_advantage_wow", "kpi_ctr_advantage_wolast4", "kpi_ctr_advantage_wolast12",
-                "cvr_same_day", "cvr_one_day", "cvr_two_day", "cvr_same_vs_two_ratio", "cvr_one_vs_two_ratio",
-                "kpi_impression_share_trend_signal", "kpi_click_share_trend_signal",
-                "kpi_cart_add_rate_trend_signal", "kpi_purchase_rate_trend_signal", "kpi_ctr_advantage_trend_signal",
-                "strength_signal", "weakness_signal", "opportunity_signal", "threshold_signal",
-                "strength_color", "weakness_color", "opportunity_color", "threshold_color",
-                "click_through_efficiency", "conversion_efficiency",
-                "term_type", "diagnostic_scenario", "diagnostic_scenario_description", "diagnostic_scenario_action", "diagnostic_scenario_signal",
-                "priority_tier", "priority_tier_description",
-                "impressiondata_totalqueryimpressioncount", "impressiondata_asinimpressioncount", "impressiondata_asinimpressionshare",
-                "clickdata_totalclickcount", "clickdata_asinclickcount", "clickdata_asinclickshare",
-                "cartadddata_totalcartaddcount", "cartadddata_asincartaddcount", "cartadddata_asincartaddshare",
-                "purchasedata_totalpurchasecount", "purchasedata_asinpurchasecount", "purchasedata_asinpurchaseshare",
-                "startdate", "enddate"
+                "week_start",
+                "company_id",
+                "marketplace_country_code",
+                "marketplace",
+                "parent_asin",
+                "asin",
+                "row_type",
+                "brand",
+                "title",
+                "revenue_abcd_class",
+                "pareto_abc_class",
+                "product_family",
+                "revenue_share",
+                "searchquerydata_searchquery",
+                "searchquerydata_searchqueryscore",
+                "searchquerydata_searchqueryvolume",
+                "kpi_impression_share",
+                "kpi_click_share",
+                "kpi_cart_add_rate",
+                "kpi_purchase_rate",
+                "kpi_ctr_advantage",
+                "kpi_impression_share_wow",
+                "kpi_impression_share_wolast4",
+                "kpi_impression_share_wolast12",
+                "kpi_click_share_wow",
+                "kpi_click_share_wolast4",
+                "kpi_click_share_wolast12",
+                "kpi_cart_add_rate_wow",
+                "kpi_cart_add_rate_wolast4",
+                "kpi_cart_add_rate_wolast12",
+                "kpi_purchase_rate_wow",
+                "kpi_purchase_rate_wolast4",
+                "kpi_purchase_rate_wolast12",
+                "kpi_ctr_advantage_wow",
+                "kpi_ctr_advantage_wolast4",
+                "kpi_ctr_advantage_wolast12",
+                "cvr_same_day",
+                "cvr_one_day",
+                "cvr_two_day",
+                "cvr_same_vs_two_ratio",
+                "cvr_one_vs_two_ratio",
+                "kpi_impression_share_trend_signal",
+                "kpi_click_share_trend_signal",
+                "kpi_cart_add_rate_trend_signal",
+                "kpi_purchase_rate_trend_signal",
+                "kpi_ctr_advantage_trend_signal",
+                "strength_signal",
+                "weakness_signal",
+                "opportunity_signal",
+                "threshold_signal",
+                "strength_color",
+                "weakness_color",
+                "opportunity_color",
+                "threshold_color",
+                "click_through_efficiency",
+                "conversion_efficiency",
+                "term_type",
+                "diagnostic_scenario",
+                "diagnostic_scenario_description",
+                "diagnostic_scenario_action",
+                "diagnostic_scenario_signal",
+                "priority_tier",
+                "priority_tier_description",
+                "impressiondata_totalqueryimpressioncount",
+                "impressiondata_asinimpressioncount",
+                "impressiondata_asinimpressionshare",
+                "clickdata_totalclickcount",
+                "clickdata_asinclickcount",
+                "clickdata_asinclickshare",
+                "cartadddata_totalcartaddcount",
+                "cartadddata_asincartaddcount",
+                "cartadddata_asincartaddshare",
+                "purchasedata_totalpurchasecount",
+                "purchasedata_asinpurchasecount",
+                "purchasedata_asinpurchaseshare",
+                "startdate",
+                "enddate"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — significantly reduces response size. If omitted, returns all columns (~100 fields). IMPORTANT: Use exact field names from the enum — e.g., 'searchquerydata_searchquery' not 'search_query'."
@@ -208,11 +391,15 @@
             "default": 50
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -223,63 +410,312 @@
         "items": {
           "type": "object",
           "properties": {
-            "week_start": { "type": "string", "format": "date" },
-            "company_id": { "type": "string" },
-            "marketplace_country_code": { "type": "string" },
-            "parent_asin": { "type": "string" },
-            "asin": { "type": "string" },
-            "row_type": { "type": "string" },
-            "searchquerydata_searchquery": { "type": "string" },
-            "searchquerydata_searchqueryscore": { "type": "number" },
-            "searchquerydata_searchqueryvolume": { "type": "integer" },
-            "kpi_impression_share": { "type": "number" },
-            "kpi_click_share": { "type": "number" },
-            "kpi_cart_add_rate": { "type": "number" },
-            "kpi_purchase_rate": { "type": "number" },
-            "kpi_ctr_advantage": { "type": "number" },
-            "kpi_impression_share_wow": { "type": "number" },
-            "kpi_impression_share_wolast4": { "type": "number" },
-            "kpi_impression_share_wolast12": { "type": "number" },
-            "kpi_click_share_wow": { "type": "number" },
-            "kpi_click_share_wolast4": { "type": "number" },
-            "kpi_click_share_wolast12": { "type": "number" },
-            "kpi_cart_add_rate_wow": { "type": "number" },
-            "kpi_cart_add_rate_wolast4": { "type": "number" },
-            "kpi_cart_add_rate_wolast12": { "type": "number" },
-            "kpi_purchase_rate_wow": { "type": "number" },
-            "kpi_purchase_rate_wolast4": { "type": "number" },
-            "kpi_purchase_rate_wolast12": { "type": "number" },
-            "kpi_ctr_advantage_wow": { "type": "number" },
-            "kpi_ctr_advantage_wolast4": { "type": "number" },
-            "kpi_ctr_advantage_wolast12": { "type": "number" },
-            "cvr_same_day": { "type": "number" },
-            "cvr_one_day": { "type": "number" },
-            "cvr_two_day": { "type": "number" },
-            "cvr_same_vs_two_ratio": { "type": "number" },
-            "cvr_one_vs_two_ratio": { "type": "number" },
-            "kpi_impression_share_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
-            "kpi_click_share_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
-            "kpi_cart_add_rate_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
-            "kpi_purchase_rate_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
-            "kpi_ctr_advantage_trend_signal": { "type": "string", "enum": ["green", "yellow", "red"] },
-            "strength_signal": { "type": "string", "description": "JSON with color/code/description" },
-            "weakness_signal": { "type": "string", "description": "JSON with color/code/description" },
-            "opportunity_signal": { "type": "string", "description": "JSON with color/code/description" },
-            "threshold_signal": { "type": "string", "description": "JSON with color/code/description" },
-            "click_through_efficiency": { "type": "number", "description": "BCS÷BIS ratio. >1.0 means outperforming market average click-through. <0.6 indicates visual competition problem (Scenario B)." },
-            "conversion_efficiency": { "type": "number", "description": "BCVS÷BCS ratio. >1.0 means outperforming market average conversion. <0.6 indicates listing conversion problem (Scenario C)." },
-            "term_type": { "type": "string", "enum": ["branded", "generic", "long_tail"], "description": "Search term classification. branded=contains seller brand name (expect 70%+ BCS), generic=category term, long_tail=4+ words (high intent)." },
-            "diagnostic_scenario": { "type": "string", "enum": ["A_visibility", "B_creative", "C_conversion", "D_protect", "insufficient_data"], "description": "Funnel diagnostic scenario identifying WHERE in the funnel you are losing customers." },
-            "diagnostic_scenario_description": { "type": "string", "description": "Detailed explanation of the diagnostic scenario with actual metric values and root causes." },
-            "diagnostic_scenario_action": { "type": "string", "description": "Specific actionable steps to fix the identified problem." },
-            "diagnostic_scenario_signal": { "type": "string", "description": "JSON with scenario/description/action fields." },
-            "priority_tier": { "type": "integer", "minimum": 1, "maximum": 4, "description": "1=defend (high vol+strong CVE), 2=fix (high vol+weak CVE), 3=harvest (low vol+strong CVE), 4=deprioritize (low vol+weak CVE)." },
-            "priority_tier_description": { "type": "string", "description": "Human-readable tier label with strategic guidance." }
+            "week_start": {
+              "type": "string",
+              "format": "date"
+            },
+            "company_id": {
+              "type": "string"
+            },
+            "marketplace_country_code": {
+              "type": "string"
+            },
+            "parent_asin": {
+              "type": "string"
+            },
+            "asin": {
+              "type": "string"
+            },
+            "row_type": {
+              "type": "string"
+            },
+            "searchquerydata_searchquery": {
+              "type": "string"
+            },
+            "searchquerydata_searchqueryscore": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "searchquerydata_searchqueryvolume": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "kpi_impression_share": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_click_share": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_cart_add_rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_purchase_rate": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_ctr_advantage": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_impression_share_wow": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_impression_share_wolast4": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_impression_share_wolast12": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_click_share_wow": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_click_share_wolast4": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_click_share_wolast12": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_cart_add_rate_wow": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_cart_add_rate_wolast4": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_cart_add_rate_wolast12": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_purchase_rate_wow": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_purchase_rate_wolast4": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_purchase_rate_wolast12": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_ctr_advantage_wow": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_ctr_advantage_wolast4": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_ctr_advantage_wolast12": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cvr_same_day": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cvr_one_day": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cvr_two_day": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cvr_same_vs_two_ratio": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cvr_one_vs_two_ratio": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kpi_impression_share_trend_signal": {
+              "type": "string",
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ]
+            },
+            "kpi_click_share_trend_signal": {
+              "type": "string",
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ]
+            },
+            "kpi_cart_add_rate_trend_signal": {
+              "type": "string",
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ]
+            },
+            "kpi_purchase_rate_trend_signal": {
+              "type": "string",
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ]
+            },
+            "kpi_ctr_advantage_trend_signal": {
+              "type": "string",
+              "enum": [
+                "green",
+                "yellow",
+                "red"
+              ]
+            },
+            "strength_signal": {
+              "type": "string",
+              "description": "JSON with color/code/description"
+            },
+            "weakness_signal": {
+              "type": "string",
+              "description": "JSON with color/code/description"
+            },
+            "opportunity_signal": {
+              "type": "string",
+              "description": "JSON with color/code/description"
+            },
+            "threshold_signal": {
+              "type": "string",
+              "description": "JSON with color/code/description"
+            },
+            "click_through_efficiency": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "BCS÷BIS ratio. >1.0 means outperforming market average click-through. <0.6 indicates visual competition problem (Scenario B)."
+            },
+            "conversion_efficiency": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "BCVS÷BCS ratio. >1.0 means outperforming market average conversion. <0.6 indicates listing conversion problem (Scenario C)."
+            },
+            "term_type": {
+              "type": "string",
+              "enum": [
+                "branded",
+                "generic",
+                "long_tail"
+              ],
+              "description": "Search term classification. branded=contains seller brand name (expect 70%+ BCS), generic=category term, long_tail=4+ words (high intent)."
+            },
+            "diagnostic_scenario": {
+              "type": "string",
+              "enum": [
+                "A_visibility",
+                "B_creative",
+                "C_conversion",
+                "D_protect",
+                "insufficient_data"
+              ],
+              "description": "Funnel diagnostic scenario identifying WHERE in the funnel you are losing customers."
+            },
+            "diagnostic_scenario_description": {
+              "type": "string",
+              "description": "Detailed explanation of the diagnostic scenario with actual metric values and root causes."
+            },
+            "diagnostic_scenario_action": {
+              "type": "string",
+              "description": "Specific actionable steps to fix the identified problem."
+            },
+            "diagnostic_scenario_signal": {
+              "type": "string",
+              "description": "JSON with scenario/description/action fields."
+            },
+            "priority_tier": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 4,
+              "description": "1=defend (high vol+strong CVE), 2=fix (high vol+weak CVE), 3=harvest (low vol+strong CVE), 4=deprioritize (low vol+weak CVE)."
+            },
+            "priority_tier_description": {
+              "type": "string",
+              "description": "Human-readable tier label with strategic guidance."
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   }
 }

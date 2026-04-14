@@ -20,37 +20,50 @@
               },
               "asin": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 20,
                 "description": "Child ASINs to analyze for conversion leaks."
               },
               "parent_asin": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "maxItems": 10,
                 "description": "Alternative selector: analyze all child ASINs under these parent ASINs."
               },
               "sku": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "maxItems": 20,
                 "description": "Alternative selector: SKUs to analyze."
               },
               "brand": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: Filter by brand name(s)."
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 1,
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
               }
             },
-            "required": ["company_id", "marketplace"],
+            "required": [
+              "company_id",
+              "marketplace"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -61,9 +74,16 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["asin", "parent_asin", "brand", "product_family"]
+                  "enum": [
+                    "asin",
+                    "parent_asin",
+                    "brand",
+                    "product_family"
+                  ]
                 },
-                "default": ["asin"],
+                "default": [
+                  "asin"
+                ],
                 "description": "Aggregation level for funnel metrics."
               },
               "time": {
@@ -71,11 +91,21 @@
                 "properties": {
                   "periodicity": {
                     "type": "string",
-                    "enum": ["week", "month", "quarter"],
+                    "enum": [
+                      "week",
+                      "month",
+                      "quarter"
+                    ],
                     "default": "month"
                   },
-                  "start_date": { "type": "string", "format": "date" },
-                  "end_date": { "type": "string", "format": "date" },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
                   "periods_back": {
                     "type": "integer",
                     "minimum": 1,
@@ -106,7 +136,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc"
               }
             },
@@ -119,7 +152,9 @@
             "default": 50
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       },
       "tool_specific": {
@@ -148,7 +183,7 @@
                 "type": "number",
                 "minimum": 0,
                 "maximum": 1,
-                "default": 0.40,
+                "default": 0.4,
                 "description": "Expected minimum purchase rate from cart-adds (default 40%)."
               }
             },
@@ -195,7 +230,9 @@
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -206,27 +243,55 @@
         "items": {
           "type": "object",
           "properties": {
-            "asin": { "type": "string" },
-            "parent_asin": { "type": "string" },
-            "title": { "type": "string" },
-            "period_start": { "type": "string", "format": "date" },
-            "period_end": { "type": "string", "format": "date" },
+            "asin": {
+              "type": "string"
+            },
+            "parent_asin": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "period_start": {
+              "type": "string",
+              "format": "date"
+            },
+            "period_end": {
+              "type": "string",
+              "format": "date"
+            },
             "funnel_metrics": {
               "type": "object",
               "properties": {
-                "impressions": { "type": "integer" },
-                "clicks": { "type": "integer" },
-                "cart_adds": { "type": "integer" },
-                "purchases": { "type": "integer" }
+                "impressions": {
+                  "type": "integer"
+                },
+                "clicks": {
+                  "type": "integer"
+                },
+                "cart_adds": {
+                  "type": "integer"
+                },
+                "purchases": {
+                  "type": "integer"
+                }
               }
             },
             "conversion_rates": {
               "type": "object",
               "properties": {
-                "impression_to_click": { "type": "number" },
-                "click_to_cart": { "type": "number" },
-                "cart_to_purchase": { "type": "number" },
-                "overall_conversion": { "type": "number" }
+                "impression_to_click": {
+                  "type": "number"
+                },
+                "click_to_cart": {
+                  "type": "number"
+                },
+                "cart_to_purchase": {
+                  "type": "number"
+                },
+                "overall_conversion": {
+                  "type": "number"
+                }
               }
             },
             "leaks": {
@@ -234,26 +299,62 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "stage": { "type": "string" },
-                  "drop_rate": { "type": "number" },
-                  "vs_threshold": { "type": "number" },
-                  "vs_category": { "type": "number" },
-                  "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
-                  "diagnostic_hint": { "type": "string" },
-                  "lost_volume": { "type": "integer" }
+                  "stage": {
+                    "type": "string"
+                  },
+                  "drop_rate": {
+                    "type": "number"
+                  },
+                  "vs_threshold": {
+                    "type": "number"
+                  },
+                  "vs_category": {
+                    "type": "number"
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "critical"
+                    ]
+                  },
+                  "diagnostic_hint": {
+                    "type": "string"
+                  },
+                  "lost_volume": {
+                    "type": "integer"
+                  }
                 }
               }
             },
-            "total_leak_score": { "type": "number" },
-            "revenue_opportunity_lost": { "type": "number" },
+            "total_leak_score": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "revenue_opportunity_lost": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
             "top_leaking_keywords": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "keyword": { "type": "string" },
-                  "leak_stage": { "type": "string" },
-                  "volume_lost": { "type": "integer" }
+                  "keyword": {
+                    "type": "string"
+                  },
+                  "leak_stage": {
+                    "type": "string"
+                  },
+                  "volume_lost": {
+                    "type": "integer"
+                  }
                 }
               }
             }
@@ -264,14 +365,28 @@
       "meta": {
         "type": "object",
         "properties": {
-          "total_asins_analyzed": { "type": "integer" },
-          "category_benchmarks": { "type": "object" },
-          "data_freshness": { "type": "string", "format": "date" },
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "total_asins_analyzed": {
+            "type": "integer"
+          },
+          "category_benchmarks": {
+            "type": "object"
+          },
+          "data_freshness": {
+            "type": "string",
+            "format": "date"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   }
 }

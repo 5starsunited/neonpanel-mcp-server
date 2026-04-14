@@ -20,59 +20,100 @@
               },
               "search_terms": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "maxItems": 100,
                 "description": "Optional: filter by specific search terms. When omitted, ALL search terms are included (subject to 'limit'). Use with match_type='contains' to explore keyword themes (e.g., ['ring'] returns all ring-related terms). Combine multiple terms: ['ring', 'bracelet']."
               },
               "asins": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter to rows where your ASIN matches."
               },
               "competitor_asins": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter to search terms where these ASINs appear in top 3."
               },
               "marketplace": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "minItems": 1,
                 "maxItems": 1,
                 "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
               },
               "category": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter by department/category name (matches against top-3 departments)."
               },
               "brand": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter by brand name(s)."
               },
               "revenue_abcd_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C", "D"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C",
+                    "D"
+                  ]
+                },
                 "description": "Optional: filter by revenue classification (A=top revenue, D=lowest)."
               },
               "pareto_abc_class": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "B",
+                    "C"
+                  ]
+                },
                 "description": "Optional: filter by Pareto ABC classification (A=top 80% revenue, B=next 15%, C=bottom 5%)."
               },
               "product_family": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Optional: filter by product family name(s). Narrows to search terms associated with specific product families."
               },
               "momentum_signal": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["accelerating", "growing", "stable", "declining", "collapsing", "new"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "accelerating",
+                    "growing",
+                    "stable",
+                    "declining",
+                    "collapsing",
+                    "new"
+                  ]
+                },
                 "description": "Optional: filter by computed momentum signal. Values: accelerating (WoW up + 4w > 12w), growing (WoW up), stable, declining (WoW down), collapsing (WoW down + 4w < 12w), new (first week)."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "aggregation": {
@@ -81,8 +122,14 @@
               "time": {
                 "type": "object",
                 "properties": {
-                  "start_date": { "type": "string", "format": "date" },
-                  "end_date": { "type": "string", "format": "date" },
+                  "start_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "end_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
                   "periods_back": {
                     "type": "integer",
                     "minimum": 1,
@@ -117,7 +164,10 @@
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "desc",
                 "description": "Sort direction. DESC for highest-first (top performers, biggest opportunities). ASC for lowest-first (biggest decliners, weakest positions)."
               }
@@ -129,16 +179,48 @@
             "items": {
               "type": "string",
               "enum": [
-                "rank", "search_term", "company_name", "marketplace", "currency", "category",
-                "search_volume", "period_start", "period_end",
-                "my_asin", "my_brand", "my_click_share", "prev_week_share",
-                "wow_delta", "avg_share_l4w", "avg_share_l12w", "momentum_signal",
-                "revenue_abcd_class", "pareto_abc_class", "asin_class", "product_family", "revenue_share",
-                "rank_1_asin", "rank_1_itemname", "rank_1_department", "rank_1_clickshare", "rank_1_conversionshare",
-                "rank_2_asin", "rank_2_itemname", "rank_2_department", "rank_2_clickshare", "rank_2_conversionshare",
-                "rank_3_asin", "rank_3_itemname", "rank_3_department", "rank_3_clickshare", "rank_3_conversionshare",
-                "my_position", "is_weak_leader", "leader_conversion_share",
-                "displacement_opportunity_score", "click_share_to_leader"
+                "rank",
+                "search_term",
+                "company_name",
+                "marketplace",
+                "currency",
+                "category",
+                "search_volume",
+                "period_start",
+                "period_end",
+                "my_asin",
+                "my_brand",
+                "my_click_share",
+                "prev_week_share",
+                "wow_delta",
+                "avg_share_l4w",
+                "avg_share_l12w",
+                "momentum_signal",
+                "revenue_abcd_class",
+                "pareto_abc_class",
+                "asin_class",
+                "product_family",
+                "revenue_share",
+                "rank_1_asin",
+                "rank_1_itemname",
+                "rank_1_department",
+                "rank_1_clickshare",
+                "rank_1_conversionshare",
+                "rank_2_asin",
+                "rank_2_itemname",
+                "rank_2_department",
+                "rank_2_clickshare",
+                "rank_2_conversionshare",
+                "rank_3_asin",
+                "rank_3_itemname",
+                "rank_3_department",
+                "rank_3_clickshare",
+                "rank_3_conversionshare",
+                "my_position",
+                "is_weak_leader",
+                "leader_conversion_share",
+                "displacement_opportunity_score",
+                "click_share_to_leader"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. If omitted, returns all columns. IMPORTANT: Use exact field names from the enum."
@@ -151,7 +233,9 @@
             "description": "Maximum rows to return (default 100, max 200). Only the top N rows by the chosen sort order are returned. Use filters to focus on specific keyword segments."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       },
       "tool_specific": {
@@ -160,7 +244,11 @@
         "properties": {
           "match_type": {
             "type": "string",
-            "enum": ["exact", "contains", "starts_with"],
+            "enum": [
+              "exact",
+              "contains",
+              "starts_with"
+            ],
             "default": "exact",
             "description": "Keyword matching strategy for search_terms filter."
           },
@@ -199,7 +287,9 @@
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -210,51 +300,227 @@
         "items": {
           "type": "object",
           "properties": {
-            "rank": { "type": "integer", "description": "1-based row number reflecting the chosen sort order." },
-            "search_term": { "type": "string", "description": "The search query shoppers typed on Amazon." },
-            "company_name": { "type": "string", "description": "Company name associated with this data row." },
-            "marketplace": { "type": "string", "description": "Amazon marketplace country code (e.g., 'US', 'DE', 'UK')." },
-            "currency": { "type": "string", "description": "Currency code for the marketplace (e.g., 'USD', 'EUR', 'GBP')." },
-            "category": { "type": "string", "description": "Product department/category associated with this search term." },
-            "search_volume": { "type": "number", "description": "Relative search volume for this term (higher = more popular)." },
-            "period_start": { "type": "string", "format": "date", "description": "Start date of the reporting week." },
-            "period_end": { "type": "string", "format": "date", "description": "End date of the reporting week." },
-            "my_asin": { "type": "string", "description": "Your ASIN that appears in top-3 clicked for this search term." },
-            "my_brand": { "type": "string", "description": "Your brand name associated with my_asin." },
-            "my_click_share": { "type": "number", "description": "Your ASIN's click share for this term (0-1 scale). 0.12 = 12%." },
-            "prev_week_share": { "type": "number", "description": "Your click share from the previous week (0-1 scale)." },
-            "wow_delta": { "type": "number", "description": "Week-over-week change in click share (this week minus last week). Positive = gaining share." },
-            "avg_share_l4w": { "type": "number", "description": "Average click share over the last 4 weeks (0-1 scale). Smooths out weekly noise." },
-            "avg_share_l12w": { "type": "number", "description": "Average click share over the last 12 weeks (0-1 scale). Shows long-term trend." },
-            "momentum_signal": { "type": "string", "description": "Computed momentum classification: 'accelerating' (WoW up + 4w > 12w), 'growing' (WoW up), 'stable', 'declining' (WoW down), 'collapsing' (WoW down + 4w < 12w), 'new' (first week)." },
-            "revenue_abcd_class": { "type": "string", "description": "Revenue ABCD class of the ASIN (A=highest revenue, D=lowest)." },
-            "pareto_abc_class": { "type": "string", "description": "Pareto ABC class (A=top 80% revenue, C=long tail)." },
-            "asin_class": { "type": "string", "description": "Combined ASIN classification." },
-            "product_family": { "type": "string", "description": "Product family grouping from ASIN attributes." },
-            "revenue_share": { "type": ["number", "null"], "description": "Revenue share of this ASIN within its company portfolio (0-1 scale). Higher = more important product." },
-            "rank_1_asin": { "type": "string", "description": "ASIN with the highest click share (position #1)." },
-            "rank_1_itemname": { "type": "string", "description": "Product title of the #1 clicked ASIN." },
-            "rank_1_department": { "type": "string", "description": "Department of the #1 clicked ASIN." },
-            "rank_1_clickshare": { "type": "number", "description": "Click share of the #1 ASIN (0-1 scale)." },
-            "rank_1_conversionshare": { "type": "number", "description": "Conversion share of the #1 ASIN (0-1 scale). Low conversion + high clicks = weak leader." },
-            "rank_2_asin": { "type": "string", "description": "ASIN with the 2nd highest click share." },
-            "rank_2_itemname": { "type": "string", "description": "Product title of the #2 clicked ASIN." },
-            "rank_2_department": { "type": "string", "description": "Department of the #2 clicked ASIN." },
-            "rank_2_clickshare": { "type": "number", "description": "Click share of the #2 ASIN (0-1 scale)." },
-            "rank_2_conversionshare": { "type": "number", "description": "Conversion share of the #2 ASIN (0-1 scale)." },
-            "rank_3_asin": { "type": "string", "description": "ASIN with the 3rd highest click share." },
-            "rank_3_itemname": { "type": "string", "description": "Product title of the #3 clicked ASIN." },
-            "rank_3_department": { "type": "string", "description": "Department of the #3 clicked ASIN." },
-            "rank_3_clickshare": { "type": "number", "description": "Click share of the #3 ASIN (0-1 scale)." },
-            "rank_3_conversionshare": { "type": "number", "description": "Conversion share of the #3 ASIN (0-1 scale)." },
+            "rank": {
+              "type": "integer",
+              "description": "1-based row number reflecting the chosen sort order."
+            },
+            "search_term": {
+              "type": "string",
+              "description": "The search query shoppers typed on Amazon."
+            },
+            "company_name": {
+              "type": "string",
+              "description": "Company name associated with this data row."
+            },
+            "marketplace": {
+              "type": "string",
+              "description": "Amazon marketplace country code (e.g., 'US', 'DE', 'UK')."
+            },
+            "currency": {
+              "type": "string",
+              "description": "Currency code for the marketplace (e.g., 'USD', 'EUR', 'GBP')."
+            },
+            "category": {
+              "type": "string",
+              "description": "Product department/category associated with this search term."
+            },
+            "search_volume": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Relative search volume for this term (higher = more popular)."
+            },
+            "period_start": {
+              "type": "string",
+              "format": "date",
+              "description": "Start date of the reporting week."
+            },
+            "period_end": {
+              "type": "string",
+              "format": "date",
+              "description": "End date of the reporting week."
+            },
+            "my_asin": {
+              "type": "string",
+              "description": "Your ASIN that appears in top-3 clicked for this search term."
+            },
+            "my_brand": {
+              "type": "string",
+              "description": "Your brand name associated with my_asin."
+            },
+            "my_click_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Your ASIN's click share for this term (0-1 scale). 0.12 = 12%."
+            },
+            "prev_week_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Your click share from the previous week (0-1 scale)."
+            },
+            "wow_delta": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Week-over-week change in click share (this week minus last week). Positive = gaining share."
+            },
+            "avg_share_l4w": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Average click share over the last 4 weeks (0-1 scale). Smooths out weekly noise."
+            },
+            "avg_share_l12w": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Average click share over the last 12 weeks (0-1 scale). Shows long-term trend."
+            },
+            "momentum_signal": {
+              "type": "string",
+              "description": "Computed momentum classification: 'accelerating' (WoW up + 4w > 12w), 'growing' (WoW up), 'stable', 'declining' (WoW down), 'collapsing' (WoW down + 4w < 12w), 'new' (first week)."
+            },
+            "revenue_abcd_class": {
+              "type": "string",
+              "description": "Revenue ABCD class of the ASIN (A=highest revenue, D=lowest)."
+            },
+            "pareto_abc_class": {
+              "type": "string",
+              "description": "Pareto ABC class (A=top 80% revenue, C=long tail)."
+            },
+            "asin_class": {
+              "type": "string",
+              "description": "Combined ASIN classification."
+            },
+            "product_family": {
+              "type": "string",
+              "description": "Product family grouping from ASIN attributes."
+            },
+            "revenue_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Revenue share of this ASIN within its company portfolio (0-1 scale). Higher = more important product."
+            },
+            "rank_1_asin": {
+              "type": "string",
+              "description": "ASIN with the highest click share (position #1)."
+            },
+            "rank_1_itemname": {
+              "type": "string",
+              "description": "Product title of the #1 clicked ASIN."
+            },
+            "rank_1_department": {
+              "type": "string",
+              "description": "Department of the #1 clicked ASIN."
+            },
+            "rank_1_clickshare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Click share of the #1 ASIN (0-1 scale)."
+            },
+            "rank_1_conversionshare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Conversion share of the #1 ASIN (0-1 scale). Low conversion + high clicks = weak leader."
+            },
+            "rank_2_asin": {
+              "type": "string",
+              "description": "ASIN with the 2nd highest click share."
+            },
+            "rank_2_itemname": {
+              "type": "string",
+              "description": "Product title of the #2 clicked ASIN."
+            },
+            "rank_2_department": {
+              "type": "string",
+              "description": "Department of the #2 clicked ASIN."
+            },
+            "rank_2_clickshare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Click share of the #2 ASIN (0-1 scale)."
+            },
+            "rank_2_conversionshare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Conversion share of the #2 ASIN (0-1 scale)."
+            },
+            "rank_3_asin": {
+              "type": "string",
+              "description": "ASIN with the 3rd highest click share."
+            },
+            "rank_3_itemname": {
+              "type": "string",
+              "description": "Product title of the #3 clicked ASIN."
+            },
+            "rank_3_department": {
+              "type": "string",
+              "description": "Department of the #3 clicked ASIN."
+            },
+            "rank_3_clickshare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Click share of the #3 ASIN (0-1 scale)."
+            },
+            "rank_3_conversionshare": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Conversion share of the #3 ASIN (0-1 scale)."
+            },
             "my_position": {
-              "type": ["integer", "null"],
+              "type": [
+                "integer",
+                "null"
+              ],
               "description": "Your ASIN's position (1, 2, or 3) among top clicked ASINs, or null if not in top 3."
             },
-            "is_weak_leader": { "type": "boolean", "description": "True if the #1 ASIN has conversion share below the weak_leader threshold (default 15%). Signals displacement opportunity." },
-            "leader_conversion_share": { "type": "number", "description": "Conversion share of the #1 ASIN. Lower values = weaker leader = easier to displace." },
-            "displacement_opportunity_score": { "type": "number", "description": "Composite score (0-100) combining search volume, leader weakness, and your gap to leader. Higher = better opportunity." },
-            "click_share_to_leader": { "type": ["number", "null"], "description": "Gap between your click share and the leader's. Negative = you trail. Null if you are the leader or not in top 3." }
+            "is_weak_leader": {
+              "type": "boolean",
+              "description": "True if the #1 ASIN has conversion share below the weak_leader threshold (default 15%). Signals displacement opportunity."
+            },
+            "leader_conversion_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Conversion share of the #1 ASIN. Lower values = weaker leader = easier to displace."
+            },
+            "displacement_opportunity_score": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Composite score (0-100) combining search volume, leader weakness, and your gap to leader. Higher = better opportunity."
+            },
+            "click_share_to_leader": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Gap between your click share and the leader's. Negative = you trail. Null if you are the leader or not in top 3."
+            }
           },
           "additionalProperties": true
         }
@@ -262,13 +528,25 @@
       "meta": {
         "type": "object",
         "properties": {
-          "data_freshness": { "type": "string", "format": "date", "description": "Most recent reporting date in the returned data." },
-          "warnings": { "type": "array", "items": { "type": "string" }, "description": "Any data quality or coverage warnings." }
+          "data_freshness": {
+            "type": "string",
+            "format": "date",
+            "description": "Most recent reporting date in the returned data."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Any data quality or coverage warnings."
+          }
         },
         "additionalProperties": true
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -277,9 +555,15 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "momentum_signal": ["accelerating", "growing"]
+            "momentum_signal": [
+              "accelerating",
+              "growing"
+            ]
           },
-          "sort": { "field": "wow_delta", "direction": "desc" },
+          "sort": {
+            "field": "wow_delta",
+            "direction": "desc"
+          },
           "limit": 20
         }
       }
@@ -290,10 +574,18 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "revenue_abcd_class": ["A"],
-            "momentum_signal": ["declining", "collapsing"]
+            "revenue_abcd_class": [
+              "A"
+            ],
+            "momentum_signal": [
+              "declining",
+              "collapsing"
+            ]
           },
-          "sort": { "field": "search_volume", "direction": "desc" },
+          "sort": {
+            "field": "search_volume",
+            "direction": "desc"
+          },
           "limit": 20
         }
       }
@@ -304,9 +596,14 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "marketplace": ["US"]
+            "marketplace": [
+              "US"
+            ]
           },
-          "sort": { "field": "displacement_opportunity_score", "direction": "desc" },
+          "sort": {
+            "field": "displacement_opportunity_score",
+            "direction": "desc"
+          },
           "limit": 15
         },
         "tool_specific": {
@@ -323,13 +620,24 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "search_terms": ["protein powder", "whey protein", "creatine"],
-            "marketplace": ["US"]
+            "search_terms": [
+              "protein powder",
+              "whey protein",
+              "creatine"
+            ],
+            "marketplace": [
+              "US"
+            ]
           },
           "aggregation": {
-            "time": { "periods_back": 12 }
+            "time": {
+              "periods_back": 12
+            }
           },
-          "sort": { "field": "my_click_share", "direction": "desc" }
+          "sort": {
+            "field": "my_click_share",
+            "direction": "desc"
+          }
         },
         "tool_specific": {
           "match_type": "exact"
@@ -342,10 +650,17 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "competitor_asins": ["B0XYZ98765"],
-            "marketplace": ["US"]
+            "competitor_asins": [
+              "B0XYZ98765"
+            ],
+            "marketplace": [
+              "US"
+            ]
           },
-          "sort": { "field": "search_volume", "direction": "desc" },
+          "sort": {
+            "field": "search_volume",
+            "direction": "desc"
+          },
           "limit": 30
         }
       }
@@ -356,10 +671,17 @@
         "query": {
           "filters": {
             "company_id": 42,
-            "category": ["Health & Household"],
-            "marketplace": ["US"]
+            "category": [
+              "Health & Household"
+            ],
+            "marketplace": [
+              "US"
+            ]
           },
-          "sort": { "field": "search_volume", "direction": "desc" },
+          "sort": {
+            "field": "search_volume",
+            "direction": "desc"
+          },
           "limit": 25
         },
         "tool_specific": {

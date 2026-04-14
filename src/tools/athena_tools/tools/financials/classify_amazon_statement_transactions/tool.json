@@ -11,7 +11,10 @@
         "properties": {
           "mode": {
             "type": "string",
-            "enum": ["default", "reference"],
+            "enum": [
+              "default",
+              "reference"
+            ],
             "default": "default",
             "description": "Classification mode.\n\n- 'default': CoA-based — maps service_name → services → accounts → account_types. Groups by account_classification, account_type, account_name. Use this for bookkeeping reconciliation aligned with the company's Chart of Accounts.\n- 'reference': NeonPanel's built-in reference classification (class/subclass hierarchy). Use this for standardized comparison across companies or when CoA mapping is incomplete."
           },
@@ -26,41 +29,57 @@
               },
               "settlement_ids": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by specific settlement IDs. Use values from financials_list_amazon_statements."
               },
               "marketplace_codes": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Filter by marketplace country code (e.g., 'US', 'DE', 'SE', 'GB', 'FR', 'IT', 'ES'). Derived from amazon_sellers + amazon_marketplaces. Case-insensitive."
               },
               "class_codes": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "[reference mode only] Filter by class code: '1' (Income), '2' (Amazon Fees), '3' (Cost of Advertising), '4' (Tax), '5' (Other). Ignored in default mode."
               },
               "subclass_codes": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "[reference mode only] Filter by subclass code: '1.01', '2.01', '2.02', etc. Ignored in default mode."
               },
               "account_classifications": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "[default mode only] Filter by account classification (e.g., 'Revenue', 'Expense', 'Asset', 'Liability', 'Equity'). Ignored in reference mode."
               },
               "account_types": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "[default mode only] Filter by account type name (e.g., 'Income', 'Expense', 'Cost of Goods Sold', 'Other Income', 'Other Expense'). Ignored in reference mode."
               },
               "account_names": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "[default mode only] Filter by account name (substring match, case-insensitive). Ignored in reference mode."
               }
             },
-            "required": ["company_id"],
+            "required": [
+              "company_id"
+            ],
             "additionalProperties": false
           },
           "time": {
@@ -88,7 +107,16 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "enum": ["account_classification", "account_type", "account_name", "class", "subclass", "service_name", "marketplace", "settlement"]
+                  "enum": [
+                    "account_classification",
+                    "account_type",
+                    "account_name",
+                    "class",
+                    "subclass",
+                    "service_name",
+                    "marketplace",
+                    "settlement"
+                  ]
                 },
                 "description": "Dimensions to group by.\n\nDefault mode dimensions (CoA-based):\n- account_classification: top-level classification (Revenue / Expense / Asset / …)\n- account_type: account type name (Income / Expense / Cost of Goods Sold / …)\n- account_name: individual account name from the CoA\n- service_name: invoice-level service label\n- marketplace: marketplace country code + name\n- settlement: individual settlement ID\nDefault for default mode: ['account_classification', 'account_type', 'account_name']\n\nReference mode dimensions:\n- class: NeonPanel class (Income / Amazon Fees / Cost of Advertising / Tax / Other)\n- subclass: NeonPanel subclass (Product Sales / Referral Fees / …)\n- service_name: invoice-level service label\n- marketplace: marketplace country code + name\n- settlement: individual settlement ID\nDefault for reference mode: ['class', 'subclass']"
               }
@@ -101,13 +129,26 @@
             "properties": {
               "field": {
                 "type": "string",
-                "enum": ["class_code", "subclass_code", "account_classification", "account_type", "account_name", "total_amount", "total_debit", "total_credit", "line_count"],
+                "enum": [
+                  "class_code",
+                  "subclass_code",
+                  "account_classification",
+                  "account_type",
+                  "account_name",
+                  "total_amount",
+                  "total_debit",
+                  "total_credit",
+                  "line_count"
+                ],
                 "default": "total_amount",
                 "description": "Column to sort by. Default mode supports: account_classification, account_type, account_name, total_amount, total_debit, total_credit, line_count. Reference mode supports: class_code, subclass_code, total_amount, total_debit, total_credit, line_count."
               },
               "direction": {
                 "type": "string",
-                "enum": ["asc", "desc"],
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
                 "default": "asc",
                 "description": "Sort direction. Default: asc."
               }
@@ -122,11 +163,15 @@
             "description": "Maximum rows to return (default 200, max 500)."
           }
         },
-        "required": ["filters"],
+        "required": [
+          "filters"
+        ],
         "additionalProperties": false
       }
     },
-    "required": ["query"],
+    "required": [
+      "query"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -137,34 +182,162 @@
         "items": {
           "type": "object",
           "properties": {
-            "rank": { "type": "integer", "description": "1-based position by sort field." },
-            "currency": { "type": "string", "description": "ISO 4217 currency code (e.g., 'EUR', 'GBP', 'USD'). Always present — amounts are never mixed across currencies." },
-            "account_classification": { "type": ["string", "null"], "description": "[default mode] Normalized top-level classification: '1.Revenue', '2.Expense', '3.Asset', '4.Liability'. Present in default mode when grouped by account_classification." },
-            "account_type": { "type": ["string", "null"], "description": "[default mode] Normalized account type (e.g., '1.Income', '2.Cost of Goods Sold', '3.Expense', '4.Other Expense'). Present in default mode when grouped by account_type." },
-            "account_name": { "type": ["string", "null"], "description": "[default mode] Full account path from the company's CoA including number and parent chain (e.g., '4000 Sales: Amazon Sales'). Present in default mode when grouped by account_name." },
-            "mapping_status": { "type": ["string", "null"], "description": "[default mode] Service-to-account mapping status: 'mapped' (service found + account resolved in CoA), 'unmapped' (no matching service or no income_account_id). Present in default mode." },
-            "class_code": { "type": ["string", "null"], "description": "[reference mode] Accounting class code (e.g., '1', '2'). Present in reference mode when grouped by class." },
-            "class_name": { "type": ["string", "null"], "description": "[reference mode] Accounting class name (e.g., 'Income', 'Amazon Fees'). Present in reference mode when grouped by class." },
-            "subclass_code": { "type": ["string", "null"], "description": "[reference mode] Accounting subclass code (e.g., '1.01', '2.01'). Present in reference mode when grouped by subclass." },
-            "subclass_name": { "type": ["string", "null"], "description": "[reference mode] Accounting subclass name (e.g., 'Product Sales', 'Referral Fees'). Present in reference mode when grouped by subclass." },
-            "service_name": { "type": ["string", "null"], "description": "Invoice-level service label. Present when grouped by service_name." },
-            "marketplace_code": { "type": ["string", "null"], "description": "Marketplace country code (e.g., 'US', 'DE'). Present when grouped by marketplace." },
-            "marketplace_name": { "type": ["string", "null"], "description": "Marketplace name (e.g., 'Amazon.de'). Present when grouped by marketplace." },
-            "settlement_id": { "type": ["string", "null"], "description": "Settlement identifier. Present when grouped by settlement." },
-            "total_amount": { "type": "number", "description": "Net amount (debit − credit) in statement currency." },
-            "total_debit": { "type": "number", "description": "Sum of debit amounts (charges)." },
-            "total_credit": { "type": "number", "description": "Sum of credit amounts (income)." },
-            "line_count": { "type": "integer", "description": "Number of transaction detail lines." },
-            "total_quantity": { "type": ["integer", "null"], "description": "Sum of item quantity." },
-            "total_amount_usd": { "type": ["number", "null"], "description": "Net amount converted to USD via currency_rates. 0 if rate unavailable." },
-            "total_amount_main": { "type": ["number", "null"], "description": "Net amount converted to the company's main currency (via USD→main rate). NULL if rate unavailable." },
-            "main_currency": { "type": ["string", "null"], "description": "The company's main currency code (e.g., 'EUR', 'GBP'). Used for total_amount_main conversion." }
+            "rank": {
+              "type": "integer",
+              "description": "1-based position by sort field."
+            },
+            "currency": {
+              "type": "string",
+              "description": "ISO 4217 currency code (e.g., 'EUR', 'GBP', 'USD'). Always present — amounts are never mixed across currencies."
+            },
+            "account_classification": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[default mode] Normalized top-level classification: '1.Revenue', '2.Expense', '3.Asset', '4.Liability'. Present in default mode when grouped by account_classification."
+            },
+            "account_type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[default mode] Normalized account type (e.g., '1.Income', '2.Cost of Goods Sold', '3.Expense', '4.Other Expense'). Present in default mode when grouped by account_type."
+            },
+            "account_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[default mode] Full account path from the company's CoA including number and parent chain (e.g., '4000 Sales: Amazon Sales'). Present in default mode when grouped by account_name."
+            },
+            "mapping_status": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[default mode] Service-to-account mapping status: 'mapped' (service found + account resolved in CoA), 'unmapped' (no matching service or no income_account_id). Present in default mode."
+            },
+            "class_code": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[reference mode] Accounting class code (e.g., '1', '2'). Present in reference mode when grouped by class."
+            },
+            "class_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[reference mode] Accounting class name (e.g., 'Income', 'Amazon Fees'). Present in reference mode when grouped by class."
+            },
+            "subclass_code": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[reference mode] Accounting subclass code (e.g., '1.01', '2.01'). Present in reference mode when grouped by subclass."
+            },
+            "subclass_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "[reference mode] Accounting subclass name (e.g., 'Product Sales', 'Referral Fees'). Present in reference mode when grouped by subclass."
+            },
+            "service_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Invoice-level service label. Present when grouped by service_name."
+            },
+            "marketplace_code": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Marketplace country code (e.g., 'US', 'DE'). Present when grouped by marketplace."
+            },
+            "marketplace_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Marketplace name (e.g., 'Amazon.de'). Present when grouped by marketplace."
+            },
+            "settlement_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Settlement identifier. Present when grouped by settlement."
+            },
+            "total_amount": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net amount (debit − credit) in statement currency."
+            },
+            "total_debit": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Sum of debit amounts (charges)."
+            },
+            "total_credit": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Sum of credit amounts (income)."
+            },
+            "line_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Number of transaction detail lines."
+            },
+            "total_quantity": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Sum of item quantity."
+            },
+            "total_amount_usd": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net amount converted to USD via currency_rates. 0 if rate unavailable."
+            },
+            "total_amount_main": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net amount converted to the company's main currency (via USD→main rate). NULL if rate unavailable."
+            },
+            "main_currency": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The company's main currency code (e.g., 'EUR', 'GBP'). Used for total_amount_main conversion."
+            }
           },
           "additionalProperties": true
         }
       }
     },
-    "required": ["items"]
+    "required": [
+      "items"
+    ]
   },
   "examples": [
     {
@@ -172,8 +345,13 @@
       "description": "Classify settlement transactions by Chart of Accounts: account classification → account type → account name.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2025-12-01", "end_date": "2026-01-31" }
+          "filters": {
+            "company_id": 211
+          },
+          "time": {
+            "start_date": "2025-12-01",
+            "end_date": "2026-01-31"
+          }
         }
       }
     },
@@ -182,9 +360,18 @@
       "description": "High-level Revenue vs. Expense breakdown using the company's CoA.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
-          "aggregation": { "group_by": ["account_classification"] },
-          "sort": { "field": "total_amount", "direction": "desc" }
+          "filters": {
+            "company_id": 211
+          },
+          "aggregation": {
+            "group_by": [
+              "account_classification"
+            ]
+          },
+          "sort": {
+            "field": "total_amount",
+            "direction": "desc"
+          }
         }
       }
     },
@@ -193,9 +380,21 @@
       "description": "Account-level totals split by marketplace.",
       "request": {
         "query": {
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2026-01-01", "end_date": "2026-01-31" },
-          "aggregation": { "group_by": ["account_classification", "account_type", "account_name", "marketplace"] }
+          "filters": {
+            "company_id": 211
+          },
+          "time": {
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31"
+          },
+          "aggregation": {
+            "group_by": [
+              "account_classification",
+              "account_type",
+              "account_name",
+              "marketplace"
+            ]
+          }
         }
       }
     },
@@ -204,9 +403,22 @@
       "description": "Only show transactions mapped to Expense accounts in the CoA.",
       "request": {
         "query": {
-          "filters": { "company_id": 211, "account_classifications": ["Expense"] },
-          "aggregation": { "group_by": ["account_type", "account_name"] },
-          "sort": { "field": "total_amount", "direction": "asc" }
+          "filters": {
+            "company_id": 211,
+            "account_classifications": [
+              "Expense"
+            ]
+          },
+          "aggregation": {
+            "group_by": [
+              "account_type",
+              "account_name"
+            ]
+          },
+          "sort": {
+            "field": "total_amount",
+            "direction": "asc"
+          }
         }
       }
     },
@@ -216,9 +428,18 @@
       "request": {
         "query": {
           "mode": "reference",
-          "filters": { "company_id": 211 },
-          "aggregation": { "group_by": ["class"] },
-          "sort": { "field": "class_code", "direction": "asc" }
+          "filters": {
+            "company_id": 211
+          },
+          "aggregation": {
+            "group_by": [
+              "class"
+            ]
+          },
+          "sort": {
+            "field": "class_code",
+            "direction": "asc"
+          }
         }
       }
     },
@@ -228,8 +449,13 @@
       "request": {
         "query": {
           "mode": "reference",
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2025-12-01", "end_date": "2026-01-31" }
+          "filters": {
+            "company_id": 211
+          },
+          "time": {
+            "start_date": "2025-12-01",
+            "end_date": "2026-01-31"
+          }
         }
       }
     },
@@ -239,8 +465,18 @@
       "request": {
         "query": {
           "mode": "reference",
-          "filters": { "company_id": 211, "settlement_ids": ["26557463082"] },
-          "aggregation": { "group_by": ["class", "subclass"] }
+          "filters": {
+            "company_id": 211,
+            "settlement_ids": [
+              "26557463082"
+            ]
+          },
+          "aggregation": {
+            "group_by": [
+              "class",
+              "subclass"
+            ]
+          }
         }
       }
     },
@@ -250,9 +486,22 @@
       "request": {
         "query": {
           "mode": "reference",
-          "filters": { "company_id": 211, "class_codes": ["2"] },
-          "aggregation": { "group_by": ["subclass", "marketplace"] },
-          "sort": { "field": "total_amount", "direction": "asc" }
+          "filters": {
+            "company_id": 211,
+            "class_codes": [
+              "2"
+            ]
+          },
+          "aggregation": {
+            "group_by": [
+              "subclass",
+              "marketplace"
+            ]
+          },
+          "sort": {
+            "field": "total_amount",
+            "direction": "asc"
+          }
         }
       }
     },
@@ -262,10 +511,24 @@
       "request": {
         "query": {
           "mode": "reference",
-          "filters": { "company_id": 211 },
-          "time": { "start_date": "2025-12-01", "end_date": "2026-02-28" },
-          "aggregation": { "group_by": ["settlement", "class", "subclass"] },
-          "sort": { "field": "class_code", "direction": "asc" },
+          "filters": {
+            "company_id": 211
+          },
+          "time": {
+            "start_date": "2025-12-01",
+            "end_date": "2026-02-28"
+          },
+          "aggregation": {
+            "group_by": [
+              "settlement",
+              "class",
+              "subclass"
+            ]
+          },
+          "sort": {
+            "field": "class_code",
+            "direction": "asc"
+          },
           "limit": 500
         }
       }
