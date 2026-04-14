@@ -129,10 +129,12 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
 
   const executionStats = lastExecution?.QueryExecution?.Statistics;
 
+  // Athena always includes a header row in results that counts toward MaxResults.
+  // Request one extra row so stripHeaderRow() doesn't eat into the actual data.
   const results = await client.send(
     new GetQueryResultsCommand({
       QueryExecutionId: queryExecutionId,
-      MaxResults: maxRows,
+      MaxResults: maxRows + 1,
     }),
   );
 
