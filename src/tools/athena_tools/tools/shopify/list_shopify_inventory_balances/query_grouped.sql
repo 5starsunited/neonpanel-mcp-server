@@ -94,7 +94,7 @@ t_base AS (
     )
     AND (
       cardinality(p.seller_statuses) = 0
-      OR contains(p.seller_statuses_lower, lower(trim(sl.status)))
+      OR contains(p.seller_statuses_lower, lower(trim(CAST(sl.status AS VARCHAR))))
     )
     AND (cardinality(p.inventory_ids) = 0 OR contains(p.inventory_ids, sfy.inventory_id))
 ),

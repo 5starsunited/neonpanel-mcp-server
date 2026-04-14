@@ -69,7 +69,7 @@ const querySchema = z
     periodicity: z.enum(PERIODICITY_OPTIONS).default('month').optional(),
     group_by_company: z.coerce.number().int().min(0).max(1).default(0).optional(),
   })
-  .strict();
+  .passthrough();
 
 type QueryInput = z.infer<typeof querySchema>;
 

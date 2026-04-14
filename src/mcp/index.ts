@@ -19,6 +19,7 @@ type McpToolContentItem =
 
 type McpToolCallResult = {
   content: McpToolContentItem[];
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
@@ -155,9 +156,16 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
           payload: context.payload,
         });
 
+        // MCP 2025-03-26: tools with outputSchema must return structuredContent.
+        // Keep text content alongside for backward compatibility with older clients.
+        const structuredContent =
+          toolResult && typeof toolResult === 'object' && !Array.isArray(toolResult)
+            ? (toolResult as Record<string, unknown>)
+            : { result: toolResult };
+
         const result: McpToolCallResult = {
-          // Primary output is text for maximum compatibility with ChatGPT Apps framework.
           content: [{ type: 'text', text: toText(toolResult) }],
+          structuredContent,
         };
 
         return result;
