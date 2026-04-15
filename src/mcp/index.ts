@@ -203,7 +203,17 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
       return {
         serverInfo: {
           name: config.mcp.serverName,
+          title: 'NeonPanel',
           version: config.buildVersion,
+          description: 'Amazon Seller analytics MCP server — inventory, revenue, supply-chain, brand analytics, and forecasting tools.',
+          icons: [
+            {
+              src: 'https://neonpanel.com/favicon.ico',
+              mimeType: 'image/x-icon',
+              sizes: ['32x32'],
+            },
+          ],
+          websiteUrl: 'https://neonpanel.com',
         },
         protocolVersion: config.mcp.protocolVersion,
         capabilities: {
