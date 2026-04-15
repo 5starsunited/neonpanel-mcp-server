@@ -208,8 +208,8 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
           description: 'Amazon Seller analytics MCP server — inventory, revenue, supply-chain, brand analytics, and forecasting tools.',
           icons: [
             {
-              src: 'https://neonpanel.com/favicon.ico',
-              mimeType: 'image/x-icon',
+              src: 'https://www.neonpanel.com/images/tild3765-6438-4834-b163-316664653565__favicon.webp',
+              mimeType: 'image/webp',
               sizes: ['32x32'],
             },
           ],

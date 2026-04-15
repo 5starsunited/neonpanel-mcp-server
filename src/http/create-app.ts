@@ -256,7 +256,7 @@ export function createApp(deps: AppDependencies): Application {
         url: buildAbsoluteUrl(req, '/openapi.yaml'),
         has_user_authentication: true,
       },
-      logo_url: 'https://neonpanel.com/favicon.ico',
+      logo_url: 'https://www.neonpanel.com/images/tild3765-6438-4834-b163-316664653565__favicon.webp',
       contact_email: 'support@neonpanel.com',
       legal_info_url: 'https://neonpanel.com/legal',
     });
