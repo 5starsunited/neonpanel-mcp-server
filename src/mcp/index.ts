@@ -255,8 +255,10 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
       };
     },
     'tools/call': async (params, context) => {
+      let toolName = 'unknown';
       try {
         const parsed = ToolCallParamsSchema.parse(params);
+        toolName = parsed.name;
         const tool = registry.get(parsed.name);
 
         if (!tool) {
@@ -323,6 +325,13 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
         return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown tool execution error.';
+        logger.error(
+          {
+            tool: toolName,
+            error: error instanceof Error ? { message: error.message, stack: error.stack, ...(error as any) } : error,
+          },
+          'Tool execution failed',
+        );
         const result: McpToolCallResult = {
           content: [{ type: 'text', text: `Error: ${message}` }],
           isError: true,

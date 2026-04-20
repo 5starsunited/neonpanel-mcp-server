@@ -124,7 +124,7 @@ base_child AS (
         'child' AS row_type
     FROM raw r
     LEFT JOIN marketplaces_dim m
-        ON lower(m.amazon_marketplace_id) = lower(r.rspec_marketplaceids)
+        ON m.amazon_marketplace_id = r.rspec_marketplaceids[1]
     LEFT JOIN athenadatacatalog.neonpanel.amazon_listings al
         ON al.asin = r.asin
         AND al.marketplace_id = m.marketplace_id

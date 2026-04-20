@@ -612,6 +612,37 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
       },
     })
     .register({
+      name: 'account_list_permissions',
+      description:
+        'Retrieve all possible permission names (NeonPanel: GET /api/v1/permissions).\n\nReturns { permissions: string[] } — the full list of permission strings defined in the system.\n\nUse this tool to discover valid permission names before calling account_get_companies_with_permission.',
+      isConsequential: false,
+      inputSchema: z.object({}),
+      outputSchema: {
+        type: 'object',
+        properties: {
+          permissions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of permission names.',
+          },
+        },
+        required: ['permissions'],
+      },
+      examples: [
+        {
+          name: 'List All Permissions',
+          description: 'Get all available permission names.',
+          arguments: {},
+        },
+      ],
+      execute: async (_args, context) => {
+        return neonPanelRequest({
+          token: context.userToken,
+          path: '/api/v1/permissions',
+        });
+      },
+    })
+    .register({
       name: 'inventory_list_items',
       description: 'List inventory items for a company with optional filters (NeonPanel: GET /api/v1/companies/{uuid}/inventory-items).\n\nReturns paginated list of inventory items with: id, name, fnsku, asin, sku, image, country_code, weight/length/height/depth (imperial units: pounds/inches).\n\nSearch: The search field matches by SKU, ASIN, FnSKU, ID, or Name. Alternatively use the specific fnsku, asin, or sku filters for exact matching. Filter by country_code (2-letter ISO, e.g., "US", "DE") to narrow by marketplace.\n\nPagination: page (default 1), per_page (10–60, default 30).\n\nRelated tools: Use inventory_get_details for restock data and warehouse balances, cogs_get_inventory_cogs for COGS breakdown, cogs_get_inventory_landed_cost for manufacturing costs.',
       isConsequential: false,
@@ -669,27 +700,30 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
 
+        // The NeonPanel API declares GET /listings with a JSON body for filters,
+        // but in practice query-parameter filtering is the reliable approach.
+        // Try GET ?asin= first, fall back to GET ?search=, then POST body.
         try {
           listingsResponse = await neonPanelRequest({
             token: context.userToken,
             path: listPath,
-            method: 'POST',
-            body: { asin },
+            query: { asin },
           });
         } catch (error) {
-          if (error instanceof NeonPanelApiError && [400, 404, 405].includes(error.status ?? 0)) {
+          if (error instanceof NeonPanelApiError && [400, 404, 422].includes(error.status ?? 0)) {
             try {
               listingsResponse = await neonPanelRequest({
                 token: context.userToken,
                 path: listPath,
-                query: { asin },
+                query: { search: asin },
               });
             } catch (fallbackError) {
-              if (fallbackError instanceof NeonPanelApiError && [400, 404].includes(fallbackError.status ?? 0)) {
+              if (fallbackError instanceof NeonPanelApiError && [400, 404, 422].includes(fallbackError.status ?? 0)) {
                 listingsResponse = await neonPanelRequest({
                   token: context.userToken,
                   path: listPath,
-                  query: { search: asin },
+                  method: 'POST',
+                  body: { asin },
                 });
               } else {
                 throw fallbackError;

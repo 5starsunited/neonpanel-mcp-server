@@ -48,7 +48,8 @@ export async function neonPanelRequest<TResponse>(options: NeonPanelRequestOptio
                         typeof errorPayload.error.code === 'string') 
                         ? errorPayload.error.code 
                         : 'neonpanel_api_error';
-      throw new NeonPanelApiError('NeonPanel API request failed', {
+      const detail = errorPayload ? ` — ${JSON.stringify(errorPayload)}` : '';
+      throw new NeonPanelApiError(`NeonPanel API request failed (${response.status} ${method} ${url})${detail}`, {
         status: response.status,
         code: errorCode,
         details: errorPayload,

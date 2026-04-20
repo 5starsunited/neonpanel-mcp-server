@@ -204,7 +204,7 @@ base_child AS (
         'child' AS row_type
     FROM raw r
     LEFT JOIN marketplaces_dim m
-        ON lower(m.amazon_marketplace_id) = lower(r.rspec_marketplaceids)
+        ON m.amazon_marketplace_id = r.rspec_marketplaceids[1]
     LEFT JOIN companies_dim c
         ON c.company_id_str = CAST(r.company_id AS VARCHAR)
     LEFT JOIN asin_attrs aa
