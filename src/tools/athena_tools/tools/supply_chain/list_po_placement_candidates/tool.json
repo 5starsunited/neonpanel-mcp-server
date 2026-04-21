@@ -154,10 +154,10 @@
       "meta": {
         "type": "object",
         "properties": {
-          "applied_sort": { "type": "object", "additionalProperties": true },
-          "selected_fields": { "type": "array", "items": { "type": "string" } },
-          "included_fields": { "type": "array", "items": { "type": "string" } },
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "applied_sort": { "type": ["object", "null"], "additionalProperties": true },
+          "selected_fields": { "type": ["array", "null"], "items": { "type": "string" } },
+          "included_fields": { "type": ["array", "null"], "items": { "type": "string" } },
+          "warnings": { "type": ["array", "null"], "items": { "type": "string" } }
         },
         "additionalProperties": true
       }

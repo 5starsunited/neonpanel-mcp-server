@@ -492,7 +492,7 @@
             "format": "date"
           },
           "applied_sort": {
-            "type": "object"
+            "type": ["object", "null"]
           },
           "warnings": {
             "type": "array",

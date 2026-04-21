@@ -340,23 +340,23 @@
 				"type": "object",
 				"properties": {
 					"applied_sort": {
-						"type": "object",
+						"type": ["object", "null"],
 						"additionalProperties": true
 					},
 					"selected_fields": {
-						"type": "array",
+						"type": ["array", "null"],
 						"items": {
 							"type": "string"
 						}
 					},
 					"included_fields": {
-						"type": "array",
+						"type": ["array", "null"],
 						"items": {
 							"type": "string"
 						}
 					},
 					"warnings": {
-						"type": "array",
+						"type": ["array", "null"],
 						"items": {
 							"type": "string"
 						}
