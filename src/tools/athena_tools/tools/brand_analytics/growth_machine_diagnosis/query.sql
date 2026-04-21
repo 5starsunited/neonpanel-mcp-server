@@ -95,8 +95,12 @@ keyword_scope AS (
 ),
 
 -- ─── Competitor ASIN registry (optional) ────────────────────────────────────
+-- Note: competitor_asins has no keyword column; scope is per (against_my_asin).
+-- A NULL/empty against_my_asin means the competitor applies company-wide.
 competitor_registry AS (
-  SELECT c.asin, LOWER(TRIM(c.keyword)) AS kw_norm
+  SELECT
+    c.competitor_asin AS asin,
+    c.against_my_asin
   FROM "{{catalog}}"."brand_analytics_iceberg"."competitor_asins" c, params p
   WHERE c.company_id = p.company_id
     AND LOWER(c.marketplace) = LOWER(p.marketplace)
@@ -378,10 +382,13 @@ prescribed AS (
       || '&search-term-freeform=' || COALESCE(s.kw_norm, '')
       || '&reporting-range=weekly'
       || '&country-id=' || UPPER((SELECT marketplace FROM params)) AS seller_central_query_detail_url,
-    -- Competitor ASIN hints from registry (keyword-scoped)
-    (SELECT array_agg(asin)
+    -- Competitor ASIN hints from registry (scoped to this child ASIN, with
+    -- company-wide entries — NULL/empty against_my_asin — included as fallback).
+    (SELECT array_agg(DISTINCT cr.asin)
        FROM competitor_registry cr
-       WHERE cr.kw_norm = s.kw_norm) AS competitor_registry_asins
+       WHERE cr.against_my_asin = s.child_asin
+          OR cr.against_my_asin IS NULL
+          OR cr.against_my_asin = '') AS competitor_registry_asins
   FROM scored s
 ),
 
