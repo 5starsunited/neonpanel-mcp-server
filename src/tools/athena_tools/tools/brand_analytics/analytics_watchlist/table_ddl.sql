@@ -13,10 +13,14 @@ CREATE TABLE brand_analytics_iceberg.analytics_watchlist (
   company_id       BIGINT,
   marketplace      STRING,
   watchlist_name   STRING,
-  grain            STRING,        -- 'child_asin' | 'parent_asin' | 'product_family' | 'brand'
-  entity_ids       ARRAY<STRING>, -- list of ASINs / family names / brand names depending on grain
-  cadence          STRING,        -- 'weekly' | 'monthly' | 'quarterly'
-  focus            STRING,        -- 'growth_machine' | 'cart_leak' | 'cannibalization' | 'weak_leader' | 'defend' | 'generic'
+  -- grain values: child_asin | parent_asin | product_family | brand
+  grain            STRING,
+  -- entity_ids: list of ASINs / family names / brand names depending on grain
+  entity_ids       ARRAY<STRING>,
+  -- cadence values: weekly | monthly | quarterly
+  cadence          STRING,
+  -- focus values: growth_machine | cart_leak | cannibalization | weak_leader | defend | generic
+  focus            STRING,
   owner            STRING,
   last_run_at      TIMESTAMP,
   is_active        BOOLEAN,

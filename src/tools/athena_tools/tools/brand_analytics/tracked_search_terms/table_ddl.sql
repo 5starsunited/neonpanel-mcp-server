@@ -17,7 +17,8 @@ CREATE TABLE brand_analytics_iceberg.tracked_search_terms (
   product_family   STRING,
   keyword          STRING,
   priority         INT,
-  intent           STRING,    -- 'defend' | 'attack' | 'evaluate' | 'branded'
+  -- intent values: defend | attack | evaluate | branded
+  intent           STRING,
   added_by         STRING,
   added_at         TIMESTAMP,
   is_active        BOOLEAN,
