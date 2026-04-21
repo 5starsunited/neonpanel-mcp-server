@@ -258,17 +258,21 @@ final_output AS (
     supply_buffer_risk_tier,
     
     -- Velocity thresholds (JSON structure for output)
-    CAST(ROW(
+    -- NOTE: We CAST the named ROW to JSON so Athena returns a proper JSON
+    -- string like {"p50_units_per_day":0.0,...} instead of the Trino
+    -- ROW.toString() representation {p50_units_per_day=0.0,...} that the
+    -- MCP client cannot parse. The TS layer JSON.parse's this into an object.
+    CAST(CAST(ROW(
       stockout_critical_velocity_p50,
       stockout_critical_velocity_p80,
       stockout_critical_velocity_p95
-    ) AS ROW(p50_units_per_day DOUBLE, p80_units_per_day DOUBLE, p95_units_per_day DOUBLE)) AS stockout_critical_velocity,
+    ) AS ROW(p50_units_per_day DOUBLE, p80_units_per_day DOUBLE, p95_units_per_day DOUBLE)) AS JSON) AS stockout_critical_velocity,
     
-    CAST(ROW(
+    CAST(CAST(ROW(
       supply_buffer_critical_velocity_p50,
       supply_buffer_critical_velocity_p80,
       supply_buffer_critical_velocity_p95
-    ) AS ROW(p50_units_per_day DOUBLE, p80_units_per_day DOUBLE, p95_units_per_day DOUBLE)) AS supply_buffer_critical_velocity,
+    ) AS ROW(p50_units_per_day DOUBLE, p80_units_per_day DOUBLE, p95_units_per_day DOUBLE)) AS JSON) AS supply_buffer_critical_velocity,
     
     -- PO signal only (no PO details in this tool).
     CASE WHEN stockout_risk_tier IN ('high','moderate') OR supply_buffer_risk_tier IN ('high','moderate') THEN TRUE ELSE FALSE END AS po_recommended,

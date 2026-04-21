@@ -161,6 +161,17 @@ async function resolveCompanyIds(
   return companyIds;
 }
 
+function parseJsonField(value: unknown): unknown {
+  if (value == null) return null;
+  if (typeof value !== 'string') return value;
+  // Athena returns CAST(... AS JSON) as a JSON-encoded string.
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 function enrichWithRecommendations(rows: any[]): any[] {
   return rows.map((row) => {
     const po_recommended =
@@ -171,6 +182,8 @@ function enrichWithRecommendations(rows: any[]): any[] {
 
     return {
       ...row,
+      stockout_critical_velocity: parseJsonField(row.stockout_critical_velocity),
+      supply_buffer_critical_velocity: parseJsonField(row.supply_buffer_critical_velocity),
       po_recommended,
       po_recommendation_note: 'Review supply_chain_list_po_placement_candidates for PO details.',
     };
