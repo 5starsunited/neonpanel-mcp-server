@@ -1,0 +1,19 @@
+INSERT INTO "{{catalog}}"."brand_analytics_iceberg"."analytics_watchlist" (
+  company_id,
+  marketplace,
+  watchlist_name,
+  grain,
+  entity_ids,
+  cadence,
+  focus,
+  owner,
+  last_run_at,
+  is_active,
+  created_at,
+  updated_at,
+  created_by,
+  updated_by,
+  notes
+)
+VALUES
+  {{writes_values_sql}}

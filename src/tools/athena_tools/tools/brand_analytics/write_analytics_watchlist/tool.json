@@ -1,0 +1,57 @@
+{
+  "name": "brand_analytics_write_analytics_watchlist",
+  "description": "Upserts, deactivates, or resets the company's saved analytics watchlists. Consequential.\n\nUpsert key: (company_id, marketplace, LOWER(watchlist_name)). Each row bundles a grain + entity_ids + cadence + focus that brand_analytics_run_watchlist expands into parameters for brand_analytics_growth_machine_diagnosis.\n\nActions:\n- write        (default) — insert or replace watchlist rows with is_active=true\n- deactivate   — same upsert but mark is_active=false (soft delete)\n- reset        — deactivate ALL watchlists for the company (writes[] ignored)\n\nAlways dry_run=true by default. Pass dry_run=false to persist.",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "reason": { "type": "string", "minLength": 5 },
+      "action": { "type": "string", "enum": ["write", "deactivate", "reset"], "default": "write" },
+      "dry_run": { "type": "boolean", "default": true },
+      "writes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "properties": {
+            "marketplace": { "type": "string", "minLength": 1, "maxLength": 10 },
+            "watchlist_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "grain": { "type": "string", "enum": ["child_asin", "parent_asin", "product_family", "brand"] },
+            "entity_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 500,
+              "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+            },
+            "cadence": { "type": "string", "enum": ["weekly", "monthly", "quarterly"] },
+            "focus": {
+              "type": "string",
+              "enum": ["growth_machine", "cart_leak", "cannibalization", "weak_leader", "defend", "generic"]
+            },
+            "owner": { "type": ["string", "null"], "maxLength": 200 },
+            "notes": { "type": ["string", "null"], "maxLength": 500 }
+          },
+          "required": ["marketplace", "watchlist_name", "grain", "entity_ids", "cadence", "focus"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["company_id", "reason"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "action": { "type": "string" },
+      "accepted": { "type": "integer" },
+      "written": { "type": "integer" },
+      "deactivated": { "type": "integer" },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    },
+    "required": ["dry_run", "action", "accepted", "written"]
+  }
+}

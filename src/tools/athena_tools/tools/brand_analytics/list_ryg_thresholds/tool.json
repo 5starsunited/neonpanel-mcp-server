@@ -19,9 +19,10 @@
         "enum": [
           "sqp",
           "scp",
-          "global"
+          "global",
+          "growth_machine"
         ],
-        "description": "Optional: filter by tool name (sqp = Search Query Performance, scp = Search Catalog Performance, global = shared trend thresholds)."
+        "description": "Optional: filter by tool name (sqp = Search Query Performance, scp = Search Catalog Performance, global = shared trend thresholds, growth_machine = prescription-rule thresholds for the Growth Machine diagnostic tool)."
       },
       "include_defaults": {
         "type": "boolean",

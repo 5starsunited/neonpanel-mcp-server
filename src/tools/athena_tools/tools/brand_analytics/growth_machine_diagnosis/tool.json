@@ -1,0 +1,63 @@
+{
+  "name": "brand_analytics_growth_machine_diagnosis",
+  "description": "Fuses Search Query Performance (SQP) + Search Catalog Performance (SCP) + Amazon Ads (PPC) at the (keyword × ASIN × period) grain and emits one locked prescription per row. This is THE core tool for executing the 'Growth Machine' playbook (SQP tells you where demand is, SCP tells you why you do/don't convert it, PPC tells you what happens when you pay for it).\n\nPrescription enum (one of):\n- FIX_CART_LEAK_CUT_PPC   — cart_to_purchase_rate < threshold AND PPC spend ≥ min → plug final-mile leak BEFORE scaling ads.\n- NEGATIVE_EXACT          — PPC sales = 0 on ≥ ppc_clicks_min clicks → bleeder, negative-exact and remove from backend.\n- INJECT_INTO_SEO         — PPC CVR ≥ green threshold AND organic brand_purchase_share < red threshold → proven winner invisible organically; move into Title/Bullets.\n- DEFEND_ORGANIC          — Organic brand_purchase_share ≥ green (cannibalization or defend). Cut PPC bid or hold defensive ad support.\n- DISPLACE_WEAK_LEADER    — Top-1 competitor converts < red threshold AND we are already close → allocate budget to displace.\n- EVALUATE_OR_SKIP        — No clear signal; gather more data or deprioritize.\n\nAll thresholds come from brand_analytics_iceberg.ryg_thresholds with tool IN ('growth_machine','sqp','scp','global') and per-company override precedence.\n\nWhen `use_tracked_search_terms=true` (default), the keyword universe is auto-scoped to rows in brand_analytics_iceberg.tracked_search_terms. When `use_competitor_registry=true` (default), competitor_asins are exposed for keywords they share. When screenshot data exists in sqp_query_details_uploads for a (keyword, period), `screenshot_data_available=true` and leader/my_share_gap signals are enriched; otherwise leader-based prescriptions are best-effort from SCP market-share approximations.\n\nEach row includes `seller_central_query_detail_url` — a deep link the user can open in Seller Central to upload a screenshot via brand_analytics_upload_sqp_query_details when screenshot_data_available=false.\n\nThe response also includes a header with `normalization_match_rate` (share of PPC keywords that matched an SQP/SCP keyword after LOWER(TRIM(...)) normalization) so the agent can reason about drift.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "marketplace": { "type": "string", "minLength": 1, "maxLength": 10, "default": "us" },
+      "period_start": { "type": "string", "format": "date", "description": "Inclusive start (UTC date)." },
+      "period_end": { "type": "string", "format": "date", "description": "Inclusive end (UTC date)." },
+      "grain": {
+        "type": "string",
+        "enum": ["child_asin", "parent_asin", "product_family", "brand"],
+        "default": "child_asin"
+      },
+      "entity_ids": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": "Optional. ASINs (for child_asin/parent_asin), family names (product_family), or brand names (brand). Empty array = all company catalog."
+      },
+      "keywords": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": "Optional explicit keyword filter. Overrides use_tracked_search_terms when non-empty."
+      },
+      "use_tracked_search_terms": { "type": "boolean", "default": true },
+      "use_competitor_registry": { "type": "boolean", "default": true },
+      "focus": {
+        "type": "string",
+        "enum": ["growth_machine", "cart_leak", "cannibalization", "weak_leader", "defend", "generic"],
+        "default": "growth_machine"
+      },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 200 }
+    },
+    "required": ["company_id", "period_start", "period_end"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "header": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "company_id": { "type": "integer" },
+          "marketplace": { "type": "string" },
+          "period_start": { "type": "string" },
+          "period_end": { "type": "string" },
+          "grain": { "type": "string" },
+          "focus": { "type": "string" },
+          "rows_returned": { "type": "integer" },
+          "keywords_in_scope": { "type": "integer" },
+          "normalization_match_rate": { "type": ["number", "null"] },
+          "use_tracked_search_terms": { "type": "boolean" },
+          "use_competitor_registry": { "type": "boolean" }
+        }
+      },
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+    },
+    "required": ["header", "items"]
+  }
+}

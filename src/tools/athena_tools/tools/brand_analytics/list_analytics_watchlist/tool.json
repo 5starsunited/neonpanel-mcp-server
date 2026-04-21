@@ -1,0 +1,44 @@
+{
+  "name": "brand_analytics_list_analytics_watchlist",
+  "description": "Lists the company's saved analytics watchlists from brand_analytics_iceberg.analytics_watchlist. Read-only.\n\nEach row is a named bundle of entities + cadence + focus used by brand_analytics_run_watchlist to drive a recurring diagnosis via brand_analytics_growth_machine_diagnosis.\n\nUpsert key: (company_id, marketplace, LOWER(watchlist_name)).",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_ids": {
+        "type": "array",
+        "items": { "type": "integer", "minimum": 1 },
+        "minItems": 1
+      },
+      "marketplaces": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 10 } },
+      "watchlist_names": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+      "grain": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["child_asin", "parent_asin", "product_family", "brand"] }
+      },
+      "cadence": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["weekly", "monthly", "quarterly"] }
+      },
+      "focus": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["growth_machine", "cart_leak", "cannibalization", "weak_leader", "defend", "generic"]
+        }
+      },
+      "owner": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+      "include_inactive": { "type": "boolean", "default": false },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 200 }
+    },
+    "required": ["company_ids"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+    },
+    "required": ["items"]
+  }
+}

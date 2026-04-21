@@ -1,0 +1,37 @@
+{
+  "name": "brand_analytics_run_watchlist",
+  "description": "Executes a saved analytics watchlist: reads its config from brand_analytics_iceberg.analytics_watchlist, expands it into the parameters you would pass to brand_analytics_growth_machine_diagnosis (grain + entity_ids + focus + cadence-derived time window), and bumps last_run_at.\n\nIn v1 this tool is MANUAL-TRIGGER ONLY (no scheduler). The caller then invokes brand_analytics_growth_machine_diagnosis with the returned `diagnosis_parameters` (or a future orchestrator can chain them automatically).\n\nCadence -> default time window:\n- weekly    -> last 7 days\n- monthly   -> last 30 days\n- quarterly -> last 90 days\n\nUpserts last_run_at to current_timestamp if dry_run=false.",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "marketplace": { "type": "string", "minLength": 1, "maxLength": 10 },
+      "watchlist_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true (default), returns the diagnosis_parameters WITHOUT updating last_run_at."
+      }
+    },
+    "required": ["company_id", "marketplace", "watchlist_name"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "found": { "type": "boolean" },
+      "watchlist": { "type": ["object", "null"], "additionalProperties": true },
+      "diagnosis_parameters": {
+        "type": ["object", "null"],
+        "additionalProperties": true,
+        "description": "Suggested arguments for brand_analytics_growth_machine_diagnosis."
+      },
+      "last_run_at_updated": { "type": "boolean" },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    },
+    "required": ["dry_run", "found", "last_run_at_updated"]
+  }
+}

@@ -10,7 +10,7 @@ import { renderSqlTemplate } from '../../../runtime/render-sql';
 const inputSchema = z
   .object({
     company_ids: z.array(z.coerce.number().int().min(1)).min(1),
-    tool: z.enum(['sqp', 'scp', 'global']).optional(),
+    tool: z.enum(['sqp', 'scp', 'global', 'growth_machine']).optional(),
     include_defaults: z.boolean().default(true).optional(),
   })
   .strict();
