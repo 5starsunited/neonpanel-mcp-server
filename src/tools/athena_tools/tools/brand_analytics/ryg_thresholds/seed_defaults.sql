@@ -77,4 +77,34 @@ VALUES
 (NULL, 'default', 'sqp', 'ceiling', 'impression_share', 'red',    0.06, 'visibility_ceiling',  'IS ≥6% with strong CTR advantage; near growth ceiling.',              current_timestamp),
 (NULL, 'default', 'sqp', 'ceiling', 'impression_share', 'yellow', 0.05, 'near_ceiling',        'IS ≥5% with CTR advantage; approaching ceiling.',                    current_timestamp),
 (NULL, 'default', 'sqp', 'ceiling', 'ctr_advantage',    'red',    1.5,  'high_ctr_ceiling',    'CTR advantage ≥1.5×; strong position, further growth limited.',       current_timestamp),
-(NULL, 'default', 'sqp', 'ceiling', 'ctr_advantage',    'yellow', 1.2,  'ctr_ceiling_warn',    'CTR advantage ≥1.2×; approaching competitive ceiling.',               current_timestamp);
+(NULL, 'default', 'sqp', 'ceiling', 'ctr_advantage',    'yellow', 1.2,  'ctr_ceiling_warn',    'CTR advantage ≥1.2×; approaching competitive ceiling.',               current_timestamp),
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- GROWTH MACHINE (growth_machine) — system defaults (company_id = NULL)
+-- Prescription rules consumed by brand_analytics_growth_machine_diagnosis.
+-- `signal_code` is the prescription label emitted in the tool output.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- PROVEN_WINNER: PPC converts but organic share is weak → inject into SEO.
+(NULL, 'default', 'growth_machine', 'proven_winner',  'ppc_cvr',                 'green',  0.10,  'inject_into_seo',       'PPC conversion rate ≥10% combined with low organic brand_purchase_share → move keyword into Title/Bullets for organic capture.', current_timestamp),
+(NULL, 'default', 'growth_machine', 'proven_winner',  'brand_purchase_share',    'red',    0.05,  'inject_into_seo',       'Organic purchase share <5% despite proven PPC performance → invisible organically, needs SEO injection.',                          current_timestamp),
+
+-- BLEEDER: PPC burning clicks with no sales → negative exact.
+(NULL, 'default', 'growth_machine', 'bleeder',        'ppc_clicks_min',          'red',    10,    'negative_exact',        'Minimum 10 PPC clicks required before flagging as a bleeder.',                                                                     current_timestamp),
+(NULL, 'default', 'growth_machine', 'bleeder',        'ppc_sales_max',           'red',    0,     'negative_exact',        'PPC sales = 0 on a high-click term → add as Negative Exact; remove from backend keywords.',                                        current_timestamp),
+
+-- CANNIBALIZATION: Strong organic + still spending on PPC on same term.
+(NULL, 'default', 'growth_machine', 'cannibalization','brand_purchase_share',    'green',  0.15,  'defend_organic',        'Organic purchase share ≥15% (Green) → PPC spend likely cannibalizing organic; cut PPC bid.',                                       current_timestamp),
+(NULL, 'default', 'growth_machine', 'cannibalization','ppc_spend_min',           'yellow', 50,    'defend_organic',        'Minimum $50 PPC spend to flag cannibalization (avoid false positives on tiny spend).',                                             current_timestamp),
+
+-- CART_LEAK: SCP shows cart-stage drop-off (leak_scenario = C).
+(NULL, 'default', 'growth_machine', 'cart_leak',      'cart_to_purchase_rate',   'red',    0.30,  'fix_cart_leak_cut_ppc', 'Cart-add to purchase rate <30% → final-mile leak (Prime badge, delivery speed, basket-level coupon); fix before scaling PPC.',   current_timestamp),
+(NULL, 'default', 'growth_machine', 'cart_leak',      'ppc_spend_min',           'yellow', 100,   'fix_cart_leak_cut_ppc', 'Minimum $100 PPC spend to make cart-leak prescription meaningful.',                                                                current_timestamp),
+
+-- WEAK_LEADER: Market leader has low conversion share → displacement opportunity.
+(NULL, 'default', 'growth_machine', 'weak_leader',    'leader_conversion_share', 'red',    0.30,  'displace_weak_leader',  'Top-1 product converts <30% of clicks → weak leader; allocate budget to displace.',                                                current_timestamp),
+(NULL, 'default', 'growth_machine', 'weak_leader',    'my_share_gap',            'yellow', 0.05,  'displace_weak_leader',  'Gap to leader ≤5pp AND we are already in top-3 → prioritize displacement.',                                                       current_timestamp),
+
+-- DEFEND: Green organic + healthy conversion → defend + maintenance PPC.
+(NULL, 'default', 'growth_machine', 'defend',         'brand_purchase_share',    'green',  0.15,  'defend_organic',        'Organic purchase share ≥15% → Green band; maintain ad support at defensive levels and watch for share erosion.',                  current_timestamp),
+(NULL, 'default', 'growth_machine', 'defend',         'brand_purchase_share_wow','red',   -0.02,  'defend_organic',        'Purchase share declined >2pp WoW → escalate defense; competitor moves likely.',                                                    current_timestamp);

@@ -25,8 +25,22 @@ function sqlStringLiteral(value: string): string {
 }
 
 const writeItemSchema = z.object({
-  tool: z.enum(['sqp', 'scp', 'global']),
-  signal_group: z.enum(['strength', 'weakness', 'opportunity', 'threshold', 'trend']),
+  tool: z.enum(['sqp', 'scp', 'global', 'growth_machine']),
+  signal_group: z.enum([
+    'strength',
+    'weakness',
+    'opportunity',
+    'threshold',
+    'ceiling',
+    'diagnostic',
+    'trend',
+    'proven_winner',
+    'bleeder',
+    'cannibalization',
+    'cart_leak',
+    'weak_leader',
+    'defend',
+  ]),
   metric: z.string().min(1).max(100),
   color: z.enum(['green', 'yellow', 'red']),
   threshold_value: z.number(),
