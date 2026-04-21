@@ -20,21 +20,20 @@ CREATE TABLE brand_analytics_iceberg.sqp_query_details_uploads (
   total_impressions  BIGINT,
   total_clicks       BIGINT,
   total_click_rate   DOUBLE,
-  competitors        ARRAY<ROW(
-                         asin          STRING,
-                         brand         STRING,
-                         impressions   BIGINT,
-                         clicks        BIGINT,
-                         click_rate    DOUBLE,
-                         price_median  DOUBLE,
-                         rank          INT
-                       )>,
+  competitors        ARRAY<STRUCT<
+                         asin: STRING,
+                         brand: STRING,
+                         impressions: BIGINT,
+                         clicks: BIGINT,
+                         click_rate: DOUBLE,
+                         price_median: DOUBLE,
+                         rank: INT
+                       >>,
   uploaded_by        STRING,
   uploaded_at        TIMESTAMP,
   source_screenshot_s3_uri STRING,
   raw_extracted_json STRING
 )
-PARTITIONED BY (bucket(16, company_id))
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/sqp_query_details_uploads'
 TBLPROPERTIES (
   'table_type' = 'ICEBERG',
