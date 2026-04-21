@@ -34,11 +34,10 @@ CREATE TABLE brand_analytics_iceberg.sqp_query_details_uploads (
   source_screenshot_s3_uri STRING,
   raw_extracted_json STRING
 )
-PARTITIONED BY (company_id)
-LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/sqp_query_details_uploads'
-TBLPROPERTIES (
-  'table_type' = 'iceberg',
-  'format'     = 'PARQUET',
-  'write_compression' = 'ZSTD',
-  'compression_level' = '3'
+WITH (
+  table_type = 'ICEBERG',
+  format = 'parquet',
+  write_compression = 'zstd',
+  partitioning = ARRAY['company_id'],
+  location = 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/sqp_query_details_uploads'
 );
