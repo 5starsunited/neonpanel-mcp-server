@@ -700,40 +700,37 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
 
-        // The NeonPanel API declares GET /listings with a JSON body for filters,
-        // but in practice query-parameter filtering is the reliable approach.
-        // Workaround: ListingController currently 500s with
-        // 'Undefined array key "per_page"' if per_page is not supplied, so we
-        // always pass per_page/page explicitly.
+        // Workaround: ListingController requires per_page/page and strictly
+        // types per_page as int. HTTP query strings are always strings, which
+        // currently 500s the backend with:
+        //   "paginateByCompany(): Argument #4 ($perPage) must be of type int, string given"
+        // POST + JSON body preserves the int type, so we try POST first.
+        // GET fallbacks remain in case the POST route is ever disabled.
         const pagination = { per_page: 25, page: 1 };
         try {
           listingsResponse = await neonPanelRequest({
             token: context.userToken,
             path: listPath,
-            query: { ...pagination, asin },
+            method: 'POST',
+            body: { ...pagination, asin },
           });
-        } catch (error) {
-          if (error instanceof NeonPanelApiError && [400, 404, 422].includes(error.status ?? 0)) {
-            try {
+        } catch (postError) {
+          try {
+            listingsResponse = await neonPanelRequest({
+              token: context.userToken,
+              path: listPath,
+              query: { ...pagination, asin },
+            });
+          } catch (getError) {
+            if (getError instanceof NeonPanelApiError && [400, 404, 422].includes(getError.status ?? 0)) {
               listingsResponse = await neonPanelRequest({
                 token: context.userToken,
                 path: listPath,
                 query: { ...pagination, search: asin },
               });
-            } catch (fallbackError) {
-              if (fallbackError instanceof NeonPanelApiError && [400, 404, 422].includes(fallbackError.status ?? 0)) {
-                listingsResponse = await neonPanelRequest({
-                  token: context.userToken,
-                  path: listPath,
-                  method: 'POST',
-                  body: { ...pagination, asin },
-                });
-              } else {
-                throw fallbackError;
-              }
+            } else {
+              throw getError;
             }
-          } else {
-            throw error;
           }
         }
 
