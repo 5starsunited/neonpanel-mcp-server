@@ -215,7 +215,8 @@ screenshots AS (
     MAX(CASE WHEN comp.rank = 1 THEN comp.click_rate  END) AS ss_leader_click_rate,
     MAX(CASE WHEN comp.rank = 1 THEN comp.click_rate  END) -
       MIN(CASE WHEN comp.asin IS NOT NULL THEN comp.click_rate END) AS ss_click_rate_spread
-  FROM "{{catalog}}"."brand_analytics_iceberg"."sqp_query_details_uploads" s, params p
+  FROM "{{catalog}}"."brand_analytics_iceberg"."sqp_query_details_uploads" s
+  CROSS JOIN params p
   LEFT JOIN UNNEST(s.competitors) AS comp
     ON TRUE
   WHERE s.company_id = p.company_id

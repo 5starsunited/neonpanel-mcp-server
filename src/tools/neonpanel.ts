@@ -700,37 +700,30 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
 
-        // Workaround: ListingController requires per_page/page and strictly
-        // types per_page as int. HTTP query strings are always strings, which
-        // currently 500s the backend with:
-        //   "paginateByCompany(): Argument #4 ($perPage) must be of type int, string given"
-        // POST + JSON body preserves the int type, so we try POST first.
-        // GET fallbacks remain in case the POST route is ever disabled.
+        // BACKEND BUG (tracked upstream): ListingController::paginateByCompany
+        // signature strictly types `int $perPage`, but HTTP query strings are
+        // always strings, so the call currently 500s with:
+        //   "Argument #4 ($perPage) must be of type int, string given"
+        // We still send per_page/page (so the controller doesn't hit the
+        // earlier 'Undefined array key per_page' path) and try GET first.
+        // POST /listings is NOT used as a workaround because REST POST against
+        // a collection endpoint can create a resource — unsafe on read paths.
         const pagination = { per_page: 25, page: 1 };
         try {
           listingsResponse = await neonPanelRequest({
             token: context.userToken,
             path: listPath,
-            method: 'POST',
-            body: { ...pagination, asin },
+            query: { ...pagination, asin },
           });
-        } catch (postError) {
-          try {
+        } catch (error) {
+          if (error instanceof NeonPanelApiError && [400, 404, 422].includes(error.status ?? 0)) {
             listingsResponse = await neonPanelRequest({
               token: context.userToken,
               path: listPath,
-              query: { ...pagination, asin },
+              query: { ...pagination, search: asin },
             });
-          } catch (getError) {
-            if (getError instanceof NeonPanelApiError && [400, 404, 422].includes(getError.status ?? 0)) {
-              listingsResponse = await neonPanelRequest({
-                token: context.userToken,
-                path: listPath,
-                query: { ...pagination, search: asin },
-              });
-            } else {
-              throw getError;
-            }
+          } else {
+            throw error;
           }
         }
 
