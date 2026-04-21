@@ -24,6 +24,8 @@ import { registerBrandAnalyticsListRygThresholdsTool } from './tools/brand_analy
 import { registerBrandAnalyticsWriteRygThresholdsTool } from './tools/brand_analytics/write_ryg_thresholds/register';
 import { registerBrandAnalyticsListCompetitorAsinsTool } from './tools/brand_analytics/list_competitor_asins/register';
 import { registerBrandAnalyticsWriteCompetitorAsinsTool } from './tools/brand_analytics/write_competitor_asins/register';
+import { registerBrandAnalyticsListTrackedSearchTermsTool } from './tools/brand_analytics/list_tracked_search_terms/register';
+import { registerBrandAnalyticsWriteTrackedSearchTermsTool } from './tools/brand_analytics/write_tracked_search_terms/register';
 import { registerBrandAnalyticsGetConversionLeakAnalysisTool } from './tools/brand_analytics/get_conversion_leak_analysis/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
@@ -78,6 +80,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsWriteRygThresholdsTool(registry);
   registerBrandAnalyticsListCompetitorAsinsTool(registry);
   registerBrandAnalyticsWriteCompetitorAsinsTool(registry);
+  registerBrandAnalyticsListTrackedSearchTermsTool(registry);
+  registerBrandAnalyticsWriteTrackedSearchTermsTool(registry);
   registerBrandAnalyticsGetConversionLeakAnalysisTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsListLostBatchesTool(registry);
