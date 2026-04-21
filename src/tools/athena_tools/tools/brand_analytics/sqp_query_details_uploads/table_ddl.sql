@@ -34,7 +34,7 @@ CREATE TABLE brand_analytics_iceberg.sqp_query_details_uploads (
   source_screenshot_s3_uri STRING,
   raw_extracted_json STRING
 )
-PARTITIONED BY (company_id)
+PARTITIONED BY (bucket(16, company_id))
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/sqp_query_details_uploads'
 TBLPROPERTIES (
   'table_type' = 'ICEBERG',

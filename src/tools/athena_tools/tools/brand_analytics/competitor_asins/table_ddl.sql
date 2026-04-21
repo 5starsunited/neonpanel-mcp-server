@@ -21,7 +21,7 @@ CREATE TABLE brand_analytics_iceberg.competitor_asins (
   added_at                   TIMESTAMP,
   is_active                  BOOLEAN
 )
-PARTITIONED BY (company_id)
+PARTITIONED BY (bucket(16, company_id))
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/competitor_asins'
 TBLPROPERTIES (
   'table_type' = 'ICEBERG',

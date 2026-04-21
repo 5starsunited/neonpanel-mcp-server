@@ -13,13 +13,9 @@ CREATE TABLE brand_analytics_iceberg.analytics_watchlist (
   company_id       BIGINT,
   marketplace      STRING,
   watchlist_name   STRING,
-  -- grain values: child_asin | parent_asin | product_family | brand
   grain            STRING,
-  -- entity_ids: list of ASINs / family names / brand names depending on grain
   entity_ids       ARRAY<STRING>,
-  -- cadence values: weekly | monthly | quarterly
   cadence          STRING,
-  -- focus values: growth_machine | cart_leak | cannibalization | weak_leader | defend | generic
   focus            STRING,
   owner            STRING,
   last_run_at      TIMESTAMP,
@@ -30,7 +26,7 @@ CREATE TABLE brand_analytics_iceberg.analytics_watchlist (
   updated_by       STRING,
   notes            STRING
 )
-PARTITIONED BY (company_id)
+PARTITIONED BY (bucket(16, company_id))
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/analytics_watchlist'
 TBLPROPERTIES (
   'table_type' = 'ICEBERG',
