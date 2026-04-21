@@ -166,6 +166,9 @@ scp AS (
 ),
 
 -- ─── PPC: sp_search_term joined via campaign_asin_map → advertised ASIN ─────
+-- campaign_asin_map lives in brand_analytics_iceberg (not amazon_ads_reports_iceberg).
+-- All join columns in campaign_asin_map are STRING, so we cast sp_search_term
+-- columns to VARCHAR to match and avoid TYPE_MISMATCH.
 ppc_raw AS (
   SELECT
     LOWER(TRIM(st.searchterm))        AS kw_norm,
@@ -178,9 +181,9 @@ ppc_raw AS (
     MAX(st.matchtype)                 AS ppc_match_type_sample,
     COUNT(DISTINCT st.campaignid)     AS ppc_campaign_count
   FROM "{{catalog}}"."amazon_ads_reports_iceberg"."sp_search_term" st
-  JOIN "{{catalog}}"."amazon_ads_reports_iceberg"."campaign_asin_map" cam
-    ON TRY_CAST(st.ingest_company_id AS BIGINT) = cam.company_id
-   AND st.campaignid = cam.campaign_id
+  JOIN "{{catalog}}"."brand_analytics_iceberg"."campaign_asin_map" cam
+    ON cam.company_id   = CAST(st.ingest_company_id AS VARCHAR)
+   AND cam.campaign_id  = CAST(st.campaignid        AS VARCHAR)
   , params p
   WHERE TRY_CAST(st.ingest_company_id AS BIGINT) = p.company_id
     AND CAST(st.date AS DATE) BETWEEN p.period_start AND p.period_end
