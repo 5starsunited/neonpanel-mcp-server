@@ -1,0 +1,59 @@
+{
+  "name": "brand_analytics_upload_sqp_query_details",
+  "description": "Persists Search Query Details data extracted from a Seller Central screenshot. Consequential (writes data).\n\nWhy this tool exists:\nAmazon does NOT expose Search Query Details (total impressions, total clicks, click rate, per-ASIN impressions, price, and up to 10 competing ASINs) via API — only in the Seller Central UI. Other Brand Analytics tools surface a `seller_central_query_detail_url` deep link per keyword. The flow is:\n  1. Call a diagnostic tool (e.g., brand_analytics_growth_machine_diagnosis) — it tells you which keywords have `screenshot_data_available = false`.\n  2. Ask the user to open `seller_central_query_detail_url` in Seller Central and upload a screenshot.\n  3. Your agent extracts the fields from the screenshot into the JSON payload required by this tool.\n  4. Call this tool to persist. Subsequent diagnoses will read the persisted data from Iceberg instead of re-asking the user.\n\nUpsert key: (company_id, marketplace, LOWER(keyword), period_start). Re-uploads for the same key overwrite the previous entry and bump `uploaded_at`.\n\nExample payload (agent-extracted from screenshot):\n{\n  \"company_id\": 103,\n  \"reason\": \"User uploaded screenshot for priority Yellow keyword.\",\n  \"extraction\": {\n    \"marketplace\": \"US\",\n    \"keyword\": \"rose gold ring\",\n    \"period_start\": \"2026-03-01\",\n    \"period_end\": \"2026-03-31\",\n    \"total_impressions\": 1200000,\n    \"total_clicks\": 48000,\n    \"total_click_rate\": 0.04,\n    \"competitors\": [\n      { \"asin\": \"B0AAAA0001\", \"brand\": \"Rival A\", \"impressions\": 180000, \"clicks\": 9000, \"click_rate\": 0.05, \"price_median\": 29.99, \"rank\": 1 },\n      { \"asin\": \"B0BBBB0002\", \"brand\": \"Rival B\", \"impressions\": 150000, \"clicks\": 6500, \"click_rate\": 0.043, \"price_median\": 24.99, \"rank\": 2 }\n    ],\n    \"source_screenshot_s3_uri\": null\n  }\n}",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "reason": { "type": "string", "minLength": 5, "description": "Audit trail (e.g., which keyword/user triggered the upload)." },
+      "dry_run": { "type": "boolean", "default": true },
+      "extraction": {
+        "type": "object",
+        "description": "Structured data extracted by the agent from the Seller Central screenshot.",
+        "properties": {
+          "marketplace": { "type": "string", "minLength": 1, "maxLength": 10 },
+          "keyword": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "period_start": { "type": "string", "format": "date" },
+          "period_end": { "type": "string", "format": "date" },
+          "total_impressions": { "type": ["integer", "null"], "minimum": 0 },
+          "total_clicks": { "type": ["integer", "null"], "minimum": 0 },
+          "total_click_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+          "competitors": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "properties": {
+                "asin": { "type": "string", "minLength": 8, "maxLength": 20 },
+                "brand": { "type": ["string", "null"], "maxLength": 200 },
+                "impressions": { "type": ["integer", "null"], "minimum": 0 },
+                "clicks": { "type": ["integer", "null"], "minimum": 0 },
+                "click_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+                "price_median": { "type": ["number", "null"], "minimum": 0 },
+                "rank": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 }
+              },
+              "required": ["asin"],
+              "additionalProperties": false
+            }
+          },
+          "source_screenshot_s3_uri": { "type": ["string", "null"], "maxLength": 500 }
+        },
+        "required": ["marketplace", "keyword", "period_start", "period_end"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["company_id", "reason", "extraction"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "written": { "type": "integer" },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    },
+    "required": ["dry_run", "written"]
+  }
+}
