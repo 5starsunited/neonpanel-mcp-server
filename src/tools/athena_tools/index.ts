@@ -28,6 +28,9 @@ import { registerBrandAnalyticsListTrackedSearchTermsTool } from './tools/brand_
 import { registerBrandAnalyticsWriteTrackedSearchTermsTool } from './tools/brand_analytics/write_tracked_search_terms/register';
 import { registerBrandAnalyticsUploadSqpQueryDetailsTool } from './tools/brand_analytics/upload_sqp_query_details/register';
 import { registerBrandAnalyticsListSqpQueryDetailsUploadsTool } from './tools/brand_analytics/list_sqp_query_details_uploads/register';
+import { registerBrandAnalyticsListAnalyticsWatchlistTool } from './tools/brand_analytics/list_analytics_watchlist/register';
+import { registerBrandAnalyticsWriteAnalyticsWatchlistTool } from './tools/brand_analytics/write_analytics_watchlist/register';
+import { registerBrandAnalyticsRunWatchlistTool } from './tools/brand_analytics/run_watchlist/register';
 import { registerBrandAnalyticsGetConversionLeakAnalysisTool } from './tools/brand_analytics/get_conversion_leak_analysis/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
@@ -86,6 +89,9 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsWriteTrackedSearchTermsTool(registry);
   registerBrandAnalyticsUploadSqpQueryDetailsTool(registry);
   registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry);
+  registerBrandAnalyticsListAnalyticsWatchlistTool(registry);
+  registerBrandAnalyticsWriteAnalyticsWatchlistTool(registry);
+  registerBrandAnalyticsRunWatchlistTool(registry);
   registerBrandAnalyticsGetConversionLeakAnalysisTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsListLostBatchesTool(registry);
