@@ -1,0 +1,93 @@
+{
+  "name": "brand_analytics_write_competitor_asins",
+  "description": "Writes competitor ASIN entries for a company. Consequential.\n\nUse cases:\n- Register known competitor ASINs for a brand/product family\n- Update priority, label, or brand of an existing competitor\n- Soft-delete (set is_active=false) via action='deactivate'\n- Hard reset a scope via action='reset'\n\nUpsert key: (company_id, marketplace, competitor_asin, against_my_asin, against_my_product_family).\n\nExample (register competitors):\n{\n  \"company_id\": 103,\n  \"reason\": \"Seeding known competitors for product family Widgets.\",\n  \"writes\": [\n    { \"marketplace\": \"US\", \"competitor_asin\": \"B0AAAA1111\", \"competitor_brand\": \"Rival Co\", \"competitor_label\": \"Main rival\", \"against_my_product_family\": \"Widgets\", \"priority\": 1 },\n    { \"marketplace\": \"US\", \"competitor_asin\": \"B0BBBB2222\", \"competitor_label\": \"Low-price attacker\", \"against_my_asin\": \"B0CCCC3333\", \"priority\": 2 }\n  ]\n}",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Company identifier."
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 5,
+        "description": "Audit trail."
+      },
+      "action": {
+        "type": "string",
+        "enum": ["write", "deactivate", "reset"],
+        "default": "write",
+        "description": "write (default): upsert entries. deactivate: set is_active=false for the given slots (soft delete). reset: deactivate ALL competitor entries for this company."
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, validate and preview without persisting."
+      },
+      "writes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 100,
+        "description": "Competitor entries to upsert or deactivate. Required when action='write' or action='deactivate'.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "marketplace": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10,
+              "description": "Amazon marketplace code (e.g., 'US')."
+            },
+            "competitor_asin": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 20
+            },
+            "competitor_brand": {
+              "type": ["string", "null"],
+              "maxLength": 200
+            },
+            "competitor_label": {
+              "type": ["string", "null"],
+              "maxLength": 300
+            },
+            "against_my_asin": {
+              "type": ["string", "null"],
+              "maxLength": 20,
+              "description": "Scope the rivalry to one of my ASINs. Leave null for product-family or company-wide scope."
+            },
+            "against_my_product_family": {
+              "type": ["string", "null"],
+              "maxLength": 200,
+              "description": "Scope the rivalry to one of my product families. Leave null for ASIN or company-wide scope."
+            },
+            "priority": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": ["marketplace", "competitor_asin"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["company_id", "reason"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dry_run": { "type": "boolean" },
+      "action": { "type": "string" },
+      "accepted": { "type": "integer" },
+      "written": { "type": "integer" },
+      "deactivated": { "type": "integer" },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    },
+    "required": ["dry_run", "action", "accepted", "written"]
+  }
+}

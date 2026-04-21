@@ -1,0 +1,74 @@
+{
+  "name": "brand_analytics_list_competitor_asins",
+  "description": "Lists the company's registered competitor ASINs from brand_analytics_iceberg.competitor_asins.\n\nUse this tool to:\n- See which ASINs the company tracks as competitors\n- Filter by rivalry scope: against a specific ASIN, parent, or product family\n- Audit `is_active` rows before running competitive analysis\n\nWritten by brand_analytics_write_competitor_asins. Consumed by brand_analytics_growth_machine_diagnosis (flags is_competitor, competitor_won_keyword) and optionally by brand_analytics_get_competitive_landscape.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_ids": {
+        "type": "array",
+        "items": { "type": "integer", "minimum": 1 },
+        "minItems": 1,
+        "description": "Company identifier(s) — required for multi-tenant isolation."
+      },
+      "marketplaces": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional: filter by Amazon marketplace code(s) (e.g., 'US')."
+      },
+      "against_my_asin": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional: restrict to rivalries scoped against these of my ASINs."
+      },
+      "against_my_product_family": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional: restrict to rivalries scoped against these of my product families."
+      },
+      "competitor_asins": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional: filter to specific competitor ASIN(s)."
+      },
+      "include_inactive": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, include soft-deleted rows (is_active = false)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 200
+      }
+    },
+    "required": ["company_ids"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "company_id": { "type": "integer" },
+            "marketplace": { "type": "string" },
+            "competitor_asin": { "type": "string" },
+            "competitor_brand": { "type": ["string", "null"] },
+            "competitor_label": { "type": ["string", "null"] },
+            "against_my_asin": { "type": ["string", "null"] },
+            "against_my_product_family": { "type": ["string", "null"] },
+            "priority": { "type": ["integer", "null"] },
+            "added_by": { "type": ["string", "null"] },
+            "added_at": { "type": "string" },
+            "is_active": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "required": ["items"]
+  }
+}
