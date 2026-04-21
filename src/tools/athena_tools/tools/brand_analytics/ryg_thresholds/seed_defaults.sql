@@ -39,4 +39,23 @@ VALUES
 -- GLOBAL (shared across tools) — system defaults (company_id = NULL)
 -- ═══════════════════════════════════════════════════════════════════════════════
 (NULL, 'default', 'global', 'trend', 'delta', 'green',  0.05,  'growth_sprint',  'Metric improved by >5% vs previous period.',             current_timestamp),
-(NULL, 'default', 'global', 'trend', 'delta', 'red',   -0.08,  'critical_drop',  'Metric declined by >8%; immediate audit required.',       current_timestamp);
+(NULL, 'default', 'global', 'trend', 'delta', 'red',   -0.08,  'critical_drop',  'Metric declined by >8%; immediate audit required.',       current_timestamp),
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SCP — weakness, ceiling, and opportunity (scale-traffic branch) defaults
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Weakness: WoW engagement decline trigger (applies to both CR and PR delta)
+(NULL, 'default', 'scp', 'weakness', 'delta',         'red',   -0.02, 'engagement_decline',    'Both CR & PR declined >2pp WoW; investigate listing changes.',     current_timestamp),
+-- Weakness: absolute low-metric thresholds (below these is red)
+(NULL, 'default', 'scp', 'weakness', 'click_rate',    'red',    0.08, 'low_ctr',               'CTR below 8%; main image, title, or price likely underperforming.', current_timestamp),
+(NULL, 'default', 'scp', 'weakness', 'purchase_rate', 'red',    0.07, 'low_cvr',               'CVR below 7%; PDP friction; review content or reviews.',           current_timestamp),
+-- Weakness: cart-add rate below acceptable level
+(NULL, 'default', 'scp', 'weakness', 'cart_add_rate', 'yellow', 0.12, 'low_cart_rate',         'Cart-add rate below 12%; review A+ content or pricing.',           current_timestamp),
+-- Opportunity: scale-traffic branch (good click + purchase rate but no delivery alpha)
+(NULL, 'default', 'scp', 'opportunity', 'purchase_rate', 'yellow', 0.09, 'scale_traffic_pr',   'Purchase rate qualifies for scaling; increase ad spend.',          current_timestamp),
+(NULL, 'default', 'scp', 'opportunity', 'click_rate',    'yellow', 0.08, 'scale_traffic_cr',   'Click rate qualifies for scaling; raise bids or budget.',          current_timestamp),
+-- Ceiling: high-performance saturation thresholds
+(NULL, 'default', 'scp', 'ceiling', 'click_rate',    'red',    0.16, 'click_ceiling',          'CTR ≥16%; at market limit, further gains are expensive.',          current_timestamp),
+(NULL, 'default', 'scp', 'ceiling', 'click_rate',    'yellow', 0.12, 'approaching_click_cap',  'CTR ≥12%; growth is decelerating.',                                current_timestamp),
+(NULL, 'default', 'scp', 'ceiling', 'purchase_rate', 'red',    0.10, 'conv_ceiling',           'CVR ≥10%; near theoretical maximum.',                              current_timestamp),
+(NULL, 'default', 'scp', 'ceiling', 'purchase_rate', 'yellow', 0.09, 'high_conv',              'CVR ≥9%; approaching saturation.',                                 current_timestamp);

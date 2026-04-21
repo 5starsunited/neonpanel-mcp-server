@@ -1,14 +1,18 @@
 {
   "name": "brand_analytics_list_ryg_thresholds",
-  "description": "Lists the RYG (Red/Yellow/Green) signal thresholds used by Brand Analytics analysis tools. Shows both system defaults and any company-specific overrides.\n\nUse cases:\n- Inspect current threshold values before customising them\n- Verify company-specific overrides are applied correctly\n- Understand how strength, weakness, opportunity, and trend signals are classified\n\nEach row defines one threshold boundary for a (tool, signal_group, metric, color) combination.\nCompany overrides (company_id = N) take priority over defaults (company_id IS NULL) in analysis queries.",
+  "description": "Lists the RYG (Red/Yellow/Green) signal thresholds used by Brand Analytics analysis tools. Shows both system defaults and any company-specific overrides.\n\nUse cases:\n- Inspect current threshold values before customising them\n- Verify company-specific overrides are applied correctly\n- Understand how strength, weakness, opportunity, and trend signals are classified\n\nEach row defines one threshold boundary for a (tool, signal_group, metric, color) combination.\nCompany overrides (company_ids entry) take priority over defaults (company_id IS NULL in the DB) in analysis queries.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
-      "company_id": {
-        "type": "integer",
-        "minimum": 1,
-        "description": "Company identifier. Returns both the company's custom overrides and the system defaults."
+      "company_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "minItems": 1,
+        "description": "Company identifier(s) - required for multi-tenant isolation."
       },
       "tool": {
         "type": "string",
@@ -26,7 +30,7 @@
       }
     },
     "required": [
-      "company_id"
+      "company_ids"
     ],
     "additionalProperties": false
   },

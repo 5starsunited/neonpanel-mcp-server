@@ -53,6 +53,8 @@
                 "weakness",
                 "opportunity",
                 "threshold",
+                "ceiling",
+                "diagnostic",
                 "trend"
               ],
               "description": "Signal group."
