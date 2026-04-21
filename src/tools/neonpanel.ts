@@ -702,12 +702,15 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
 
         // The NeonPanel API declares GET /listings with a JSON body for filters,
         // but in practice query-parameter filtering is the reliable approach.
-        // Try GET ?asin= first, fall back to GET ?search=, then POST body.
+        // Workaround: ListingController currently 500s with
+        // 'Undefined array key "per_page"' if per_page is not supplied, so we
+        // always pass per_page/page explicitly.
+        const pagination = { per_page: 25, page: 1 };
         try {
           listingsResponse = await neonPanelRequest({
             token: context.userToken,
             path: listPath,
-            query: { asin },
+            query: { ...pagination, asin },
           });
         } catch (error) {
           if (error instanceof NeonPanelApiError && [400, 404, 422].includes(error.status ?? 0)) {
@@ -715,7 +718,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
               listingsResponse = await neonPanelRequest({
                 token: context.userToken,
                 path: listPath,
-                query: { search: asin },
+                query: { ...pagination, search: asin },
               });
             } catch (fallbackError) {
               if (fallbackError instanceof NeonPanelApiError && [400, 404, 422].includes(fallbackError.status ?? 0)) {
@@ -723,7 +726,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
                   token: context.userToken,
                   path: listPath,
                   method: 'POST',
-                  body: { asin },
+                  body: { ...pagination, asin },
                 });
               } else {
                 throw fallbackError;
