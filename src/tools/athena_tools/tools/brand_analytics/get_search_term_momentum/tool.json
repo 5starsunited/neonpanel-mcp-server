@@ -13,10 +13,14 @@
             "type": "object",
             "description": "Standard filters for momentum analysis.",
             "properties": {
-              "company_id": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Numeric company identifier. Required."
+              "company_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1,
+                "description": "Company identifier(s) - required for multi-tenant isolation."
               },
               "search_terms": {
                 "type": "array",
@@ -40,14 +44,12 @@
                 },
                 "description": "Optional: filter to search terms where these ASINs appear in top 3."
               },
-              "marketplace": {
+              "marketplaces": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "minItems": 1,
-                "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+                "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported."
               },
               "category": {
                 "type": "array",
@@ -112,7 +114,7 @@
               }
             },
             "required": [
-              "company_id"
+              "company_ids"
             ],
             "additionalProperties": false
           },

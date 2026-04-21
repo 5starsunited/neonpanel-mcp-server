@@ -13,10 +13,14 @@
             "type": "object",
             "description": "Filters for repeat purchase analysis. company_id is required; all others are optional.",
             "properties": {
-              "company_id": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Numeric company identifier. Required."
+              "company_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1,
+                "description": "Company identifier(s) - required for multi-tenant isolation."
               },
               "asin": {
                 "type": "array",
@@ -26,18 +30,16 @@
                 "maxItems": 20,
                 "description": "ASINs to analyze. Omit to return all ASINs."
               },
-              "marketplace": {
+              "marketplaces": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "minItems": 1,
-                "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Omit for all marketplaces."
+                "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported."
               }
             },
             "required": [
-              "company_id"
+              "company_ids"
             ],
             "additionalProperties": false
           },

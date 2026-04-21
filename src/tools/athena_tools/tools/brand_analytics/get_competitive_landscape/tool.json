@@ -13,10 +13,14 @@
             "type": "object",
             "description": "Standard filters for competitive analysis.",
             "properties": {
-              "company_id": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Numeric company identifier. Required."
+              "company_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1,
+                "description": "Company identifier(s) - required for multi-tenant isolation."
               },
               "search_terms": {
                 "type": "array",
@@ -41,14 +45,12 @@
                 },
                 "description": "Optional: Your ASINs to track competitive position against."
               },
-              "marketplace": {
+              "marketplaces": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "minItems": 1,
-                "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE'). Strongly recommended — without it, results span all marketplaces and may include globally popular terms not specific to your products."
+                "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported. Strongly recommended — without it, results span all marketplaces and may include globally popular terms not specific to your products."
               },
               "category": {
                 "type": "array",
@@ -59,7 +61,7 @@
               }
             },
             "required": [
-              "company_id"
+              "company_ids"
             ],
             "additionalProperties": false
           },

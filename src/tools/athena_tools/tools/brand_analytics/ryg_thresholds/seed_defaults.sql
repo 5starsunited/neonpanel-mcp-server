@@ -12,14 +12,14 @@ VALUES
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SEARCH QUERY PERFORMANCE (sqp) — system defaults (company_id = NULL)
 -- ═══════════════════════════════════════════════════════════════════════════════
-(NULL, 'default', 'sqp', 'strength',    'click_share',      'green',   0.1,   'market_leader',    'Top-tier click share (>10%); listing is highly relevant.',             current_timestamp),
-(NULL, 'default', 'sqp', 'strength',    'purchase_rate',    'green',   0.1,   'high_intent_win',  'Conversion is elite (>10%); strong social proof/price.',               current_timestamp),
-(NULL, 'default', 'sqp', 'strength',    'click_share',      'yellow',  0.05,  'competitive',      'Moderate click share; visible but not dominant.',                      current_timestamp),
-(NULL, 'default', 'sqp', 'strength',    'purchase_rate',    'yellow',  0.07,  'stable_conv',      'Average conversion; listing meets basic expectations.',                current_timestamp),
-(NULL, 'default', 'sqp', 'weakness',    'click_share',      'red',     0.03,  'visibility_void',  'Poor click share (<3%); main image or price likely failing.',          current_timestamp),
-(NULL, 'default', 'sqp', 'weakness',    'purchase_rate',    'red',     0.04,  'pdp_friction',     'Critical conversion leak; check reviews or UX.',                       current_timestamp),
-(NULL, 'default', 'sqp', 'opportunity', 'cvr_ratio',        'green',   1.3,   'shipping_alpha',   '1-Day delivery provides >30% CVR lift. Scale FBA.',                    current_timestamp),
-(NULL, 'default', 'sqp', 'opportunity', 'impression_share', 'green',   0.02,  'untapped_volume',  'High CVR but <2% Imp Share. Aggressively raise bids.',                 current_timestamp),
+(NULL, 'default', 'sqp', 'strength',    'click_share',      'green',   0.12,  'market_leader',    'Top-tier click share (>12%); listing is highly relevant.',            current_timestamp),
+(NULL, 'default', 'sqp', 'strength',    'purchase_rate',    'green',   0.09,  'high_intent_win',  'Conversion is elite (>9%); strong social proof/price.',               current_timestamp),
+(NULL, 'default', 'sqp', 'strength',    'click_share',      'yellow',  0.08,  'competitive',      'Acceptable click share (≥8%); visible but not dominant.',             current_timestamp),
+(NULL, 'default', 'sqp', 'strength',    'purchase_rate',    'yellow',  0.07,  'stable_conv',      'Average conversion (≥7%); listing meets basic expectations.',         current_timestamp),
+(NULL, 'default', 'sqp', 'weakness',    'click_share',      'red',     0.08,  'offer_weakness',   'Click share below 8% despite impressions; main image/price failing.', current_timestamp),
+(NULL, 'default', 'sqp', 'weakness',    'purchase_rate',    'red',     0.07,  'funnel_leakage',   'Strong clicks but purchase rate <7%; PDP/price friction.',            current_timestamp),
+(NULL, 'default', 'sqp', 'opportunity', 'cvr_ratio',        'green',   1.3,   'shipping_alpha',   '1-Day delivery provides >30% CVR lift. Scale FBA.',                   current_timestamp),
+(NULL, 'default', 'sqp', 'opportunity', 'impression_share', 'green',   0.04,  'visibility_gap',   'Impression share <4% with CTR advantage; aggressively raise bids.',   current_timestamp),
 
 -- SQP Diagnostic scenario thresholds (Chapter 1 framework)
 (NULL, 'default', 'sqp', 'diagnostic', 'impression_share', 'red',    0.05,  'low_visibility',     'BIS below 5% means effectively invisible. Scenario A trigger.',        current_timestamp),
@@ -38,8 +38,8 @@ VALUES
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- GLOBAL (shared across tools) — system defaults (company_id = NULL)
 -- ═══════════════════════════════════════════════════════════════════════════════
-(NULL, 'default', 'global', 'trend', 'delta', 'green',  0.05,  'growth_sprint',  'Metric improved by >5% vs previous period.',             current_timestamp),
-(NULL, 'default', 'global', 'trend', 'delta', 'red',   -0.08,  'critical_drop',  'Metric declined by >8%; immediate audit required.',       current_timestamp),
+(NULL, 'default', 'global', 'trend', 'delta', 'green',  0.02,  'growth_sprint',  'Metric improved by >2pp vs previous period.',              current_timestamp),
+(NULL, 'default', 'global', 'trend', 'delta', 'red',   -0.02,  'critical_drop',  'Metric declined by >2pp; investigate listing/bid changes.', current_timestamp),
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- SCP — weakness, ceiling, and opportunity (scale-traffic branch) defaults
@@ -58,4 +58,23 @@ VALUES
 (NULL, 'default', 'scp', 'ceiling', 'click_rate',    'red',    0.16, 'click_ceiling',          'CTR ≥16%; at market limit, further gains are expensive.',          current_timestamp),
 (NULL, 'default', 'scp', 'ceiling', 'click_rate',    'yellow', 0.12, 'approaching_click_cap',  'CTR ≥12%; growth is decelerating.',                                current_timestamp),
 (NULL, 'default', 'scp', 'ceiling', 'purchase_rate', 'red',    0.10, 'conv_ceiling',           'CVR ≥10%; near theoretical maximum.',                              current_timestamp),
-(NULL, 'default', 'scp', 'ceiling', 'purchase_rate', 'yellow', 0.09, 'high_conv',              'CVR ≥9%; approaching saturation.',                                 current_timestamp);
+(NULL, 'default', 'scp', 'ceiling', 'purchase_rate', 'yellow', 0.09, 'high_conv',              'CVR ≥9%; approaching saturation.',                                 current_timestamp),
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SQP — weakness, ceiling, and opportunity additional defaults
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Weakness: WoW decline trigger (both IS and CS must be < this to fire)
+(NULL, 'default', 'sqp', 'weakness', 'delta',             'red',    0.0,   'wow_decline',       'Both IS WoW and CS WoW negative; visibility+engagement declining.',   current_timestamp),
+-- Weakness: minimum impression share required to conclude offer weakness
+(NULL, 'default', 'sqp', 'weakness', 'impression_share', 'yellow', 0.04,  'min_impression_bar','Min IS threshold (4%) needed to evaluate offer weakness.',            current_timestamp),
+-- Weakness: cart-add rate below this is intent mismatch (yellow)
+(NULL, 'default', 'sqp', 'weakness', 'cart_add_rate',    'yellow', 0.12,  'low_cart_rate',     'Cart-add rate <12%; low purchase intent; check PDP content.',         current_timestamp),
+-- Opportunity: impression share upper bounds for visibility gap
+(NULL, 'default', 'sqp', 'opportunity', 'impression_share', 'yellow', 0.06, 'moderate_vis_gap', 'IS <6% with CTR advantage; moderate visibility opportunity.',         current_timestamp),
+-- Opportunity: minimum CTR advantage to qualify an IS gap as an opportunity
+(NULL, 'default', 'sqp', 'opportunity', 'ctr_advantage',    'green',  1.2,  'ctr_uplift',       'CTR advantage ≥1.2× baseline; listing outperforms category average.', current_timestamp),
+-- Ceiling: visibility saturation thresholds
+(NULL, 'default', 'sqp', 'ceiling', 'impression_share', 'red',    0.06, 'visibility_ceiling',  'IS ≥6% with strong CTR advantage; near growth ceiling.',              current_timestamp),
+(NULL, 'default', 'sqp', 'ceiling', 'impression_share', 'yellow', 0.05, 'near_ceiling',        'IS ≥5% with CTR advantage; approaching ceiling.',                    current_timestamp),
+(NULL, 'default', 'sqp', 'ceiling', 'ctr_advantage',    'red',    1.5,  'high_ctr_ceiling',    'CTR advantage ≥1.5×; strong position, further growth limited.',       current_timestamp),
+(NULL, 'default', 'sqp', 'ceiling', 'ctr_advantage',    'yellow', 1.2,  'ctr_ceiling_warn',    'CTR advantage ≥1.2×; approaching competitive ceiling.',               current_timestamp);

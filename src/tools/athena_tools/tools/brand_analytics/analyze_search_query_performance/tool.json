@@ -11,9 +11,9 @@
         "properties": {
           "filters": {
             "type": "object",
-            "description": "WHERE clause filters. company_id is required.",
+            "description": "WHERE clause filters. company_ids is required.",
             "properties": {
-              "company_id": {
+              "company_ids": {
                 "type": "array",
                 "items": {
                   "type": "integer",
@@ -43,14 +43,12 @@
                 },
                 "description": "Optional: filter by child ASINs."
               },
-              "marketplace": {
+              "marketplaces": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "minItems": 1,
-                "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+                "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported."
               },
               "row_type": {
                 "type": "array",
@@ -237,7 +235,7 @@
               }
             },
             "required": [
-              "company_id"
+              "company_ids"
             ],
             "additionalProperties": false
           },

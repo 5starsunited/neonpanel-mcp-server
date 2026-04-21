@@ -48,11 +48,11 @@ const querySchema = z
   .object({
     filters: z
       .object({
-        company_id: z.array(z.coerce.number().int().min(1)).min(1),
+        company_ids: z.array(z.coerce.number().int().min(1)).min(1),
         search_terms: z.array(z.string()).optional(),
         parent_asins: z.array(z.string()).optional(),
         asins: z.array(z.string()).optional(),
-        marketplace: z.array(z.string()).min(1).max(1).optional(),
+        marketplaces: z.array(z.string()).optional(),
         row_type: z.array(z.enum(['child', 'parent'])).optional(),
         revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
         pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
@@ -158,8 +158,8 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
 
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
 
-      const requestedCompanyIds = query.filters.company_id ?? [];
-      const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
+      const requestedCompanyIds = query.filters.company_ids ?? [];
+      const allowedCompanyIds = requestedCompanyIds.filter((id: number) => permittedCompanyIds.includes(id));
 
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
         return { items: [] };
@@ -168,7 +168,7 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
       const catalog = config.athena.catalog;
       const database = 'sp_api_iceberg';
 
-      const marketplaces = (query.filters.marketplace ?? []).map((m) => m.trim()).filter(Boolean);
+      const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
       const parentAsins = (query.filters.parent_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);

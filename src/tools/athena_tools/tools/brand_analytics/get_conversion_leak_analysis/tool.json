@@ -13,10 +13,14 @@
             "type": "object",
             "description": "Standard filters for ASIN selection.",
             "properties": {
-              "company_id": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Numeric company identifier. Required."
+              "company_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 1,
+                "description": "Company identifier(s) - required for multi-tenant isolation."
               },
               "asin": {
                 "type": "array",
@@ -50,19 +54,18 @@
                 },
                 "description": "Optional: Filter by brand name(s)."
               },
-              "marketplace": {
+              "marketplaces": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
                 "minItems": 1,
-                "maxItems": 1,
-                "description": "Amazon marketplace code (e.g., 'US', 'UK', 'DE')."
+                "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported."
               }
             },
             "required": [
-              "company_id",
-              "marketplace"
+              "company_ids",
+              "marketplaces"
             ],
             "additionalProperties": false
           },
