@@ -23,6 +23,7 @@ CREATE TABLE brand_analytics_iceberg.tracked_search_terms (
   is_active        BOOLEAN,
   notes            STRING
 )
+PARTITIONED BY (company_id)
 LOCATION 's3://etl-glue-amazon-ads-prod-preprocessbucketreports6-1w0usrm0kq0j7/aws_etl/brand_analytics_iceberg/brand_analytics_iceberg/tracked_search_terms'
 TBLPROPERTIES (
   'table_type' = 'iceberg',
