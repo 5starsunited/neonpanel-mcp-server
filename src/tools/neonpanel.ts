@@ -700,20 +700,22 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
 
-        // Per the 2026-02-19 OpenAPI spec, this endpoint is GET with a JSON
-        // request body accepting { id?, asin?, search? }. No pagination params.
+        // The 2026-02-19 spec describes this as GET with a JSON request body
+        // ({ id?, asin?, search? }), but fetch/undici forbid a body on GET.
+        // Laravel reads filters from both query and body, so we pass them as
+        // query params. Fall back to `search` if asin filter yields 4xx.
         try {
           listingsResponse = await neonPanelRequest({
             token: context.userToken,
             path: listPath,
-            body: { asin },
+            query: { asin },
           });
         } catch (error) {
           if (error instanceof NeonPanelApiError && [400, 404, 422].includes(error.status ?? 0)) {
             listingsResponse = await neonPanelRequest({
               token: context.userToken,
               path: listPath,
-              body: { search: asin },
+              query: { search: asin },
             });
           } else {
             throw error;

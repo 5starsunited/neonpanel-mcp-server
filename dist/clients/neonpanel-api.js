@@ -107,7 +107,7 @@ function buildHeaders(token, body) {
     return headers;
 }
 function serializeBody(method, body) {
-    if (method.toUpperCase() === 'GET' || method.toUpperCase() === 'DELETE') {
+    if (method.toUpperCase() === 'DELETE') {
         return undefined;
     }
     if (body === undefined || body === null) {

@@ -123,7 +123,7 @@ function buildHeaders(token: string, body: unknown) {
 }
 
 function serializeBody(method: string, body: unknown): string | undefined {
-  if (method.toUpperCase() === 'DELETE') {
+  if (method.toUpperCase() === 'GET' || method.toUpperCase() === 'DELETE') {
     return undefined;
   }
 
