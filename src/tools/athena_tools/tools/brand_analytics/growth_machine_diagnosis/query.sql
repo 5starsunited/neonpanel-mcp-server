@@ -212,8 +212,10 @@ screenshots AS (
     s.competitors                 AS ss_competitors,
     s.uploaded_at                 AS ss_uploaded_at,
     -- Rough leader signals from screenshot competitor list (rank=1).
-    MAX(CASE WHEN comp.rank = 1 THEN comp.click_rate  END) AS ss_leader_click_rate,
-    MAX(CASE WHEN comp.rank = 1 THEN comp.click_rate  END) -
+    -- NOTE: `rank` is a reserved word in Trino/Athena; must be double-quoted
+    -- when used as a struct field accessor.
+    MAX(CASE WHEN comp."rank" = 1 THEN comp.click_rate END) AS ss_leader_click_rate,
+    MAX(CASE WHEN comp."rank" = 1 THEN comp.click_rate END) -
       MIN(CASE WHEN comp.asin IS NOT NULL THEN comp.click_rate END) AS ss_click_rate_spread
   FROM "{{catalog}}"."brand_analytics_iceberg"."sqp_query_details_uploads" s
   CROSS JOIN params p

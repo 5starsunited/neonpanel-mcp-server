@@ -700,14 +700,6 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
 
-        // BACKEND BUG (tracked upstream): ListingController::paginateByCompany
-        // signature strictly types `int $perPage`, but HTTP query strings are
-        // always strings, so the call currently 500s with:
-        //   "Argument #4 ($perPage) must be of type int, string given"
-        // We still send per_page/page (so the controller doesn't hit the
-        // earlier 'Undefined array key per_page' path) and try GET first.
-        // POST /listings is NOT used as a workaround because REST POST against
-        // a collection endpoint can create a resource — unsafe on read paths.
         const pagination = { per_page: 25, page: 1 };
         try {
           listingsResponse = await neonPanelRequest({
