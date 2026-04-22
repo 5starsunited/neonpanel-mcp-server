@@ -231,8 +231,8 @@ screenshots AS (
 ryg_ranked AS (
   SELECT r.*,
     ROW_NUMBER() OVER (
-      PARTITION BY tool, signal_group, metric, color
-      ORDER BY CASE WHEN company_id = (SELECT company_id FROM params) THEN 0 ELSE 1 END
+      PARTITION BY r.tool, r.signal_group, r.metric, r.color
+      ORDER BY CASE WHEN r.company_id = p.company_id THEN 0 ELSE 1 END
     ) AS rn
   FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds" r, params p
   WHERE (r.company_id = p.company_id OR r.company_id IS NULL)
