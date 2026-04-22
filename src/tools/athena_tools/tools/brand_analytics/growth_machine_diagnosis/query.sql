@@ -212,15 +212,17 @@ screenshots AS (
     s.competitors                 AS ss_competitors,
     s.uploaded_at                 AS ss_uploaded_at,
     -- Rough leader signals from screenshot competitor list (rank=1).
-    -- NOTE: `rank` is a reserved word in Trino/Athena; must be double-quoted
-    -- when used as a struct field accessor.
-    MAX(CASE WHEN comp."rank" = 1 THEN comp.click_rate END) AS ss_leader_click_rate,
-    MAX(CASE WHEN comp."rank" = 1 THEN comp.click_rate END) -
-      MIN(CASE WHEN comp.asin IS NOT NULL THEN comp.click_rate END) AS ss_click_rate_spread
+    -- Use explicit UNNEST column aliases so struct fields are addressable in
+    -- Athena (Trino), and to avoid the reserved word `rank` entirely.
+    MAX(CASE WHEN comp_rank = 1 THEN comp_click_rate END) AS ss_leader_click_rate,
+    MAX(CASE WHEN comp_rank = 1 THEN comp_click_rate END) -
+      MIN(CASE WHEN comp_asin IS NOT NULL THEN comp_click_rate END) AS ss_click_rate_spread
   FROM "{{catalog}}"."brand_analytics_iceberg"."sqp_query_details_uploads" s
   CROSS JOIN params p
-  LEFT JOIN UNNEST(s.competitors) AS comp
-    ON TRUE
+  LEFT JOIN UNNEST(s.competitors) AS comp(
+    comp_asin, comp_brand, comp_impressions, comp_clicks,
+    comp_click_rate, comp_price_median, comp_rank
+  ) ON TRUE
   WHERE s.company_id = p.company_id
     AND LOWER(s.marketplace) = LOWER(p.marketplace)
     AND s.period_start <= p.period_end
