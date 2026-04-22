@@ -700,19 +700,20 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const listPath = `/api/v1/companies/${encodeURIComponent(companyUuid)}/listings`;
         let listingsResponse: any;
 
-        const pagination = { per_page: 25, page: 1 };
+        // Per the 2026-02-19 OpenAPI spec, this endpoint is GET with a JSON
+        // request body accepting { id?, asin?, search? }. No pagination params.
         try {
           listingsResponse = await neonPanelRequest({
             token: context.userToken,
             path: listPath,
-            query: { ...pagination, asin },
+            body: { asin },
           });
         } catch (error) {
           if (error instanceof NeonPanelApiError && [400, 404, 422].includes(error.status ?? 0)) {
             listingsResponse = await neonPanelRequest({
               token: context.userToken,
               path: listPath,
-              query: { ...pagination, search: asin },
+              body: { search: asin },
             });
           } else {
             throw error;
