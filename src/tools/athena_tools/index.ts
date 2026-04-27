@@ -38,6 +38,7 @@ import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
 import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
+import { registerProjectsListRecentActivityTool } from './tools/projects/list_recent_activity/register';
 import { registerAdvertisingAnalyzeSearchTermsTool } from './tools/amazon_advertising/analyze_search_terms/register';
 import { registerAdvertisingAnalyzeCampaignPerformanceTool } from './tools/amazon_advertising/analyze_campaign_performance/register';
 import { registerFinancialsAnalyzeGeneralLedgerTool } from './tools/financials/analyze_general_ledger/register';
@@ -117,5 +118,6 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerFinancialsListUnmappedStatementTransactionsTool(registry);
   registerShopifyListInventoryBalancesTool(registry);
   registerShopifyListOrdersTool(registry);
+  registerProjectsListRecentActivityTool(registry);
   registerSearchNeonpanelProjectUrl(registry);
 }

@@ -1,0 +1,79 @@
+{
+  "name": "projects_list_recent_activity",
+  "description": "Lists recent project-related activity in a readable support-friendly format. Use this when the user asks what is new in the last N days.\n\nCurrent event coverage:\n- task_status_changed\n- field_value_changed\n\nTypical use:\n- \"What is new in the last 3 days for company 103?\"\n- \"Show me recent field changes for the last 7 days\"\n\nResults are ordered newest first and include a prebuilt `summary` field for readable output.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_ids": {
+        "type": "array",
+        "items": { "type": "integer", "minimum": 1 },
+        "description": "Company ID filter. Required."
+      },
+      "days_back": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 30,
+        "default": 3,
+        "description": "How many days back to look."
+      },
+      "event_types": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["task_status_changed", "field_value_changed"]
+        },
+        "description": "Optional event type filter. Omit to include all supported activity types."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 100,
+        "description": "Maximum rows to return."
+      }
+    },
+    "required": ["company_ids"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "event_time": { "type": "string" },
+            "company_id": { "type": "integer" },
+            "company_name": { "type": "string" },
+            "actor_user_id": { "type": "integer" },
+            "actor_user_name": { "type": "string" },
+            "event_type": { "type": "string" },
+            "entity_type": { "type": "string" },
+            "entity_id": { "type": "integer" },
+            "entity_name": { "type": "string" },
+            "item_content": { "type": "string" },
+            "project_id": { "type": "integer" },
+            "project_name": { "type": "string" },
+            "project_url_path": { "type": "string" },
+            "summary": { "type": "string" }
+          }
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "row_count": { "type": "integer" },
+          "days_back": { "type": "integer" },
+          "company_ids": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "event_types": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
