@@ -254,70 +254,46 @@ Supply buffer risk: ok (exclude critical/moderate)
 </ul>
 <h2 id="examples">Examples </h2>
 <h3 id="example-1-critical-items-high-stockout-risk">Example 1: Critical Items (High Stockout Risk) </h3>
-<pre data-role="codeBlock" data-info="json" class="language-json json"><code><span class="token punctuation">{</span>
-  <span class="token property">"query"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"filters"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-      <span class="token property">"company_id"</span><span class="token operator">:</span> <span class="token number">42</span><span class="token punctuation">,</span>
-      <span class="token property">"revenue_abcd_class"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"A"</span><span class="token punctuation">,</span> <span class="token string">"B"</span><span class="token punctuation">]</span>
-    <span class="token punctuation">}</span><span class="token punctuation">,</span>
-    <span class="token property">"limit"</span><span class="token operator">:</span> <span class="token number">20</span>
-  <span class="token punctuation">}</span><span class="token punctuation">,</span>
-  <span class="token property">"tool_specific"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"stockout_risk_filter"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"high"</span><span class="token punctuation">]</span>
-  <span class="token punctuation">}</span>
-<span class="token punctuation">}</span>
+<pre data-role="codeBlock" data-info="json" class="language-json json"><code>{
+  "company_id": 42,
+  "revenue_abcd_class": ["A", "B"],
+  "limit": 20,
+  "stockout_risk_filter": ["high"]
+}
 </code></pre><p>→ Returns 3 items that will stockout within 24 hours even at median inbound arrival</p>
 <h3 id="example-2-approaching-minimum-buffer-proactive-planning">Example 2: Approaching Minimum Buffer (Proactive Planning) </h3>
-<pre data-role="codeBlock" data-info="json" class="language-json json"><code><span class="token punctuation">{</span>
-  <span class="token property">"query"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"filters"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-      <span class="token property">"company_id"</span><span class="token operator">:</span> <span class="token number">42</span><span class="token punctuation">,</span>
-      <span class="token property">"brand"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"Nike"</span><span class="token punctuation">,</span> <span class="token string">"Adidas"</span><span class="token punctuation">]</span>
-    <span class="token punctuation">}</span><span class="token punctuation">,</span>
-    <span class="token property">"sort"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-      <span class="token property">"field"</span><span class="token operator">:</span> <span class="token string">"days_of_supply_p80"</span><span class="token punctuation">,</span>
-      <span class="token property">"direction"</span><span class="token operator">:</span> <span class="token string">"asc"</span>
-    <span class="token punctuation">}</span><span class="token punctuation">,</span>
-    <span class="token property">"limit"</span><span class="token operator">:</span> <span class="token number">50</span>
-  <span class="token punctuation">}</span><span class="token punctuation">,</span>
-  <span class="token property">"tool_specific"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"min_days_of_supply"</span><span class="token operator">:</span> <span class="token number">28</span><span class="token punctuation">,</span>
-    <span class="token property">"velocity_weighting_mode"</span><span class="token operator">:</span> <span class="token string">"balanced"</span><span class="token punctuation">,</span>
-    <span class="token property">"supply_buffer_risk_filter"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"high"</span><span class="token punctuation">,</span> <span class="token string">"moderate"</span><span class="token punctuation">]</span>
-  <span class="token punctuation">}</span>
-<span class="token punctuation">}</span>
+<pre data-role="codeBlock" data-info="json" class="language-json json"><code>{
+  "company_id": 42,
+  "brand": ["Nike", "Adidas"],
+  "sort": {
+    "field": "days_of_supply_p80",
+    "direction": "asc"
+  },
+  "limit": 50,
+  "min_days_of_supply": 28,
+  "velocity_weighting_mode": "balanced",
+  "supply_buffer_risk_filter": ["high", "moderate"]
+}
 </code></pre><p>→ Returns items below 28-day buffer sorted by urgency; sorted by increasing DOS for prioritization</p>
 <h3 id="example-3-aggressive-velocity-mode-high-growth-items">Example 3: Aggressive Velocity Mode (High-Growth Items) </h3>
-<pre data-role="codeBlock" data-info="json" class="language-json json"><code><span class="token punctuation">{</span>
-  <span class="token property">"query"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"filters"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-      <span class="token property">"company_id"</span><span class="token operator">:</span> <span class="token number">42</span><span class="token punctuation">,</span>
-      <span class="token property">"product_family"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"Electronics"</span><span class="token punctuation">,</span> <span class="token string">"Accessories"</span><span class="token punctuation">]</span>
-    <span class="token punctuation">}</span><span class="token punctuation">,</span>
-    <span class="token property">"limit"</span><span class="token operator">:</span> <span class="token number">30</span>
-  <span class="token punctuation">}</span><span class="token punctuation">,</span>
-  <span class="token property">"tool_specific"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"velocity_weighting_mode"</span><span class="token operator">:</span> <span class="token string">"aggressive"</span><span class="token punctuation">,</span>
-    <span class="token property">"include_warehouse_stock"</span><span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
-    <span class="token property">"p80_arrival_buffer_days"</span><span class="token operator">:</span> <span class="token number">2</span><span class="token punctuation">,</span>
-    <span class="token property">"supply_buffer_risk_filter"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"high"</span><span class="token punctuation">]</span>
-  <span class="token punctuation">}</span>
-<span class="token punctuation">}</span>
+<pre data-role="codeBlock" data-info="json" class="language-json json"><code>{
+  "company_id": 42,
+  "product_family": ["Electronics", "Accessories"],
+  "limit": 30,
+  "velocity_weighting_mode": "aggressive",
+  "include_warehouse_stock": true,
+  "p80_arrival_buffer_days": 2,
+  "supply_buffer_risk_filter": ["high"]
+}
 </code></pre><p>→ Returns fast-moving items with high buffer risk (emphasizing recent velocity spikes); includes warehouse alternatives; assumes 2-day delivery safety margin</p>
 <h3 id="example-4-warehouse-rebalancing-check">Example 4: Warehouse Rebalancing Check </h3>
-<pre data-role="codeBlock" data-info="json" class="language-json json"><code><span class="token punctuation">{</span>
-  <span class="token property">"query"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"filters"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-      <span class="token property">"company_id"</span><span class="token operator">:</span> <span class="token number">42</span>
-    <span class="token punctuation">}</span><span class="token punctuation">,</span>
-    <span class="token property">"limit"</span><span class="token operator">:</span> <span class="token number">15</span>
-  <span class="token punctuation">}</span><span class="token punctuation">,</span>
-  <span class="token property">"tool_specific"</span><span class="token operator">:</span> <span class="token punctuation">{</span>
-    <span class="token property">"include_warehouse_stock"</span><span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
-    <span class="token property">"include_inbound_details"</span><span class="token operator">:</span> <span class="token boolean">true</span><span class="token punctuation">,</span>
-    <span class="token property">"stockout_risk_filter"</span><span class="token operator">:</span> <span class="token punctuation">[</span><span class="token string">"high"</span><span class="token punctuation">,</span> <span class="token string">"moderate"</span><span class="token punctuation">]</span>
-  <span class="token punctuation">}</span>
-<span class="token punctuation">}</span>
+<pre data-role="codeBlock" data-info="json" class="language-json json"><code>{
+  "company_id": 42,
+  "limit": 15,
+  "include_warehouse_stock": true,
+  "include_inbound_details": true,
+  "stockout_risk_filter": ["high", "moderate"]
+}
 </code></pre><p>→ Returns items at stockout/moderate risk with full warehouse stock visibility and inbound ETA; supports emergency transfer planning</p>
 <h2 id="integration-with-other-tools">Integration with Other Tools </h2>
 <h3 id="supply-chain-place-purchase-order">Supply Chain: Place Purchase Order </h3>

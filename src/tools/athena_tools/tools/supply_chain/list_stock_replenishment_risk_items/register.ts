@@ -51,23 +51,20 @@ function sqlStringLiteralExpr(value: string | null | undefined): string {
   return sqlStringLiteral(value);
 }
 
-const sharedQuerySchema = z
+const inputSchema = z
   .object({
-    filters: z
-      .object({
-        company: z.string().optional(),
-        company_id: z.coerce.number().int().min(1).optional(),
-        brand: z.array(z.string()).optional(),
-        marketplace: z.array(z.string()).optional(),
-        product_family: z.array(z.string()).optional(),
-        parent_asin: z.array(z.string()).optional(),
-        asin: z.array(z.string()).optional(),
-        sku: z.array(z.string()).optional(),
-        revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
-        tags: z.array(z.string()).optional(),
-      })
-      .catchall(z.unknown())
-      .optional(),
+    // --- Selector filters & pagination ---
+    company_id: z.coerce.number().int().min(1),
+    brand: z.array(z.string()).optional(),
+    marketplace: z.array(z.string()).optional(),
+    marketplaces: z.array(z.string()).optional(),
+    product_family: z.array(z.string()).optional(),
+    parent_asin: z.array(z.string()).optional(),
+    asin: z.array(z.string()).optional(),
+    sku: z.array(z.string()).optional(),
+    inventory_id: z.array(z.string()).optional(),
+    revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
+    tags: z.array(z.string()).optional(),
     sort: z
       .object({
         field: z.string().optional(),
@@ -78,11 +75,7 @@ const sharedQuerySchema = z
     select_fields: z.array(z.string()).optional(),
     limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
     cursor: z.string().optional(),
-  })
-  .strict();
-
-const toolSpecificSchema = z
-  .object({
+    // --- Replenishment analysis knobs ---
     min_days_of_supply: z.coerce.number().int().min(1).max(90).default(28).optional(),
     velocity_weighting: z
       .object({
@@ -100,65 +93,37 @@ const toolSpecificSchema = z
   })
   .strict();
 
-const inputSchema = z
-  .object({
-    query: sharedQuerySchema,
-    tool_specific: z.unknown().optional(),
-  })
-  .strict();
-
 const fallbackOutputSchema = { type: 'object', additionalProperties: true } as const;
 
-async function resolveCompanyIds(
-  companyInput: string | number | undefined,
-  context: ToolExecutionContext,
-): Promise<number[]> {
-  let companyIds: number[] = [];
+async function getPermittedCompanyIds(context: ToolExecutionContext): Promise<number[]> {
+  try {
+    const permissions = [
+      'view:quicksight_group.inventory_management_new',
+      'view:quicksight_group.finance-new',
+    ];
 
-  // Direct company_id if provided
-  if (typeof companyInput === 'number' && companyInput > 0) {
-    companyIds.push(companyInput);
-  } else if (typeof companyInput === 'string') {
-    const parsed = parseInt(companyInput, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      companyIds.push(parsed);
-    }
-  }
-
-  // Fallback: fetch from NeonPanel API - needs at least ONE of these permissions
-  if (companyIds.length === 0) {
-    try {
-      const permissions = [
-        'view:quicksight_group.inventory_management_new',
-        'view:quicksight_group.finance-new',
-      ];
-
-      const allPermittedCompanyIds = new Set<number>();
-      for (const permission of permissions) {
-        try {
-          const response = await neonPanelRequest<CompaniesWithPermissionResponse>({
-            token: context.userToken,
-            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-          });
-          const companies = response.companies ?? [];
-          companies.forEach((c) => {
-            const id = c.company_id ?? c.companyId ?? c.id;
-            if (typeof id === 'number' && id > 0) {
-              allPermittedCompanyIds.add(id);
-            }
-          });
-        } catch {
-          // Continue if one permission check fails
-        }
+    const allPermittedCompanyIds = new Set<number>();
+    for (const permission of permissions) {
+      try {
+        const response = await neonPanelRequest<CompaniesWithPermissionResponse>({
+          token: context.userToken,
+          path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+        });
+        const companies = response.companies ?? [];
+        companies.forEach((c) => {
+          const id = c.company_id ?? c.companyId ?? c.id;
+          if (typeof id === 'number' && id > 0) {
+            allPermittedCompanyIds.add(id);
+          }
+        });
+      } catch {
+        // Continue if one permission check fails
       }
-      companyIds = Array.from(allPermittedCompanyIds);
-    } catch {
-      // If API fails, default to empty (will cause SQL to return no results)
-      companyIds = [];
     }
+    return Array.from(allPermittedCompanyIds);
+  } catch {
+    return [];
   }
-
-  return companyIds;
 }
 
 function parseJsonField(value: unknown): unknown {
@@ -213,27 +178,25 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
       try {
         // Parse and validate input
         const parsed = inputSchema.parse(args);
-        const toolSpecific = toolSpecificSchema.parse(parsed.tool_specific ?? {});
-        const query = parsed.query;
 
-        // Resolve company IDs
-        const companyIds = await resolveCompanyIds(query.filters?.company_id ?? query.filters?.company, context);
-        if (companyIds.length === 0) {
+        const permittedCompanyIds = await getPermittedCompanyIds(context);
+        if (!permittedCompanyIds.includes(parsed.company_id)) {
           return {
             items: [],
             meta: {
-              warnings: ['No authorized companies found'],
+              warnings: ['No authorized company found for company_id'],
               risk_distribution: {},
             },
           };
         }
+        const companyIds = [parsed.company_id];
 
         // Load SQL template
         const sqlPath = path.join(__dirname, 'query.sql');
         const sqlTemplate = await loadTextFile(sqlPath);
 
         // Resolve velocity weights based on mode or custom weights
-        const mode = toolSpecific.velocity_weighting_mode ?? 'balanced';
+        const mode = parsed.velocity_weighting_mode ?? 'balanced';
         let weight30d = 0.5, weight7d = 0.3, weight3d = 0.2;
         
         if (mode === 'conservative') {
@@ -242,36 +205,41 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
           weight30d = 0.2; weight7d = 0.3; weight3d = 0.5;
         } else if (mode === 'balanced' || mode === 'custom') {
           // Use provided weights or defaults
-          weight30d = toolSpecific.velocity_weighting?.weight_30d ?? 0.5;
-          weight7d = toolSpecific.velocity_weighting?.weight_7d ?? 0.3;
-          weight3d = toolSpecific.velocity_weighting?.weight_3d ?? 0.2;
+          weight30d = parsed.velocity_weighting?.weight_30d ?? 0.5;
+          weight7d = parsed.velocity_weighting?.weight_7d ?? 0.3;
+          weight3d = parsed.velocity_weighting?.weight_3d ?? 0.2;
         }
+
+        const marketplaceFilter = parsed.marketplace ?? parsed.marketplaces ?? [];
+        const marketplaces = (Array.isArray(marketplaceFilter) ? marketplaceFilter : [marketplaceFilter])
+          .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0)
+          .map((v: string) => v.trim());
 
         // Render template with parameters
         const renderedSql = renderSqlTemplate(sqlTemplate, {
           company_ids_array: sqlCompanyIdArrayExpr(companyIds),
-          skus_array: sqlVarcharArrayExpr(query.filters?.sku ?? []),
-          inventory_ids_array: sqlVarcharArrayExpr((query.filters?.inventory_id as any) ?? []),
-          asins_array: sqlVarcharArrayExpr(query.filters?.asin ?? []),
-          parent_asins_array: sqlVarcharArrayExpr(query.filters?.parent_asin ?? []),
-          brands_array: sqlVarcharArrayExpr(query.filters?.brand ?? []),
-          product_families_array: sqlVarcharArrayExpr(query.filters?.product_family ?? []),
-          countries_array: sqlVarcharArrayExpr(query.filters?.marketplace ?? []),
-          revenue_abcd_classes_array: sqlVarcharArrayExpr(query.filters?.revenue_abcd_class ?? []),
+          skus_array: sqlVarcharArrayExpr(parsed.sku ?? []),
+          inventory_ids_array: sqlVarcharArrayExpr(parsed.inventory_id ?? []),
+          asins_array: sqlVarcharArrayExpr(parsed.asin ?? []),
+          parent_asins_array: sqlVarcharArrayExpr(parsed.parent_asin ?? []),
+          brands_array: sqlVarcharArrayExpr(parsed.brand ?? []),
+          product_families_array: sqlVarcharArrayExpr(parsed.product_family ?? []),
+          countries_array: sqlVarcharArrayExpr(marketplaces),
+          revenue_abcd_classes_array: sqlVarcharArrayExpr(parsed.revenue_abcd_class ?? []),
 
-          min_days_of_supply: sqlIntegerLiteral(toolSpecific.min_days_of_supply ?? 28),
-          p80_arrival_buffer_days: sqlIntegerLiteral(toolSpecific.p80_arrival_buffer_days ?? 0),
-          include_warehouse_stock: sqlBooleanLiteral(toolSpecific.include_warehouse_stock ?? true),
-          include_inbound_details: sqlBooleanLiteral(toolSpecific.include_inbound_details ?? true),
+          min_days_of_supply: sqlIntegerLiteral(parsed.min_days_of_supply ?? 28),
+          p80_arrival_buffer_days: sqlIntegerLiteral(parsed.p80_arrival_buffer_days ?? 0),
+          include_warehouse_stock: sqlBooleanLiteral(parsed.include_warehouse_stock ?? true),
+          include_inbound_details: sqlBooleanLiteral(parsed.include_inbound_details ?? true),
           weight_30d: sqlDoubleLiteral(weight30d),
           weight_7d: sqlDoubleLiteral(weight7d),
           weight_3d: sqlDoubleLiteral(weight3d),
-          stockout_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.stockout_risk_filter ?? []),
-          supply_buffer_risk_filter_array: sqlVarcharArrayExpr(toolSpecific.supply_buffer_risk_filter ?? []),
+          stockout_risk_filter_array: sqlVarcharArrayExpr(parsed.stockout_risk_filter ?? []),
+          supply_buffer_risk_filter_array: sqlVarcharArrayExpr(parsed.supply_buffer_risk_filter ?? []),
 
-          limit_top_n: sqlIntegerLiteral(query.limit ?? 50),
-          sort_field: sqlStringLiteralExpr(query.sort?.field ?? null),
-          sort_direction: sqlStringLiteralExpr(query.sort?.direction ?? 'asc'),
+          limit_top_n: sqlIntegerLiteral(parsed.limit ?? 50),
+          sort_field: sqlStringLiteralExpr(parsed.sort?.field ?? null),
+          sort_direction: sqlStringLiteralExpr(parsed.sort?.direction ?? 'asc'),
 
           catalog: config.athena.catalog,
           database: config.athena.database,
@@ -283,15 +251,15 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
           database: config.athena.database,
           workGroup: config.athena.workgroup,
           outputLocation: config.athena.outputLocation,
-          maxRows: query.limit ?? 50,
+          maxRows: parsed.limit ?? 50,
         });
 
         if (!results?.rows || results.rows.length === 0) {
           return {
             items: [],
             meta: {
-              applied_sort: query.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
-              selected_fields: query.select_fields,
+              applied_sort: parsed.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
+              selected_fields: parsed.select_fields,
               included_fields: [
                 'inventory_id',
                 'sku',
@@ -335,8 +303,8 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
         return {
           items: enriched,
           meta: {
-            applied_sort: query.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
-            selected_fields: query.select_fields,
+            applied_sort: parsed.sort ?? { field: 'stockout_risk_tier', direction: 'asc' },
+            selected_fields: parsed.select_fields,
             included_fields: [
               'inventory_id',
               'sku',

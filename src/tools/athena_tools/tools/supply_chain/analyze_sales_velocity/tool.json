@@ -1,56 +1,124 @@
 {
   "name": "supply_chain_analyze_sales_velocity",
-  "description": "Analyze sales velocity for items selected by filters. Computes realized velocity signals, derives a plan-horizon velocity for PO placement decisions, detects inconsistencies, and returns explainable velocity recommendations. Read-only; no side effects.\n\nInput uses the shared query envelope:\n- query: standard filters/limit\n- tool_specific: knobs controlling output shape + computations\n\nIMPORTANT — required filter:\n- query.filters.sku (required, 1-10 SKUs) — you MUST provide at least one SKU.\n\nImportant (company selection):\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n- Do NOT pass a freeform company name in query.filters.company\n\nUnsupported filters:\n- query.filters.tags is ignored (no tags column in snapshot); meta.warnings will explain.",
+  "description": "Analyze sales velocity for selected items. Computes realized velocity signals, derives plan-horizon velocity for PO decisions, detects inconsistencies, and returns explainable recommendations.\n\nIMPORTANT — flat input: pass all parameters at top level. Do NOT use nested query/filters/tool_specific wrappers.\n\nRequired: sku (array, 1-10 values).\nCompany selection: prefer company_id; company (numeric string) and company_ids (single value) are accepted aliases.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
-      "query": {
-        "type": "object",
-        "properties": {
-          "filters": {
-            "type": "object",
-            "properties": {
-              "company": { "type": "string" },
-              "company_id": { "type": "integer", "minimum": 1 },
-              "brand": { "type": "array", "items": { "type": "string" } },
-              "marketplace": { "type": "array", "items": { "type": "string" } },
-              "product_family": { "type": "array", "items": { "type": "string" } },
-              "parent_asin": { "type": "array", "items": { "type": "string" } },
-              "asin": { "type": "array", "items": { "type": "string" } },
-              "sku": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10, "description": "Required. 1-10 SKUs to analyze." },
-              "revenue_abcd_class": {
-                "type": "array",
-                "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
-              },
-              "tags": { "type": "array", "items": { "type": "string" } }
-            },
-            "required": ["sku"],
-            "additionalProperties": true
-          },
-          "limit": { "type": "integer", "minimum": 1, "default": 200 }
-        },
-        "required": ["filters"],
-        "additionalProperties": true
+      "company": {
+        "type": "string"
       },
-      "tool_specific": {
-        "type": "object",
-        "properties": {
-          "output_mode": {
-            "type": "string",
-            "enum": ["detail_only", "total_only", "detail_plus_total"],
-            "default": "detail_only"
-          },
-          "traffic_weight_3d": { "type": "number", "minimum": 0, "default": 0.5 },
-          "traffic_weight_7d": { "type": "number", "minimum": 0, "default": 0.3 },
-          "traffic_weight_30d": { "type": "number", "minimum": 0, "default": 0.2 },
-          "coverage_days_override": { "type": "integer", "minimum": 1 },
-          "months_ahead": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3 }
+      "company_id": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "company_ids": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "brand": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "marketplace": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "marketplaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "product_family": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "parent_asin": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "asin": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "sku": {
+        "type": "array",
+        "items": {
+          "type": "string"
         },
-        "additionalProperties": false
+        "minItems": 1,
+        "maxItems": 10,
+        "description": "Required. 1-10 SKUs to analyze."
+      },
+      "revenue_abcd_class": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        }
+      },
+      "output_mode": {
+        "type": "string",
+        "enum": [
+          "detail_only",
+          "total_only",
+          "detail_plus_total"
+        ],
+        "default": "detail_only"
+      },
+      "traffic_weight_3d": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.5
+      },
+      "traffic_weight_7d": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.3
+      },
+      "traffic_weight_30d": {
+        "type": "number",
+        "minimum": 0,
+        "default": 0.2
+      },
+      "coverage_days_override": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "months_ahead": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5,
+        "default": 3
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 200
       }
     },
-    "required": ["query"],
+    "required": [
+      "sku"
+    ],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -58,13 +126,24 @@
     "properties": {
       "items": {
         "type": "array",
-        "items": { "type": "object", "additionalProperties": true }
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
       },
-      "summary": { "type": "object", "additionalProperties": true },
+      "summary": {
+        "type": "object",
+        "additionalProperties": true
+      },
       "meta": {
         "type": "object",
         "properties": {
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }

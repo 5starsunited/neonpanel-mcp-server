@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_list_product_logistics_parameters",
-  "description": "List product logistics parameters (vendor, product spec/name for POs, dimensions, box params, MOQ) from the latest inventory planning snapshot.\n\nInputs (choose one):\n- Provide inventory_ids (best when you already know the inventory IDs), OR\n- Provide sku + company_id (best when you only know the SKU).\n\nNotes:\n- Data is read from the latest available inventory_planning_snapshot partition for the caller’s permitted companies.",
+  "description": "List product logistics parameters (vendor, product spec/name for POs, dimensions, box params, MOQ) from the latest inventory planning snapshot.\n\nIMPORTANT — flat input: pass all parameters at top level. Do NOT use nested query/filters/tool_specific wrappers.\n\nInputs (choose one):\n- Provide inventory_ids (best when you already know the inventory IDs), OR\n- Provide sku + company_id (best when you only know the SKU).\n\nNotes:\n- Data is read from the latest available inventory_planning_snapshot partition for the caller’s permitted companies.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",

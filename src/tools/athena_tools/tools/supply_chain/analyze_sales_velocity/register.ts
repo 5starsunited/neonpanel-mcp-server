@@ -38,11 +38,6 @@ function getRowValue(row: Record<string, unknown>, key: string): unknown {
   return row[key];
 }
 
-function hasOwn(obj: unknown, key: string): boolean {
-  if (!obj || typeof obj !== 'object') return false;
-  return Object.prototype.hasOwnProperty.call(obj, key);
-}
-
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -71,68 +66,26 @@ type DiagnosticIssue = {
   explanation: string;
 };
 
-const sharedQuerySchema = z
+const inputSchema = z
   .object({
-    filters: z
-      .object({
-        company: z.string().optional(),
-        company_id: z.coerce.number().int().min(1).optional(),
-        brand: z.array(z.string()).optional(),
-        marketplace: z.array(z.string()).optional(),
-        currency: z.array(z.string()).optional(),
-        product_family: z.array(z.string()).optional(),
-        parent_asin: z.array(z.string()).optional(),
-        asin: z.array(z.string()).optional(),
-        sku: z.array(z.string().min(1)).min(1).max(10),
-        revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
-        pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
-        tags: z.array(z.string()).optional(),
-      })
-      .catchall(z.unknown()),
-    aggregation: z
-      .object({
-        group_by: z.array(z.string()).optional(),
-        time: z
-          .object({
-            periodicity: z.enum(['day', 'week', 'month', 'quarter', 'year']).optional(),
-            start_date: z.string().optional(),
-            end_date: z.string().optional(),
-          })
-          .optional(),
-      })
-      .optional(),
-    sort: z
-      .object({
-        field: z.string().optional(),
-        direction: z.enum(['asc', 'desc']).default('desc').optional(),
-        nulls: z.enum(['first', 'last']).default('last').optional(),
-      })
-      .optional(),
-    select_fields: z.array(z.string()).optional(),
-    limit: z.coerce.number().int().min(1).default(200).optional(),
-    cursor: z.string().optional(),
-  })
-  .strict();
-
-type SharedQuery = z.infer<typeof sharedQuerySchema>;
-
-const toolSpecificSchema = z
-  .object({
+    company: z.string().optional(),
+    company_id: z.coerce.number().int().min(1).optional(),
+    company_ids: z.array(z.coerce.number().int().min(1)).optional(),
+    brand: z.array(z.string()).optional(),
+    marketplace: z.array(z.string()).optional(),
+    marketplaces: z.array(z.string()).optional(),
+    product_family: z.array(z.string()).optional(),
+    parent_asin: z.array(z.string()).optional(),
+    asin: z.array(z.string()).optional(),
+    sku: z.array(z.string().min(1)).min(1).max(10),
+    revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
     output_mode: z.enum(['detail_only', 'total_only', 'detail_plus_total']).default('detail_only').optional(),
     traffic_weight_3d: z.coerce.number().min(0).default(0.5).optional(),
     traffic_weight_7d: z.coerce.number().min(0).default(0.3).optional(),
     traffic_weight_30d: z.coerce.number().min(0).default(0.2).optional(),
     coverage_days_override: z.coerce.number().int().min(1).optional(),
     months_ahead: z.coerce.number().int().min(1).max(5).default(3).optional(),
-  })
-  .strict();
-
-type ToolSpecific = z.infer<typeof toolSpecificSchema>;
-
-const inputSchema = z
-  .object({
-    query: sharedQuerySchema,
-    tool_specific: toolSpecificSchema.optional(),
+    limit: z.coerce.number().int().min(1).default(200).optional(),
   })
   .strict();
 
@@ -249,48 +202,28 @@ function computeConfidence(opts: {
   return clamp01(conf);
 }
 
-function mergeInputs(
-  query: SharedQuery,
-  toolSpecific: ToolSpecific,
-  toolSpecificRaw: unknown,
-): { merged: ToolSpecific & { company_id?: number }; warnings: string[]; error?: string } {
-  const warnings: string[] = [];
-  const filters = query.filters ?? {};
+function resolveRequestedCompanyId(parsed: z.infer<typeof inputSchema>): { companyId?: number; error?: string } {
+  if (typeof parsed.company_id === 'number' && Number.isFinite(parsed.company_id) && parsed.company_id > 0) {
+    return { companyId: parsed.company_id };
+  }
 
-  const merged: ToolSpecific & { company_id?: number } = { ...toolSpecific };
-
-  // company / company_id
-  if (!hasOwn(toolSpecificRaw, 'company_id') && merged.company_id === undefined) {
-    if (typeof (filters as any).company_id === 'number') {
-      merged.company_id = (filters as any).company_id;
-    } else if (typeof (filters as any).company === 'string') {
-      const asInt = toInt((filters as any).company);
-      if (asInt && asInt > 0) {
-        merged.company_id = asInt;
-      } else {
-        return {
-          merged,
-          warnings,
-          error:
-            'Unsupported company filter: query.filters.company must be a numeric company_id. Use account_list_companies to find the correct company, then pass query.filters.company_id.',
-        };
-      }
+  if (Array.isArray(parsed.company_ids)) {
+    const ids = parsed.company_ids
+      .map((v) => toInt(v))
+      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0);
+    if (ids.length === 1) return { companyId: ids[0] };
+    if (ids.length > 1) {
+      return { error: 'company_ids accepts exactly one id for this tool. Use company_id.' };
     }
   }
 
-  // warn on tags (no tags column)
-  if (Array.isArray((filters as any).tags) && (filters as any).tags.length > 0) {
-    warnings.push('query.filters.tags is not supported for this tool (no tags column in snapshot); ignoring.');
+  if (typeof parsed.company === 'string') {
+    const asInt = toInt(parsed.company);
+    if (asInt && asInt > 0) return { companyId: asInt };
+    return { error: 'company must be a numeric company_id. Use company_id.' };
   }
 
-  // warn on features not supported
-  if (query.cursor) warnings.push('query.cursor is not supported for this tool (no pagination cursor).');
-  if (query.aggregation?.group_by?.length) warnings.push('query.aggregation.group_by is not supported for this tool; ignoring.');
-  if (query.aggregation?.time) warnings.push('query.aggregation.time is not supported for this tool; ignoring.');
-  if (query.sort?.field) warnings.push('query.sort is not supported for this tool; ignoring.');
-  if (query.select_fields?.length) warnings.push('query.select_fields is not supported for this tool; ignoring.');
-
-  return { merged, warnings };
+  return {};
 }
 
 export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegistry) {
@@ -316,15 +249,12 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
     specJson,
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
-      const toolSpecificRaw = (args as any).tool_specific ?? {};
-      const toolSpecific = toolSpecificSchema.parse(toolSpecificRaw ?? {});
+      const warnings: string[] = [];
 
-      const mergedRes = mergeInputs(parsed.query, toolSpecific, toolSpecificRaw);
-      if (mergedRes.error) {
-        return { items: [], meta: { warnings: mergedRes.warnings, error: mergedRes.error } };
+      const requested = resolveRequestedCompanyId(parsed);
+      if (requested.error) {
+        return { items: [], meta: { warnings, error: requested.error } };
       }
-
-      const warnings = [...mergedRes.warnings];
 
       // Permission gate - user needs at least ONE of these permissions
       const permissions = [
@@ -356,7 +286,7 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
       }
 
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
-      const requestedCompanyIds = mergedRes.merged.company_id ? [mergedRes.merged.company_id] : permittedCompanyIds;
+      const requestedCompanyIds = requested.companyId ? [requested.companyId] : permittedCompanyIds;
       const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
       if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
@@ -369,33 +299,32 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
       const forecastingDatabase = config.athena.tables.forecastingDatabase;
       const salesForecastTable = config.athena.tables.salesForecast;
 
-      const filters = parsed.query.filters ?? {};
+      const limit = parsed.limit ?? 200;
 
-      const limit = parsed.query.limit ?? 200;
-
-      const skus = ((filters as any).sku ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
+      const skus = (parsed.sku ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
       if (skus.length === 0) {
-        return { items: [], meta: { warnings: ['query.filters.sku is required — provide 1-10 SKUs.'] } };
+        return { items: [], meta: { warnings: ['sku is required — provide 1-10 SKUs.'] } };
       }
       if (skus.length > 10) {
-        return { items: [], meta: { warnings: ['query.filters.sku accepts at most 10 SKUs per call.'] } };
+        return { items: [], meta: { warnings: ['sku accepts at most 10 SKUs per call.'] } };
       }
-      const asins = ((filters as any).asin ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
-      const parentAsins = ((filters as any).parent_asin ?? [])
+      const asins = (parsed.asin ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
+      const parentAsins = (parsed.parent_asin ?? [])
         .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0)
         .map((v: string) => v.trim());
-      const brands = ((filters as any).brand ?? [])
+      const brands = (parsed.brand ?? [])
         .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0)
         .map((v: string) => v.trim());
-      const productFamilies = ((filters as any).product_family ?? [])
+      const productFamilies = (parsed.product_family ?? [])
         .filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0)
         .map((v: string) => v.trim());
 
-      const revenueAbcdClasses = ((filters as any).revenue_abcd_class ?? [])
+      const revenueAbcdClasses = (parsed.revenue_abcd_class ?? [])
         .map((v: unknown) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
         .filter((v: string): v is 'A' | 'B' | 'C' | 'D' => v === 'A' || v === 'B' || v === 'C' || v === 'D');
 
-      const marketplacesRaw = ((filters as any).marketplace ?? [])
+      const marketplaceFilter = parsed.marketplace ?? parsed.marketplaces ?? [];
+      const marketplacesRaw = (Array.isArray(marketplaceFilter) ? marketplaceFilter : [marketplaceFilter])
         .map((v: unknown) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
         .filter((v: string) => v.length > 0);
 
@@ -403,13 +332,13 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
       const marketplaces = marketplacesRaw.filter((m: string) => m !== 'ALL').filter((m: string) => m === 'US' || m === 'UK');
 
       if (marketplacesRaw.some((m: string) => m && m !== 'ALL' && m !== 'US' && m !== 'UK')) {
-        warnings.push(`query.filters.marketplace contains unsupported values; allowed: US, UK, ALL.`);
+        warnings.push(`marketplace/marketplaces contains unsupported values; allowed: US, UK, ALL.`);
       }
 
       const weights = {
-        w3: Number(toolSpecific.traffic_weight_3d ?? 0.5),
-        w7: Number(toolSpecific.traffic_weight_7d ?? 0.3),
-        w30: Number(toolSpecific.traffic_weight_30d ?? 0.2),
+        w3: Number(parsed.traffic_weight_3d ?? 0.5),
+        w7: Number(parsed.traffic_weight_7d ?? 0.3),
+        w30: Number(parsed.traffic_weight_30d ?? 0.2),
       };
 
       const weightSum = weights.w3 + weights.w7 + weights.w30;
@@ -417,9 +346,9 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
         warnings.push(`traffic_weight_* sum to ${weightSum.toFixed(3)} (recommended: 1.0).`);
       }
 
-      const monthsAhead = Math.max(1, Math.min(5, Number(toolSpecific.months_ahead ?? 3)));
+      const monthsAhead = Math.max(1, Math.min(5, Number(parsed.months_ahead ?? 3)));
 
-      const coverageOverride = toolSpecific.coverage_days_override;
+      const coverageOverride = parsed.coverage_days_override;
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
@@ -581,7 +510,7 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
         };
       });
 
-      const output_mode: OutputMode = (toolSpecific.output_mode ?? 'detail_only') as OutputMode;
+      const output_mode: OutputMode = (parsed.output_mode ?? 'detail_only') as OutputMode;
 
       const summary = (() => {
         const severityCounts: Record<Severity, number> = { info: 0, warn: 0, critical: 0 };

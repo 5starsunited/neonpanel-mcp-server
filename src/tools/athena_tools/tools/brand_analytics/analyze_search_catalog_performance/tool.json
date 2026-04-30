@@ -36,6 +36,13 @@
                 },
                 "description": "Optional: filter by parent ASINs."
               },
+              "product_family": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional: filter by product family."
+              },
               "marketplaces": {
                 "type": "array",
                 "items": {

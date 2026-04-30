@@ -21,45 +21,29 @@ type CompaniesWithPermissionResponse = {
 
 const inputSchema = z
   .object({
-    query: z
-      .object({
-        filters: z
-          .object({
-            company_id: z.coerce.number().int().min(1),
-            shipment_type: z.array(z.enum(['REGULAR', 'FBA INBOUND', 'AWD INBOUND'])).optional(),
-            destination_warehouse_name: z.string().optional(),
-            original_warehouse_name: z.string().optional(),
-            delay_threshold_days: z.coerce.number().int().min(0).optional(),
-            min_days_in_transit: z.coerce.number().int().min(1).optional(),
-            origin_country_code: z.array(z.string()).optional(),
-            destination_country_code: z.array(z.string()).optional(),
-            include_received: z.boolean().default(false).optional(),
-            include_terminal_status: z.boolean().default(false).optional(),
-            // New filters
-            signal: z.array(z.enum(['Ghost Shipment', 'Delayed', 'On Track', 'Early Arrival'])).optional(),
-            shipped_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-            shipped_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-            eta_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-            // Search filters
-            search: z.string().optional(),
-            ref_number: z.string().optional(),
-          })
-          .strict(),
-        sort: z
-          .object({
-            field: z
-              .enum(['delay_days', 'days_in_transit', 'tracked_eta', 'p80_eta', 'date_shipped', 'shipment_name', 'urgency_score'])
-              .default('delay_days')
-              .optional(),
-            direction: z.enum(['asc', 'desc']).default('desc').optional(),
-          })
-          .strict()
-          .optional(),
-        limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
-        // Route aggregation mode
-        aggregate_by_route: z.boolean().default(false).optional(),
-      })
-      .strict(),
+    company_id: z.coerce.number().int().min(1),
+    shipment_type: z.array(z.enum(['REGULAR', 'FBA INBOUND', 'AWD INBOUND'])).optional(),
+    destination_warehouse_name: z.string().optional(),
+    original_warehouse_name: z.string().optional(),
+    delay_threshold_days: z.coerce.number().int().min(0).optional(),
+    min_days_in_transit: z.coerce.number().int().min(1).optional(),
+    origin_country_code: z.array(z.string()).optional(),
+    destination_country_code: z.array(z.string()).optional(),
+    include_received: z.boolean().default(false).optional(),
+    include_terminal_status: z.boolean().default(false).optional(),
+    signal: z.array(z.enum(['Ghost Shipment', 'Delayed', 'On Track', 'Early Arrival'])).optional(),
+    shipped_after: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    shipped_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    eta_before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    search: z.string().optional(),
+    ref_number: z.string().optional(),
+    sort_field: z
+      .enum(['delay_days', 'days_in_transit', 'tracked_eta', 'p80_eta', 'date_shipped', 'shipment_name', 'urgency_score'])
+      .default('delay_days')
+      .optional(),
+    sort_direction: z.enum(['asc', 'desc']).default('desc').optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(50).optional(),
+    aggregate_by_route: z.boolean().default(false).optional(),
   })
   .strict();
 
@@ -94,7 +78,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
     specJson,
     execute: async (args: unknown, context: ToolExecutionContext) => {
       const input = inputSchema.parse(args);
-      const companyId = input.query.filters.company_id;
+      const companyId = input.company_id;
 
       // Verify user has permission for this company - needs at least ONE of these permissions
       const permissions = [
@@ -136,8 +120,8 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       }
 
       // Build template data - ALWAYS define all variables with defaults (1=1 for no filter)
-      const filters = input.query.filters;
-      const isRouteMode = input.query.aggregate_by_route === true;
+      const filters = input;
+      const isRouteMode = input.aggregate_by_route === true;
       
       const templateData: Record<string, string | number> = {
         company_id: companyId,
@@ -249,8 +233,8 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       }
 
       // Sort clause
-      const sortField = input.query.sort?.field || 'delay_days';
-      const sortDirection = input.query.sort?.direction || 'desc';
+      const sortField = input.sort_field || 'delay_days';
+      const sortDirection = input.sort_direction || 'desc';
       
       // Map sort fields to SQL columns (different for route mode)
       const sortColumnMap: Record<string, string> = isRouteMode
@@ -277,7 +261,7 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
       templateData.sort_clause = `${sortColumn} ${sortDirection.toUpperCase()} NULLS LAST`;
 
       // Limit
-      templateData.limit = input.query.limit || 50;
+      templateData.limit = input.limit || 50;
 
       // Choose query based on mode
       const selectedQueryPath = isRouteMode ? routesQueryPath : queryPath;

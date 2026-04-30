@@ -17,6 +17,7 @@ WITH params AS (
         {{search_terms_array}} AS search_terms,
         {{parent_asins_array}} AS parent_asins,
         {{asins_array}} AS asins,
+        {{product_families_array}} AS product_families,
         {{row_types_array}} AS row_types,
         CASE
             WHEN cardinality({{revenue_abcd_class_array}}) = 0 THEN ARRAY['A','B']
@@ -170,6 +171,7 @@ filtered AS (
         )
         AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(r.parent_asin)))
         AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(r.asin)))
+        AND (cardinality(p.product_families) = 0 OR any_match(p.product_families, f -> lower(f) = lower(r.product_family)))
         AND (cardinality(p.row_types) = 0 OR any_match(p.row_types, rt -> lower(rt) = lower(r.row_type)))
         AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(r.revenue_abcd_class)))
         AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, c -> upper(c) = upper(r.pareto_abc_class)))

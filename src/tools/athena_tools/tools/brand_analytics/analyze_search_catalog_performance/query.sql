@@ -18,6 +18,7 @@ WITH params AS (
         {{marketplaces_array}} AS marketplaces,
         {{parent_asins_array}} AS parent_asins,
         {{asins_array}} AS asins,
+        {{product_families_array}} AS product_families,
         {{row_types_array}} AS row_types,
         CASE
             WHEN cardinality({{revenue_abcd_class_array}}) = 0 THEN ARRAY['A','B']
@@ -156,6 +157,7 @@ base_child AS (
         COALESCE(aa.revenue_abcd_class, 'D')           AS revenue_abcd_class,
         COALESCE(aa.pareto_abc_class, 'C')             AS pareto_abc_class,
         COALESCE(aa.brand, 'unknown')                  AS brand,
+        COALESCE(aa.product_family, 'unknown')         AS product_family,
         aa.revenue_share,
         CAST(NULL AS VARCHAR)                          AS title,
         r.asin,
@@ -224,6 +226,7 @@ base_child AS (
         )
         AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(r.asin)))
         AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(COALESCE(aa.parent_asin, r.asin))))
+        AND (cardinality(p.product_families) = 0 OR any_match(p.product_families, pf -> lower(pf) = lower(COALESCE(aa.product_family, ''))))
         AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, rc -> upper(rc) = upper(COALESCE(aa.revenue_abcd_class, 'D'))))
         AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, pc -> upper(pc) = upper(COALESCE(aa.pareto_abc_class, 'C'))))
 ),
@@ -272,6 +275,7 @@ parent_agg AS (
         MAX(revenue_abcd_class) AS revenue_abcd_class,
         MAX(pareto_abc_class) AS pareto_abc_class,
         MAX(brand) AS brand,
+        MAX(product_family) AS product_family,
         SUM(revenue_share) AS revenue_share,
         CAST(NULL AS VARCHAR) AS title,
         parent_asin AS asin,

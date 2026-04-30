@@ -1,233 +1,215 @@
 {
   "name": "supply_chain_list_stock_replenishment_risk_items",
-  "description": "Identify inventory items at risk of stockout or insufficient days-of-supply. Analyzes current sales velocity (30d, 7d, 3d precalculated windows with configurable weighting), available FBA stock, inbound shipments with arrival likelihood, and warehouse inventory to surface items needing replenishment action. Read-only; no side effects.\n\nUse cases:\n- Surface items approaching or at stockout risk\n- Identify products with insufficient days-of-supply buffer\n- Understand inbound supply timing and p80 arrival dates\n- Prioritize replenishment orders or expedited actions\n- Analyze velocity trends (weighted 30d/7d/3d) to assess demand urgency\n\nInput uses the Option-1 query envelope:\n- query: shared filters/limit/sort\n- tool_specific: replenishment risk knobs (min days-of-supply threshold, velocity weighting, warehouse stock inclusion, risk filters)\n\nImportant (company selection):\n- Use query.filters.company_id (preferred, integer) or query.filters.company (numeric string only)\n- If both provided, company_id takes precedence\n\nSupported selector filters (applied in SQL):\n- query.filters.asin (child ASIN), query.filters.parent_asin, query.filters.brand, query.filters.product_family, query.filters.sku\n- If you filter on any of these, output rows will include: child_asin, parent_asin, brand, product_family, sku\n\nSupported classification filters:\n- query.filters.revenue_abcd_class (computed from sales_last_30_days)\n\nVelocity calculation:\n- Days-of-supply uses weighted velocity: (weight_30d * v30d) + (weight_7d * v7d) + (weight_3d * v3d)\n- Preset modes: balanced (0.5, 0.3, 0.2), conservative (0.7, 0.2, 0.1), aggressive (0.2, 0.3, 0.5)\n\nRisk dimensions (two independent analyses):\n\n1. Stockout Risk: Will physical inventory run out?\n   - High: days_of_supply(p50) < 0 (stockout at median arrival)\n   - Moderate: days_of_supply(p50) >= 0 but days_of_supply(p80) < 0 (risky if inbound delayed)\n   - Low: days_of_supply(p80) >= 0 but days_of_supply(p95) < 0 (optimistic scenario only)\n   - OK: days_of_supply(p95) >= 0 (all scenarios positive)\n\n2. Days-of-Supply Buffer Risk: Is buffer below target?\n   - High: days_of_supply(p50) < min_days_of_supply (even at median, below threshold)\n   - Moderate: days_of_supply(p50) >= min_days_of_supply but days_of_supply(p80) < min_days_of_supply\n   - Low: days_of_supply(p80) >= min_days_of_supply but days_of_supply(p95) < min_days_of_supply\n   - OK: days_of_supply(p95) >= min_days_of_supply (all scenarios above threshold)\n\nRecommendations:\n- Tool suggests actions based on both risk tiers, inbound timing, and velocity trends (increase PO, expedite inbound, accelerate sales, hold orders, etc.)",
+  "description": "Identify inventory items at risk of stockout or insufficient days-of-supply.\n\nIMPORTANT — flat input: pass all parameters at top level. Do NOT use nested query/filters/tool_specific wrappers.\n\nRequired: company_id (integer). Calls without company_id are rejected by schema.\n\nUse cases:\n- Surface items approaching or at stockout risk\n- Identify products with insufficient days-of-supply buffer\n- Understand inbound supply timing and p80 arrival dates\n- Prioritize replenishment orders or expedited actions\n\nRisk dimensions (two independent analyses):\n1. Stockout Risk — will physical inventory run out?\n   high: days_of_supply(p50) < 0 | moderate: p50≥0 but p80<0 | low: p80≥0 but p95<0 | ok: p95≥0\n2. Supply Buffer Risk — is buffer below min_days_of_supply target?\n   high: p50 < threshold | moderate: p50≥threshold but p80<threshold | low: p80≥threshold but p95<threshold | ok: p95≥threshold\n\nVelocity preset modes: balanced (0.5/0.3/0.2), conservative (0.7/0.2/0.1), aggressive (0.2/0.3/0.5)",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
     "properties": {
-      "query": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "REQUIRED. Company ID (integer). Calls without this field are rejected by schema."
+      },
+      "brand": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "marketplace": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "marketplaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Alias of marketplace."
+      },
+      "product_family": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "parent_asin": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "asin": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "sku": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "inventory_id": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "revenue_abcd_class": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "description": "Filter by revenue class (A=top 20%, B=next 30%, C=next 30%, D=tail 20%)."
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "sort": {
         "type": "object",
-        "description": "Shared query envelope for list/portfolio tools.",
+        "description": "Sort by any output field. Default: stockout_risk_tier asc.",
         "properties": {
-          "filters": {
-            "type": "object",
-            "description": "Standard filters. Tools support a meaningful subset and warn on unsupported keys.",
-            "properties": {
-              "company": {
-                "type": "string",
-                "description": "Numeric company ID as string. Deprecated; use company_id (integer) instead. If both provided, company_id takes precedence."
-              },
-              "company_id": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "brand": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "marketplace": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "product_family": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "parent_asin": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "asin": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "sku": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "revenue_abcd_class": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "A",
-                    "B",
-                    "C",
-                    "D"
-                  ]
-                },
-                "default": [
-                  "A",
-                  "B"
-                ],
-                "description": "Filter by revenue class (A=top 20%, B=next 30%, C=next 30%, D=tail 20%). Default: A+B (high-revenue focus). Override to include C or D if needed."
-              },
-              "tags": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Filter-only tags. Multi-agent safe. Agent must not infer meaning. Not supported by this tool yet."
-              }
-            },
-            "additionalProperties": true
-          },
-          "sort": {
-            "type": "object",
-            "description": "Sort by any returned output field/KPI. Default: sort by risk_tier (critical first), then by days_of_supply ascending.",
-            "properties": {
-              "field": {
-                "type": "string",
-                "description": "Field name to sort by (e.g., days_of_supply, sales_velocity_30d, current_fba_stock, risk_tier)"
-              },
-              "direction": {
-                "type": "string",
-                "enum": [
-                  "asc",
-                  "desc"
-                ],
-                "default": "asc"
-              },
-              "nulls": {
-                "type": "string",
-                "enum": [
-                  "first",
-                  "last"
-                ],
-                "default": "last"
-              }
-            },
-            "additionalProperties": false
-          },
-          "select_fields": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional output field selection (projection). If omitted, tool returns defaults."
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "default": 50,
-            "description": "Max items to return."
-          },
-          "cursor": {
+          "field": {
             "type": "string",
-            "description": "Opaque cursor for pagination (if supported)."
+            "description": "e.g. days_of_supply_p80, sales_velocity_30d, stockout_risk_tier"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "asc"
+          },
+          "nulls": {
+            "type": "string",
+            "enum": [
+              "first",
+              "last"
+            ],
+            "default": "last"
           }
         },
         "additionalProperties": false
       },
-      "tool_specific": {
+      "select_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional output field projection. Omit to return all default fields."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 50,
+        "description": "Max items to return."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque pagination cursor."
+      },
+      "min_days_of_supply": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 90,
+        "default": 28,
+        "description": "Target days-of-supply buffer. Items below this threshold are flagged as supply_buffer_risk."
+      },
+      "velocity_weighting_mode": {
+        "type": "string",
+        "enum": [
+          "balanced",
+          "conservative",
+          "aggressive"
+        ],
+        "description": "Velocity preset. balanced=(0.5/0.3/0.2), conservative=(0.7/0.2/0.1), aggressive=(0.2/0.3/0.5). Default: balanced."
+      },
+      "velocity_weighting": {
         "type": "object",
-        "description": "Stock replenishment risk analysis knobs.",
+        "description": "Custom velocity weights (overridden by velocity_weighting_mode if both provided).",
         "properties": {
-          "min_days_of_supply": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 90,
-            "default": 28,
-            "description": "Minimum days-of-supply threshold. Items below this are flagged as 'warning'. Items below threshold/2 are flagged as 'critical'."
-          },
-          "velocity_weighting": {
-            "type": "object",
-            "description": "Weights for precalculated velocity windows (30d, 7d, 3d) in weighted days-of-supply formula. Default: balanced (long-term biased).",
-            "properties": {
-              "weight_30d": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "default": 0.5,
-                "description": "Weight for 30-day sales velocity (long-term trend)."
-              },
-              "weight_7d": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "default": 0.3,
-                "description": "Weight for 7-day sales velocity (recent trend)."
-              },
-              "weight_3d": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "default": 0.2,
-                "description": "Weight for 3-day sales velocity (very recent spike/drop)."
-              }
-            },
-            "additionalProperties": false
-          },
-          "velocity_weighting_mode": {
-            "type": "string",
-            "enum": [
-              "balanced",
-              "conservative",
-              "aggressive"
-            ],
-            "description": "Quick preset for velocity weighting. Overrides individual weight_* if provided. balanced=(0.5, 0.3, 0.2), conservative=(0.7, 0.2, 0.1), aggressive=(0.2, 0.3, 0.5)."
-          },
-          "include_warehouse_stock": {
-            "type": "boolean",
-            "default": true,
-            "description": "If true, include non-FBA warehouse/3PL inventory in available supply calculation. If false, only count FBA stock."
-          },
-          "stockout_risk_filter": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "high",
-                "moderate",
-                "low",
-                "ok"
-              ]
-            },
-            "description": "Optional: filter by stockout risk tier. Returns items matching these tiers (OR logic). Example: ['high', 'moderate'] returns all items with high OR moderate stockout risk. If omitted, all tiers included."
-          },
-          "supply_buffer_risk_filter": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "high",
-                "moderate",
-                "low",
-                "ok"
-              ]
-            },
-            "description": "Optional: filter by supply buffer risk tier. Returns items matching these tiers (OR logic). Example: ['high'] returns only items with high buffer risk (below min_days_of_supply even at p50). If omitted, all tiers included."
-          },
-          "include_inbound_details": {
-            "type": "boolean",
-            "default": true,
-            "description": "If true, include detailed FBA inbound shipment information (shipment count, total units, p80 arrival date, shipped dates)."
-          },
-          "p80_arrival_buffer_days": {
-            "type": "integer",
+          "weight_30d": {
+            "type": "number",
             "minimum": 0,
-            "maximum": 30,
-            "default": 0,
-            "description": "Safety buffer (days) to subtract from p80 arrival estimates. Useful for accounting for processing/receiving delays. Example: p80_days=10, buffer=2 → consider arrival in 8 days."
+            "maximum": 1,
+            "default": 0.5
+          },
+          "weight_7d": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.3
+          },
+          "weight_3d": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.2
           }
         },
         "additionalProperties": false
+      },
+      "include_warehouse_stock": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include non-FBA warehouse/3PL stock in available supply. Default: true."
+      },
+      "include_inbound_details": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include FBA inbound shipment details (count, units, arrival dates). Default: true."
+      },
+      "p80_arrival_buffer_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30,
+        "default": 0,
+        "description": "Safety buffer subtracted from p80 inbound arrival estimates (accounts for receiving delays)."
+      },
+      "stockout_risk_filter": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "ok"
+          ]
+        },
+        "description": "Return only items matching these stockout risk tiers (OR logic). Omit to include all tiers."
+      },
+      "supply_buffer_risk_filter": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "high",
+            "moderate",
+            "low",
+            "ok"
+          ]
+        },
+        "description": "Return only items matching these supply buffer risk tiers (OR logic). Omit to include all tiers."
       }
     },
     "required": [
-      "query"
+      "company_id"
     ],
     "additionalProperties": false
   },
@@ -472,17 +454,26 @@
         "type": "object",
         "properties": {
           "applied_sort": {
-            "type": ["object", "null"],
+            "type": [
+              "object",
+              "null"
+            ],
             "additionalProperties": true
           },
           "selected_fields": {
-            "type": ["array", "null"],
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "string"
             }
           },
           "included_fields": {
-            "type": ["array", "null"],
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "string"
             }
@@ -509,94 +500,70 @@
   },
   "examples": [
     {
-      "description": "List all high-risk stockout items for company 42 (revenue class A+B default)",
+      "description": "List high-risk stockout items for company 42",
       "request": {
-        "query": {
-          "filters": {
-            "company_id": 42
-          },
-          "limit": 20
-        },
-        "tool_specific": {
-          "stockout_risk_filter": [
-            "high"
-          ]
-        }
+        "company_id": 42,
+        "limit": 20,
+        "stockout_risk_filter": [
+          "high"
+        ]
       }
     },
     {
-      "description": "Find items with supply buffer below 28d target (all risk levels), sort by days_of_supply ascending",
+      "description": "Supply buffer below 28d target, sort by days_of_supply_p80 ascending",
       "request": {
-        "query": {
-          "filters": {
-            "company_id": 42,
-            "revenue_abcd_class": [
-              "A",
-              "B",
-              "C"
-            ]
-          },
-          "sort": {
-            "field": "days_of_supply_p80",
-            "direction": "asc"
-          },
-          "limit": 50
+        "company_id": 42,
+        "revenue_abcd_class": [
+          "A",
+          "B",
+          "C"
+        ],
+        "sort": {
+          "field": "days_of_supply_p80",
+          "direction": "asc"
         },
-        "tool_specific": {
-          "min_days_of_supply": 28,
-          "supply_buffer_risk_filter": [
-            "high",
-            "moderate"
-          ]
-        }
+        "limit": 50,
+        "min_days_of_supply": 28,
+        "supply_buffer_risk_filter": [
+          "high",
+          "moderate"
+        ]
       }
     },
     {
-      "description": "Aggressive velocity weighting (recent trends favor), exclude warehouse stock, only critical items",
+      "description": "Aggressive velocity weighting, FBA-only stock, critical items",
       "request": {
-        "query": {
-          "filters": {
-            "company_id": 42,
-            "brand": [
-              "Nike",
-              "Adidas"
-            ]
-          },
-          "limit": 30
-        },
-        "tool_specific": {
-          "velocity_weighting_mode": "aggressive",
-          "include_warehouse_stock": false,
-          "stockout_risk_filter": [
-            "high",
-            "moderate"
-          ],
-          "supply_buffer_risk_filter": [
-            "high"
-          ]
-        }
+        "company_id": 42,
+        "brand": [
+          "Nike",
+          "Adidas"
+        ],
+        "limit": 30,
+        "velocity_weighting_mode": "aggressive",
+        "include_warehouse_stock": false,
+        "stockout_risk_filter": [
+          "high",
+          "moderate"
+        ],
+        "supply_buffer_risk_filter": [
+          "high"
+        ]
       }
     },
     {
-      "description": "Include all warehouse stock details and lead times for replenishment planning",
+      "description": "Replenishment planning for Electronics product family",
       "request": {
-        "query": {
-          "filters": {
-            "company_id": 42,
-            "product_family": [
-              "Electronics"
-            ]
-          },
-          "limit": 15
-        },
-        "tool_specific": {
-          "include_warehouse_stock": true,
-          "include_inbound_details": true,
-          "supply_buffer_risk_filter": [
-            "high",
-            "moderate"
-          ]
-        }
+        "company_id": 42,
+        "product_family": [
+          "Electronics"
+        ],
+        "limit": 15,
+        "include_warehouse_stock": true,
+        "include_inbound_details": true,
+        "supply_buffer_risk_filter": [
+          "high",
+          "moderate"
+        ]
       }
     }
   ]

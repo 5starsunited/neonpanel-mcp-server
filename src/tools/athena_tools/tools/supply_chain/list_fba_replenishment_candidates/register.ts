@@ -27,63 +27,6 @@ function getRowValue(row: Record<string, unknown>, key: string): unknown {
   return row[key];
 }
 
-function hasOwn(obj: unknown, key: string): boolean {
-  if (!obj || typeof obj !== 'object') return false;
-  return Object.prototype.hasOwnProperty.call(obj, key);
-}
-
-type Marketplace = 'US' | 'UK' | 'ALL';
-
-function isMarketplace(value: string): value is Marketplace {
-  return value === 'US' || value === 'UK' || value === 'ALL';
-}
-
-const sharedQuerySchema = z
-  .object({
-    filters: z
-      .object({
-        company: z.string().optional(),
-        company_id: z.coerce.number().int().min(1).optional(),
-        brand: z.array(z.string()).optional(),
-        marketplace: z.array(z.string()).optional(),
-        currency: z.array(z.string()).optional(),
-        product_family: z.array(z.string()).optional(),
-        parent_asin: z.array(z.string()).optional(),
-        asin: z.array(z.string()).optional(),
-        sku: z.array(z.string()).optional(),
-        revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
-        pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
-        tags: z.array(z.string()).optional(),
-      })
-      .catchall(z.unknown())
-      .optional(),
-    aggregation: z
-      .object({
-        group_by: z.array(z.string()).optional(),
-        time: z
-          .object({
-            periodicity: z.enum(['day', 'week', 'month', 'quarter', 'year']).optional(),
-            start_date: z.string().optional(),
-            end_date: z.string().optional(),
-          })
-          .optional(),
-      })
-      .optional(),
-    sort: z
-      .object({
-        field: z.string().optional(),
-        direction: z.enum(['asc', 'desc']).default('desc').optional(),
-        nulls: z.enum(['first', 'last']).default('last').optional(),
-      })
-      .optional(),
-    select_fields: z.array(z.string()).optional(),
-    limit: z.coerce.number().int().min(1).default(50).optional(),
-    cursor: z.string().optional(),
-  })
-  .strict();
-
-type SharedQuery = z.infer<typeof sharedQuerySchema>;
-
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
     company_id?: number;
@@ -134,25 +77,11 @@ const fbaListReplenishAsapInputSchema = z
   })
   .strict();
 
-// tool_specific is a backward-compatible "shadow" of the legacy input.
-// We validate it strictly, but keep most fields optional so query can drive defaults.
-const toolSpecificSchema = fbaListReplenishAsapInputSchema
-  .partial()
-  .extend({
-    planning_base: z
-      .enum(['all', 'targeted_only', 'actively_sold_only', 'planned_only'])
-      .default('actively_sold_only'),
-  })
-  .strict();
-
-type ToolSpecific = z.infer<typeof toolSpecificSchema>;
-
-const inputSchema = z
-  .object({
-    query: sharedQuerySchema,
-    tool_specific: toolSpecificSchema.optional(),
-  })
-  .strict();
+// Flat input schema — all parameters at the top level, no query/tool_specific wrappers.
+// planning_base is optional here and auto-defaulted in execute.
+const inputSchema = fbaListReplenishAsapInputSchema.partial().extend({
+  company_id: z.coerce.number().int().min(1),
+}).strict();
 
 const outputSchema = {
   type: 'object',
@@ -171,127 +100,6 @@ const outputSchema = {
   },
   required: ['items'],
 };
-
-function mergeInputs(
-  query: SharedQuery,
-  toolSpecific: ToolSpecific,
-  toolSpecificRaw: unknown,
-): { merged: Record<string, unknown>; warnings: string[]; error?: string } {
-  const warnings: string[] = [];
-  const filters = query.filters ?? {};
-
-  const merged: Record<string, unknown> = { ...toolSpecific };
-
-  // company / company_id
-  if (!hasOwn(toolSpecificRaw, 'company_id') && merged.company_id === undefined) {
-    if (typeof (filters as any).company_id === 'number') {
-      merged.company_id = (filters as any).company_id;
-    } else if (typeof (filters as any).company === 'string') {
-      const asInt = toInt((filters as any).company);
-      if (asInt && asInt > 0) {
-        merged.company_id = asInt;
-      } else {
-        return {
-          merged,
-          warnings,
-          error:
-            'Unsupported company filter: query.filters.company must be a numeric company_id. Use account_list_companies to find the correct company (e.g., "5 Stars United LLC"), then pass query.filters.company_id (preferred) or tool_specific.company_id.',
-        };
-      }
-    }
-  }
-
-  // selector filters
-  if (!hasOwn(toolSpecificRaw, 'brand') && merged.brand === undefined && Array.isArray((filters as any).brand)) {
-    merged.brand = (filters as any).brand;
-  }
-
-  if (!hasOwn(toolSpecificRaw, 'target_skus') && merged.target_skus === undefined && Array.isArray((filters as any).sku)) {
-    merged.target_skus = (filters as any).sku;
-    if (!hasOwn(toolSpecificRaw, 'planning_base') && merged.planning_base === undefined) merged.planning_base = 'targeted_only';
-  }
-
-  if (!hasOwn(toolSpecificRaw, 'target_asins') && merged.target_asins === undefined && Array.isArray((filters as any).asin)) {
-    merged.target_asins = (filters as any).asin;
-    if (!hasOwn(toolSpecificRaw, 'planning_base') && merged.planning_base === undefined) merged.planning_base = 'targeted_only';
-  }
-
-  if (
-    !hasOwn(toolSpecificRaw, 'parent_asins') &&
-    merged.parent_asins === undefined &&
-    Array.isArray((filters as any).parent_asin)
-  ) {
-    merged.parent_asins = (filters as any).parent_asin;
-    if (!hasOwn(toolSpecificRaw, 'planning_base') && merged.planning_base === undefined) merged.planning_base = 'targeted_only';
-  }
-
-  if (
-    !hasOwn(toolSpecificRaw, 'product_family') &&
-    merged.product_family === undefined &&
-    Array.isArray((filters as any).product_family)
-  ) {
-    merged.product_family = (filters as any).product_family;
-  }
-
-  if (!hasOwn(toolSpecificRaw, 'marketplaces') && merged.marketplaces === undefined && Array.isArray((filters as any).marketplace)) {
-    const raw = (filters as any).marketplace as unknown[];
-    const normalized = raw
-      .map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
-      .filter((v) => v.length > 0);
-    const allowed = normalized.filter(isMarketplace);
-    const allowedSet = new Set<string>(allowed);
-    const unknown = normalized.filter((v) => v && !allowedSet.has(v));
-    if (unknown.length > 0) {
-      warnings.push(`query.filters.marketplace contains unsupported values: ${unknown.join(', ')}`);
-    }
-    if (allowed.length > 0) merged.marketplaces = allowed as any;
-  }
-
-  // classification filters
-  if (
-    !hasOwn(toolSpecificRaw, 'revenue_abcd_class') &&
-    merged.revenue_abcd_class === undefined &&
-    Array.isArray((filters as any).revenue_abcd_class)
-  ) {
-    merged.revenue_abcd_class = (filters as any).revenue_abcd_class;
-  }
-
-  // shared knobs
-  if (!hasOwn(toolSpecificRaw, 'limit') && typeof query.limit === 'number') {
-    merged.limit = query.limit;
-  }
-
-  if (query.cursor) {
-    warnings.push('query.cursor is not supported for this tool (no pagination cursor).');
-  }
-
-  if (query.select_fields && query.select_fields.length > 0) {
-    warnings.push('query.select_fields is not supported yet; returning default fields.');
-  }
-
-  if (query.sort && (query.sort.field || query.sort.direction || query.sort.nulls)) {
-    warnings.push('query.sort is not supported yet; returning default ordering.');
-  }
-
-  const groupBy = query.aggregation?.group_by;
-  if (Array.isArray(groupBy) && groupBy.length > 0 && !(groupBy.length === 1 && groupBy[0] === 'none')) {
-    warnings.push('query.aggregation.group_by is not supported for this tool; returning SKU-level rows.');
-  }
-
-  if (query.aggregation?.time) {
-    warnings.push('query.aggregation.time is not supported for this tool; using latest snapshot only.');
-  }
-
-  // Warn on common unsupported filters when present.
-  const unsupportedFilterKeys = ['currency', 'pareto_abc_class', 'tags'];
-  for (const key of unsupportedFilterKeys) {
-    if ((filters as any)[key] !== undefined) {
-      warnings.push(`query.filters.${key} is not supported for this tool yet.`);
-    }
-  }
-
-  return { merged, warnings };
-}
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -405,7 +213,7 @@ async function executeSupplyChainListFbaReplenishmentCandidates(
   }
 
   const permittedCompanyIds = Array.from(allPermittedCompanyIds);
-  const requestedCompanyIds = parsed.company_id ? [parsed.company_id] : permittedCompanyIds;
+  const requestedCompanyIds = typeof parsed.company_id === 'number' ? [parsed.company_id] : [];
   const allowedCompanyIds = requestedCompanyIds.filter((id) => permittedCompanyIds.includes(id));
 
   if (permittedCompanyIds.length === 0 || allowedCompanyIds.length === 0) {
@@ -579,40 +387,45 @@ export function registerSupplyChainListFbaReplenishmentCandidatesTool(registry: 
   registry.register({
     name: 'supply_chain_list_fba_replenishment_candidates',
     description:
-      'List items needing FBA replenishment based on projected stockout risk and inbound coverage (query envelope; preferred).',
+      'List items needing FBA replenishment based on projected stockout risk and inbound coverage.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? outputSchema,
     specJson,
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
-      const rawToolSpecific = (parsed.tool_specific ?? {}) as unknown;
-      const toolSpecificParsed = toolSpecificSchema.parse(rawToolSpecific);
 
-      const { merged, warnings, error } = mergeInputs(parsed.query, toolSpecificParsed, rawToolSpecific);
-
-      if (error) {
-        return {
-          items: [],
-          meta: {
-            warnings,
-            error,
-            applied_sort: parsed.query.sort ?? null,
-            selected_fields: parsed.query.select_fields ?? null,
-          },
-        };
+      // Auto-default planning_base based on selector fields and sales_velocity.
+      let planning_base = parsed.planning_base;
+      if (!planning_base) {
+        const hasTargets =
+          (parsed.target_skus?.length ?? 0) > 0 ||
+          (parsed.target_asins?.length ?? 0) > 0 ||
+          (parsed.target_inventory_ids?.length ?? 0) > 0 ||
+          (parsed.parent_asins?.length ?? 0) > 0;
+        if (hasTargets) {
+          planning_base = 'targeted_only';
+        } else {
+          const velocityMode = parsed.sales_velocity ?? 'current';
+          if (velocityMode === 'target') {
+            planning_base = 'targeted_only';
+          } else if (velocityMode === 'planned') {
+            planning_base = 'planned_only';
+          } else {
+            planning_base = 'actively_sold_only';
+          }
+        }
       }
 
-      // Convert merged args to the legacy tool's strict schema (to guarantee runtime safety).
-      const legacyParsed = fbaListReplenishAsapInputSchema.parse(merged);
+      const legacyParsed = fbaListReplenishAsapInputSchema.parse({ ...parsed, planning_base });
       const result = await executeSupplyChainListFbaReplenishmentCandidates(legacyParsed, context);
 
       return {
         items: result.items ?? [],
         meta: {
-          warnings,
-          applied_sort: parsed.query.sort ?? null,
-          selected_fields: parsed.query.select_fields ?? null,
+          warnings: [],
+          applied_sort: null,
+          selected_fields: null,
         },
       };
     },

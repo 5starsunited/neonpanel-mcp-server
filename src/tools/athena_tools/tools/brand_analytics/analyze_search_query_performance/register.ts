@@ -52,6 +52,7 @@ const querySchema = z
         search_terms: z.array(z.string()).optional(),
         parent_asins: z.array(z.string()).optional(),
         asins: z.array(z.string()).optional(),
+        product_family: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
         row_type: z.array(z.enum(['child', 'parent'])).optional(),
         revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
@@ -172,6 +173,7 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
       const parentAsins = (query.filters.parent_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
+      const productFamilies = (query.filters.product_family ?? []).map((f) => f.trim()).filter(Boolean);
       const rowTypes = (query.filters.row_type ?? []).map((r) => r.trim()).filter(Boolean);
       const revenueClass = (query.filters.revenue_abcd_class ?? []).map((c) => c.trim()).filter(Boolean);
       const paretoClass = (query.filters.pareto_abc_class ?? []).map((c) => c.trim()).filter(Boolean);
@@ -207,6 +209,7 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
         search_terms_array: sqlVarcharArrayExpr(searchTerms),
         parent_asins_array: sqlVarcharArrayExpr(parentAsins),
         asins_array: sqlVarcharArrayExpr(asins),
+        product_families_array: sqlVarcharArrayExpr(productFamilies),
         row_types_array: sqlVarcharArrayExpr(rowTypes),
         revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
         pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),

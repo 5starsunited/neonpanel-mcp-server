@@ -216,16 +216,10 @@ Supply buffer risk: ok (exclude critical/moderate)
 ### Example 1: Critical Items (High Stockout Risk)
 ```json
 {
-  "query": {
-    "filters": {
-      "company_id": 42,
-      "revenue_abcd_class": ["A", "B"]
-    },
-    "limit": 20
-  },
-  "tool_specific": {
-    "stockout_risk_filter": ["high"]
-  }
+  "company_id": 42,
+  "revenue_abcd_class": ["A", "B"],
+  "limit": 20,
+  "stockout_risk_filter": ["high"]
 }
 ```
 → Returns 3 items that will stockout within 24 hours even at median inbound arrival
@@ -233,22 +227,16 @@ Supply buffer risk: ok (exclude critical/moderate)
 ### Example 2: Approaching Minimum Buffer (Proactive Planning)
 ```json
 {
-  "query": {
-    "filters": {
-      "company_id": 42,
-      "brand": ["Nike", "Adidas"]
-    },
-    "sort": {
-      "field": "days_of_supply_p80",
-      "direction": "asc"
-    },
-    "limit": 50
+  "company_id": 42,
+  "brand": ["Nike", "Adidas"],
+  "sort": {
+    "field": "days_of_supply_p80",
+    "direction": "asc"
   },
-  "tool_specific": {
-    "min_days_of_supply": 28,
-    "velocity_weighting_mode": "balanced",
-    "supply_buffer_risk_filter": ["high", "moderate"]
-  }
+  "limit": 50,
+  "min_days_of_supply": 28,
+  "velocity_weighting_mode": "balanced",
+  "supply_buffer_risk_filter": ["high", "moderate"]
 }
 ```
 → Returns items below 28-day buffer sorted by urgency; sorted by increasing DOS for prioritization
@@ -256,19 +244,13 @@ Supply buffer risk: ok (exclude critical/moderate)
 ### Example 3: Aggressive Velocity Mode (High-Growth Items)
 ```json
 {
-  "query": {
-    "filters": {
-      "company_id": 42,
-      "product_family": ["Electronics", "Accessories"]
-    },
-    "limit": 30
-  },
-  "tool_specific": {
-    "velocity_weighting_mode": "aggressive",
-    "include_warehouse_stock": true,
-    "p80_arrival_buffer_days": 2,
-    "supply_buffer_risk_filter": ["high"]
-  }
+  "company_id": 42,
+  "product_family": ["Electronics", "Accessories"],
+  "limit": 30,
+  "velocity_weighting_mode": "aggressive",
+  "include_warehouse_stock": true,
+  "p80_arrival_buffer_days": 2,
+  "supply_buffer_risk_filter": ["high"]
 }
 ```
 → Returns fast-moving items with high buffer risk (emphasizing recent velocity spikes); includes warehouse alternatives; assumes 2-day delivery safety margin
@@ -276,17 +258,11 @@ Supply buffer risk: ok (exclude critical/moderate)
 ### Example 4: Warehouse Rebalancing Check
 ```json
 {
-  "query": {
-    "filters": {
-      "company_id": 42
-    },
-    "limit": 15
-  },
-  "tool_specific": {
-    "include_warehouse_stock": true,
-    "include_inbound_details": true,
-    "stockout_risk_filter": ["high", "moderate"]
-  }
+  "company_id": 42,
+  "limit": 15,
+  "include_warehouse_stock": true,
+  "include_inbound_details": true,
+  "stockout_risk_filter": ["high", "moderate"]
 }
 ```
 → Returns items at stockout/moderate risk with full warehouse stock visibility and inbound ETA; supports emergency transfer planning
