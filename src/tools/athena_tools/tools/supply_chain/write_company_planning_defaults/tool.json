@@ -1,0 +1,64 @@
+{
+  "name": "supply_chain_write_company_planning_defaults",
+  "description": "Write company-level inventory planning defaults to NeonPanel (PUT /api/v1/companies/{uuid}/settings/forecasts). Consequential write tool.\n\nUse this when the user wants to save default planning parameters for a whole company. These defaults are fallback values used when an inventory item does not have item-level restock_data overrides.\n\nImportant hierarchy:\n- Company-level defaults are broad fallback settings.\n- Item-level parameters written by supply_chain_write_inventory_planning_parameters override these defaults for individual inventory items.\n\nSafety:\n- dry_run defaults to true and returns the API operation that would be executed.\n- Set dry_run=false only after confirming the intended changes.\n- Prefer forecasting_get_company_settings first to inspect current defaults.\n\nFields include default_lead_time_days, default_safety_stock_days, default_fba_lead_time, default_fba_safety_stock, default_planned_po_frequency, default_fba_replenishment_frequency, default_seasonality, ABC safety-stock multipliers, revenue class thresholds, and Pareto class thresholds.",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Numeric company ID. Preferred when available."
+      },
+      "companyUuid": {
+        "type": "string",
+        "description": "Company UUID. Use company_id when available."
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, validate and preview the API write without persisting. Defaults to true."
+      },
+      "status": { "type": "string", "enum": ["active", "trial", "inactive"] },
+      "default_seasonality": {
+        "type": "string",
+        "description": "12 monthly seasonality multipliers separated by semicolons, e.g. 1;1;1;1;1;1;1;1;1;0.8;1.5;2.5"
+      },
+      "default_scenario_id": { "type": ["integer", "null"] },
+      "default_lead_time_days": { "type": ["integer", "null"] },
+      "default_safety_stock_days": { "type": ["integer", "null"] },
+      "default_fba_lead_time": { "type": ["integer", "null"] },
+      "default_fba_safety_stock": { "type": ["integer", "null"] },
+      "default_planned_po_frequency": { "type": "integer" },
+      "default_fba_replenishment_frequency": { "type": "integer" },
+      "default_safety_stock_multiplicator_class_a": { "type": "number" },
+      "default_safety_stock_multiplicator_class_b": { "type": "number" },
+      "default_safety_stock_multiplicator_class_c": { "type": "number" },
+      "default_safety_stock_multiplicator_class_d": { "type": "number" },
+      "default_revenue_class_a": { "type": "number" },
+      "default_revenue_class_b": { "type": "number" },
+      "default_revenue_class_c": { "type": "number" },
+      "default_pareto_class_a": { "type": "number" },
+      "default_pareto_class_b": { "type": "number" },
+      "default_pareto_class_c": { "type": "number" }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "examples": [
+    {
+      "name": "Dry-run company planning defaults update",
+      "arguments": {
+        "company_id": 103,
+        "dry_run": true,
+        "default_lead_time_days": 30,
+        "default_safety_stock_days": 14,
+        "default_fba_lead_time": 7,
+        "default_fba_safety_stock": 7
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "name": "supply_chain_write_inventory_planning_parameters",
+  "description": "Write item-level inventory planning parameters to NeonPanel (PUT /api/v1/companies/{uuid}/inventory-items/{inventory_id}). Consequential write tool.\n\nUse this when the user wants to save planning parameters for specific inventory items. Each write updates one inventory item's restock_data. Pass only fields that should change; omitted restock_data fields are left unchanged by the API.\n\nImportant hierarchy:\n- Item-level values saved here override company-level defaults for that inventory item.\n- For company-wide defaults, use supply_chain_write_company_planning_defaults.\n\nSafety:\n- dry_run defaults to true and returns the API operations that would be executed.\n- Set dry_run=false only after confirming the intended changes.\n- Prefer inventory_get_details first when current restock_data values matter.\n\nFields include lead_time_days, safety_stock_days, fba_lead_time_days, fba_safety_stock_days, unit_vendor_price, unit_landed_cost, target_price, target_fba_fee, target_referral_percentage, daily_sales_target, daily_unit_sales_target, estimated_daily_sales, estimated_price.",
+  "isConsequential": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Numeric company ID. Preferred when available."
+      },
+      "companyUuid": {
+        "type": "string",
+        "description": "Company UUID. Use company_id when available."
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, validate and preview API writes without persisting. Defaults to true."
+      },
+      "writes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 50,
+        "items": {
+          "type": "object",
+          "properties": {
+            "inventory_id": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Inventory item ID to update."
+            },
+            "restock_data": {
+              "type": "object",
+              "description": "Planning parameters to write for this inventory item. At least one field is required.",
+              "properties": {
+                "daily_sales_target": { "type": "number" },
+                "unit_vendor_price": { "type": "number" },
+                "unit_landed_cost": { "type": "number" },
+                "estimated_daily_sales": { "type": "number" },
+                "estimated_price": { "type": "number" },
+                "lead_time_days": { "type": "integer" },
+                "safety_stock_days": { "type": "integer" },
+                "fba_lead_time_days": { "type": "integer" },
+                "fba_safety_stock_days": { "type": "integer" },
+                "target_fba_fee": { "type": "number" },
+                "target_price": { "type": "number" },
+                "target_referral_percentage": { "type": "number" },
+                "daily_unit_sales_target": { "type": "number" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["inventory_id", "restock_data"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["writes"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "examples": [
+    {
+      "name": "Dry-run item-level planning parameter update",
+      "arguments": {
+        "company_id": 103,
+        "dry_run": true,
+        "writes": [
+          {
+            "inventory_id": 29972,
+            "restock_data": {
+              "lead_time_days": 30,
+              "safety_stock_days": 14,
+              "fba_lead_time_days": 7,
+              "fba_safety_stock_days": 7
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
