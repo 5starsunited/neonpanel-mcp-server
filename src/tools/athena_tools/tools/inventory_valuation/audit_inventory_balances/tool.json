@@ -1,0 +1,60 @@
+{
+  "name": "inventory_valuation_audit_inventory_balances",
+  "description": "Audit actual inventory counts against NeonPanel-calculated inventory. This tool compares neonpanel_iceberg.inventory_balances, which stores source-side quantities imported from Amazon, AWD, Shopify, 3PL feeds, or manual audit uploads, against NeonPanel calculated FIFO balances from neonpanel_iceberg.fifo_transactions_snapshot. Use it when the user asks to compare calculated inventory to actual warehouse/3PL/source data, find mismatches, identify missing source rows, or validate manually uploaded audit counts.\n\nDATA RELATIONSHIP:\n- inventory_balances is actual/source inventory by company, date, source, status, inventory_id/SKU, and warehouse_id/warehouse.\n- fifo_transactions_snapshot is NeonPanel calculated inventory from transaction history; this tool sums the latest positive batch balances as of the audit date.\n- Rows are matched by company + audit date + inventory_id or SKU + warehouse name.\n\nFLAGS:\n- audit_status='matched_within_tolerance': actual and calculated quantities differ by at most quantity_tolerance.\n- audit_status='quantity_discrepancy': both sides exist but quantity difference exceeds tolerance.\n- audit_status='missing_calculated_data': actual/source count exists but no matching calculated FIFO balance exists.\n- audit_status='missing_actual_data': calculated FIFO balance exists but no matching actual/source count exists.\n- needs_review is true for discrepancies and missing data.\n\nDATE BEHAVIOR:\n- filters.snapshot_date compares exactly that inventory_balances date to calculated FIFO quantity as of that date.\n- If snapshot_date is omitted, the latest available inventory_balances date per company after filters is used.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": { "type": "array", "items": { "type": "integer" }, "minItems": 1, "description": "Required company IDs." },
+              "snapshot_date": { "type": "string", "format": "date", "description": "Audit date YYYY-MM-DD. If omitted, latest actual/source date per company is used." },
+              "sku": { "type": "array", "items": { "type": "string" }, "description": "Limit comparison to specific SKUs." },
+              "source": { "type": "array", "items": { "type": "string" }, "description": "Actual/source systems to compare, for example amazon, awd, shopify, manual. Case-insensitive." },
+              "status": { "type": "array", "items": { "type": "string" }, "description": "Actual balance status/type such as TotalUnits. Case-insensitive." },
+              "inventory_id": { "type": "array", "items": { "type": "integer" }, "description": "Limit comparison to NeonPanel inventory IDs." },
+              "warehouse_id": { "type": "array", "items": { "type": "integer" }, "description": "Limit actual/source side to warehouse IDs." },
+              "warehouse_name": { "type": "array", "items": { "type": "string" }, "description": "Limit both actual and calculated side by warehouse name. Case-insensitive." }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "audit": {
+            "type": "object",
+            "properties": {
+              "quantity_tolerance": { "type": "number", "minimum": 0, "default": 0, "description": "Allowed absolute unit difference before flagging quantity_discrepancy." },
+              "only_discrepancies": { "type": "boolean", "default": true, "description": "When true, return only rows needing review. Set false to include matches." }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string", "enum": ["abs_quantity_difference", "quantity_difference", "actual_quantity", "calculated_quantity", "percent_difference", "sku", "warehouse_name", "audit_status"], "default": "abs_quantity_difference" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 500 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+      "meta": { "type": "object", "additionalProperties": true }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  },
+  "isConsequential": false
+}

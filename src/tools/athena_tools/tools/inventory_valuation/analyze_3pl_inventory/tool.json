@@ -1,0 +1,73 @@
+{
+  "name": "inventory_valuation_analyze_3pl_inventory",
+  "description": "Analyze actual inventory balances from neonpanel_iceberg.inventory_balances. This table stores point-in-time inventory quantities imported from external operational sources such as Amazon, AWD, Shopify, 3PL feeds, and manually uploaded audit counts. Use this tool when the user asks what external/source systems reported for inventory quantity by date, source, status, SKU, inventory item, seller, or warehouse. For NeonPanel-calculated FIFO inventory value and quantity, use inventory_valuation_analyze_inventory_value. For direct calculated-vs-actual reconciliation, use inventory_valuation_audit_inventory_balances.\n\nDATA RELATIONSHIP:\n- inventory_balances = actual/source-side stock snapshots, one row per company/date/source/status/inventory/SKU/warehouse grain.\n- fifo_transactions_snapshot = NeonPanel calculated inventory quantity and value derived from transaction history.\n- The audit workflow compares inventory_balances.quantity to FIFO calculated quantity at the same date and warehouse.\n\nDATE BEHAVIOR:\n- filters.snapshot_date returns balances for exactly that date.\n- filters.date_from/date_to returns a date range, useful with aggregation.time.periodicity day/month/year.\n- If no date filter is provided, the tool uses the latest available inventory_balances date per company after other filters.\n\nCOMMON USE CASES:\n- Total actual inventory by warehouse for the latest uploaded Amazon/AWD/Shopify/manual snapshot.\n- Actual inventory trend by source and month.\n- Source-system balance by SKU or inventory_id for a specific audit date.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": { "type": "array", "items": { "type": "integer" }, "minItems": 1, "description": "Required company IDs." },
+              "sku": { "type": "array", "items": { "type": "string" }, "description": "Filter by SKU." },
+              "source": { "type": "array", "items": { "type": "string" }, "description": "Filter by source, for example amazon, awd, shopify, manual, or uploaded audit source names. Case-insensitive." },
+              "status": { "type": "array", "items": { "type": "string" }, "description": "Filter by balance status/type, for example TotalUnits. Case-insensitive." },
+              "seller_id": { "type": "array", "items": { "type": "integer" }, "description": "Filter by seller/store/channel ID." },
+              "inventory_id": { "type": "array", "items": { "type": "integer" }, "description": "Filter by NeonPanel inventory item ID." },
+              "warehouse_id": { "type": "array", "items": { "type": "integer" }, "description": "Filter by warehouse ID from inventory_balances." },
+              "warehouse_name": { "type": "array", "items": { "type": "string" }, "description": "Filter by warehouse name via inventory_warehouses. Case-insensitive." },
+              "snapshot_date": { "type": "string", "format": "date", "description": "Exact balance date YYYY-MM-DD. Overrides date_from/date_to." },
+              "date_from": { "type": "string", "format": "date", "description": "Start date for balance range." },
+              "date_to": { "type": "string", "format": "date", "description": "End date for balance range." }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "group_by": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["company", "date", "source", "status", "seller_id", "inventory_id", "sku", "warehouse", "warehouse_id"] },
+                "description": "Dimensions to group by. Empty array returns one aggregate row per time period. Use warehouse or warehouse_id for location analysis."
+              },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": { "type": "string", "enum": ["total", "day", "month", "year"], "default": "total", "description": "Time grouping. Use day/month/year with date_from/date_to for trends." }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string", "enum": ["balance_quantity", "record_count", "distinct_inventory_items", "distinct_skus", "distinct_warehouses", "latest_balance_date", "latest_updated_at"], "default": "balance_quantity" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 100 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+      "meta": { "type": "object", "additionalProperties": true }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  },
+  "isConsequential": false
+}
