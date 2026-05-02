@@ -122,15 +122,15 @@
               },
               "analysis_mode": {
                 "type": "string",
-                "enum": ["normal", "lost_batches", "lost_cogs"],
+                "enum": ["normal", "lost_batches", "lost_cogs", "purchase_price_only"],
                 "default": "normal",
-                "description": "Analysis mode for data quality views:\n- 'normal' (default): All transactions - standard COGS analysis with quality metrics\n- 'lost_batches': Only transactions where batch_document_id IS NULL (items without batch assignment - data quality issue)\n- 'lost_cogs': Only transactions where batch exists but item_landed_cost = 0 (batches without costs entered)"
+                "description": "Analysis mode for data quality views:\n- 'normal' (default): All transactions - standard COGS analysis with quality metrics\n- 'lost_batches': Only transactions where io_batch_id IS NULL (items without source batch assignment - data quality issue)\n- 'lost_cogs': Only transactions where io_batch_id IS NOT NULL but item_landed_cost = 0 (detected batches without costs entered)\n- 'purchase_price_only': Only transactions where io_batch_id IS NOT NULL and item_landed_cost equals item_purchase_price (detected batches with no additional landed cost assigned)"
               },
               "detail_level": {
                 "type": "string",
                 "enum": ["aggregated", "transactions"],
                 "default": "aggregated",
-                "description": "Output detail level:\n- 'aggregated' (default): Group by dimensions, return summary metrics (cogs_amount, units_sold, quality %)\n- 'transactions': Return individual transaction rows with full details (transaction_id, document_date, SKU, batch, warehouse, etc.). Use 'transactions' when you need to see specific problematic records, especially with analysis_mode='lost_batches' or 'lost_cogs'."
+                "description": "Output detail level:\n- 'aggregated' (default): Group by dimensions, return summary metrics (cogs_amount, units_sold, quality %)\n- 'transactions': Return individual transaction rows with full details (transaction_id, document_date, SKU, batch, warehouse, etc.). Use 'transactions' when you need to see specific problematic records, especially with analysis_mode='lost_batches', 'lost_cogs', or 'purchase_price_only'."
               },
               "start_date": {
                 "type": "string",
@@ -222,6 +222,8 @@
                   "transactions_count",
                   "avg_unit_cogs",
                   "purchase_price_amount",
+                  "landed_cost_amount",
+                  "additional_landed_cost_amount",
                   "time_period",
                   "document_date",
                   "transaction_id"

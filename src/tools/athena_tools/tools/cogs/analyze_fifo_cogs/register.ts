@@ -39,7 +39,7 @@ const inputSchema = z.object({
       // NEW: Search filter (partial match across names and ref_numbers)
       search: z.string().optional(),
       // NEW: Analysis mode for data quality views
-      analysis_mode: z.enum(['normal', 'lost_batches', 'lost_cogs']).optional().default('normal'),
+      analysis_mode: z.enum(['normal', 'lost_batches', 'lost_cogs', 'purchase_price_only']).optional().default('normal'),
       // NEW: Detail level - aggregated (default) or individual transactions
       detail_level: z.enum(['aggregated', 'transactions']).optional().default('aggregated'),
       // NEW: Date filters directly in filters (alternative to aggregation.time)
@@ -87,6 +87,8 @@ const inputSchema = z.object({
         'transactions_count',
         'avg_unit_cogs',
         'purchase_price_amount',
+        'landed_cost_amount',
+        'additional_landed_cost_amount',
         'time_period',
         'document_date',
         'transaction_id',
@@ -151,15 +153,18 @@ function buildSearchFilter(search: string | undefined): string {
 /**
  * Build analysis mode filter for data quality views
  * - 'normal': All transactions (no filter)
- * - 'lost_batches': batch_document_id IS NULL (transactions without batch assignment)
- * - 'lost_cogs': batch_document_id IS NOT NULL AND item_landed_cost = 0 (batches without costs)
+ * - 'lost_batches': io_batch_id IS NULL (transactions without source batch assignment)
+ * - 'lost_cogs': io_batch_id IS NOT NULL AND item_landed_cost = 0 (detected batches without costs)
+ * - 'purchase_price_only': io_batch_id IS NOT NULL AND item_landed_cost = item_purchase_price
  */
-function buildAnalysisModeFilter(mode: 'normal' | 'lost_batches' | 'lost_cogs'): string {
+function buildAnalysisModeFilter(mode: 'normal' | 'lost_batches' | 'lost_cogs' | 'purchase_price_only'): string {
   switch (mode) {
     case 'lost_batches':
-      return 'ft.batch_document_id IS NULL';
+      return 'ft.io_batch_id IS NULL';
     case 'lost_cogs':
-      return 'ft.batch_document_id IS NOT NULL AND COALESCE(ft.item_landed_cost, 0) = 0';
+      return 'ft.io_batch_id IS NOT NULL AND COALESCE(ft.item_landed_cost, 0) = 0';
+    case 'purchase_price_only':
+      return 'ft.io_batch_id IS NOT NULL AND COALESCE(ft.item_purchase_price, 0) > 0 AND COALESCE(ft.item_landed_cost, 0) > 0 AND ABS(COALESCE(ft.item_landed_cost, 0) - COALESCE(ft.item_purchase_price, 0)) <= 0.000001';
     case 'normal':
     default:
       return '1=1'; // No filter - all transactions

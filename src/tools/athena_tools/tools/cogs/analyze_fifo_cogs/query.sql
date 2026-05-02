@@ -36,7 +36,7 @@ WITH params AS (
     {{origin_warehouses_array}} AS origin_warehouses,
     {{destination_warehouses_array}} AS destination_warehouses,
     
-    -- Analysis mode: 'normal', 'lost_batches', 'lost_cogs'
+    -- Analysis mode: 'normal', 'lost_batches', 'lost_cogs', 'purchase_price_only'
     {{analysis_mode_sql}} AS analysis_mode,
     
     -- Date range filters (nullable)
@@ -94,6 +94,7 @@ base_transactions AS (
     -1 * ft.transaction_amount AS cogs_amount,
     -1 * (ft.item_purchase_price * ft.quantity) AS purchase_price_amount,
     -1 * (ft.item_landed_cost * ft.quantity) AS landed_cost_amount,
+    -1 * ((ft.item_landed_cost - ft.item_purchase_price) * ft.quantity) AS additional_landed_cost_amount,
     
     -- Quality tracking: separate units with/without cost data
     CASE WHEN COALESCE(ft.item_landed_cost, 0) > 0 THEN -1 * ft.quantity ELSE 0 END AS units_with_cost,
@@ -156,8 +157,9 @@ base_transactions AS (
     
     -- ANALYSIS MODE FILTER:
     -- 'normal' = all transactions (no filter)
-    -- 'lost_batches' = batch_document_id IS NULL (transactions without batch assignment)
-    -- 'lost_cogs' = batch_document_id IS NOT NULL AND item_landed_cost = 0 (batches without costs)
+    -- 'lost_batches' = io_batch_id IS NULL (transactions without source batch assignment)
+    -- 'lost_cogs' = io_batch_id IS NOT NULL AND item_landed_cost = 0 (detected batches without costs)
+    -- 'purchase_price_only' = io_batch_id IS NOT NULL AND item_landed_cost = item_purchase_price
     AND {{analysis_mode_filter}}
 ),
 
@@ -183,7 +185,8 @@ aggregated_cogs AS (
     SUM(bt.cogs_with_cost) AS cogs_with_cost,
     SUM(bt.transaction_count) AS transactions_count,
     SUM(bt.purchase_price_amount) AS purchase_price_amount,
-    SUM(bt.landed_cost_amount) AS landed_cost_amount
+    SUM(bt.landed_cost_amount) AS landed_cost_amount,
+    SUM(bt.additional_landed_cost_amount) AS additional_landed_cost_amount
     
   FROM base_transactions bt
   CROSS JOIN params p
@@ -225,6 +228,7 @@ transaction_details AS (
     bt.cogs_amount,
     bt.purchase_price_amount,
     bt.landed_cost_amount,
+    bt.additional_landed_cost_amount,
     -- Quality indicator for this transaction
     CASE WHEN bt.units_with_cost > 0 THEN 'has_cost' ELSE 'missing_cost' END AS cost_status
   FROM base_transactions bt
@@ -264,6 +268,8 @@ SELECT
   
   ac.transactions_count,
   ac.purchase_price_amount,
+  ac.landed_cost_amount,
+  ac.additional_landed_cost_amount,
   CASE 
     WHEN ac.units_sold > 0 THEN ROUND(ac.cogs_amount / ac.units_sold, 2)
     ELSE 0.0 
@@ -316,6 +322,8 @@ SELECT
   CASE WHEN td.cost_status = 'missing_cost' THEN td.cogs_amount ELSE 0.0 END AS estimated_lost_cogs,
   1 AS transactions_count,
   td.purchase_price_amount,
+  td.landed_cost_amount,
+  td.additional_landed_cost_amount,
   CASE WHEN td.units_sold > 0 THEN ROUND(td.cogs_amount / td.units_sold, 2) ELSE 0.0 END AS avg_unit_cogs,
   -- Transaction-level detail columns
   td.transaction_id,
