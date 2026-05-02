@@ -318,11 +318,14 @@ async function executeCogsAnalyzeFifoCogs(
     ? selectDimensions.join(',\n  ') + ','
     : '';
 
-  // Build transaction-level dimensions (use td. prefix for transaction_details CTE)
-  // For UNION compatibility, we need the same number of columns
-  // Transaction output includes all columns from td.* so we use NULL placeholders for group_by dimensions
+  // Build transaction-level dimensions (use td. prefix for transaction_details CTE).
+  // For UNION compatibility, the transaction branch returns the same dimension
+  // columns as aggregated mode, populated from each transaction row.
   const selectDimensionsTransactionsClause = selectDimensions.length > 0
-    ? selectDimensions.map(dim => `NULL AS ${dim.replace('ac.', '')}`).join(',\n  ') + ','
+    ? selectDimensions.map((dim) => {
+        const alias = dim.replace('ac.', '');
+        return `td.${alias} AS ${alias}`;
+      }).join(',\n  ') + ','
     : '';
 
   // Load SQL template
