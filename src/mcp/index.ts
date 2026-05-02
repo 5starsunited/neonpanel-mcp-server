@@ -178,6 +178,66 @@ export function unwrapToolArguments(raw: unknown): unknown {
   return current;
 }
 
+const DEFAULT_QUERY_KEYS = new Set(['filters', 'limit', 'sort', 'aggregation', 'cursor']);
+
+function queryKeysFromInputSchema(inputSchema: unknown): Set<string> {
+  const keys = new Set(DEFAULT_QUERY_KEYS);
+
+  if (!inputSchema || typeof inputSchema !== 'object' || Array.isArray(inputSchema)) {
+    return keys;
+  }
+
+  const schema = inputSchema as Record<string, unknown>;
+  const properties = schema.properties as Record<string, unknown> | undefined;
+  const queryProperty = properties?.query;
+  if (!queryProperty || typeof queryProperty !== 'object' || Array.isArray(queryProperty)) {
+    return keys;
+  }
+
+  const querySchema = queryProperty as Record<string, unknown>;
+  const queryProperties = querySchema.properties as Record<string, unknown> | undefined;
+  if (!queryProperties || typeof queryProperties !== 'object') {
+    return keys;
+  }
+
+  for (const key of Object.keys(queryProperties)) {
+    keys.add(key);
+  }
+
+  return keys;
+}
+
+export function normalizeToolCallArguments(value: unknown, inputSchema?: unknown): unknown {
+  const normalizedArguments = unwrapToolArguments(value);
+
+  // AI clients often send { filters, limit, ... } flat instead of { query: { filters, limit, ... } }.
+  // Auto-wrap flattened query fields according to the tool's original query schema.
+  if (
+    normalizedArguments &&
+    typeof normalizedArguments === 'object' &&
+    !Array.isArray(normalizedArguments) &&
+    'filters' in normalizedArguments &&
+    !('query' in normalizedArguments)
+  ) {
+    const queryKeys = queryKeysFromInputSchema(inputSchema);
+    const record = normalizedArguments as Record<string, unknown>;
+    const query: Record<string, unknown> = {};
+    const rest: Record<string, unknown> = {};
+
+    for (const [key, val] of Object.entries(record)) {
+      if (queryKeys.has(key)) {
+        query[key] = val;
+      } else {
+        rest[key] = val;
+      }
+    }
+
+    return { query, ...rest };
+  }
+
+  return normalizedArguments;
+}
+
 export interface RpcFactoryOptions {
   userTokenProvider?: UserTokenProvider;
 }
@@ -269,31 +329,10 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
           return result;
         }
 
-        const normalizedArguments = unwrapToolArguments(parsed.arguments ?? {});
-
-        // AI clients often send { filters, limit, ... } flat instead of { query: { filters, limit, ... } }.
-        // Auto-wrap into { query: {...} } when the input has `filters` but no `query` key.
-        const QUERY_KEYS = new Set(['filters', 'limit', 'sort', 'aggregation', 'cursor']);
-        let finalArguments: unknown = normalizedArguments;
-        if (
-          normalizedArguments &&
-          typeof normalizedArguments === 'object' &&
-          !Array.isArray(normalizedArguments) &&
-          'filters' in normalizedArguments &&
-          !('query' in normalizedArguments)
-        ) {
-          const record = normalizedArguments as Record<string, unknown>;
-          const query: Record<string, unknown> = {};
-          const rest: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(record)) {
-            if (QUERY_KEYS.has(k)) {
-              query[k] = v;
-            } else {
-              rest[k] = v;
-            }
-          }
-          finalArguments = { query, ...rest };
-        }
+        const finalArguments = normalizeToolCallArguments(
+          parsed.arguments ?? {},
+          tool.specJson?.inputSchema,
+        );
 
         const args = tool.inputSchema.parse(finalArguments);
         const userToken = await provider.getToken(context.validatedToken);

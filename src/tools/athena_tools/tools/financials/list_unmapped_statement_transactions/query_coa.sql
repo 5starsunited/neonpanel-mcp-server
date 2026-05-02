@@ -18,18 +18,25 @@ statement_marketplace AS (
   SELECT
     s.settlement_id,
     s.company_id,
-    COALESCE(m.code, m_cur.code)                                           AS marketplace_code
+    MAX(COALESCE(m.code, m_cur.code))                                      AS marketplace_code,
+    MAX(COALESCE(m_parent.code, m_cur_parent.code))                        AS parent_marketplace_code
   FROM "{{catalog}}"."sp_api_iceberg"."amazon_statements" s
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
     ON m.name = s.marketplace_name
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m_parent
+    ON m_parent.id = m.parent_id
   LEFT JOIN (
     SELECT currency_iso,
-           MIN(code) AS code
+           MIN(code) AS code,
+           MIN(parent_id) AS parent_id
     FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
     WHERE currency_iso IS NOT NULL AND currency_iso <> 'EUR'
     GROUP BY currency_iso
   ) m_cur
     ON s.marketplace_name IS NULL AND m_cur.currency_iso = s.currency
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m_cur_parent
+    ON m_cur_parent.id = m_cur.parent_id
+  GROUP BY s.settlement_id, s.company_id
 ),
 
 -- ── Normalize amount_type / amount_description before mapping ────────
@@ -95,6 +102,8 @@ service_name_builder AS (
     n.currency,
     n.amount,
     n.quantity,
+    sm.marketplace_code,
+    sm.parent_marketplace_code,
     CONCAT(
       CASE
         WHEN n.order_id IS NOT NULL
@@ -106,8 +115,51 @@ service_name_builder AS (
       END,
       ' ',
       COALESCE(m.service_name_suffix, n.amount_description || ' ' || n.transaction_type)
-    ) AS service_name
+    ) AS service_name,
+    IF(
+      sm.marketplace_code IS NOT NULL,
+      regexp_replace(
+        CONCAT(
+          CASE
+            WHEN n.order_id IS NOT NULL
+                 AND n.merchant_order_id IS NOT NULL
+                 AND n.order_id != n.merchant_order_id
+                 AND NOT regexp_like(n.order_id, '^\d{3}-\d{7}-\d{7}$')
+            THEN 'Non-Amazon'
+            ELSE 'Amazon'
+          END,
+          ' ',
+          COALESCE(m.service_name_suffix, n.amount_description || ' ' || n.transaction_type)
+        ),
+        ' ([^ ]+)$',
+        ' ' || sm.marketplace_code || ' $1'
+      ),
+      NULL
+    ) AS marketplace_service_name,
+    IF(
+      sm.parent_marketplace_code IS NOT NULL,
+      regexp_replace(
+        CONCAT(
+          CASE
+            WHEN n.order_id IS NOT NULL
+                 AND n.merchant_order_id IS NOT NULL
+                 AND n.order_id != n.merchant_order_id
+                 AND NOT regexp_like(n.order_id, '^\d{3}-\d{7}-\d{7}$')
+            THEN 'Non-Amazon'
+            ELSE 'Amazon'
+          END,
+          ' ',
+          COALESCE(m.service_name_suffix, n.amount_description || ' ' || n.transaction_type)
+        ),
+        ' ([^ ]+)$',
+        ' ' || sm.parent_marketplace_code || ' $1'
+      ),
+      NULL
+    ) AS parent_service_name
   FROM normalized n
+  LEFT JOIN statement_marketplace sm
+    ON sm.settlement_id = n.settlement_id
+   AND sm.company_id = n.company_id
   LEFT JOIN "{{catalog}}"."financial_accounting"."settlement_flat_mapping" m
     ON n.transaction_type = m.transaction_type
    AND n.amount_type_norm = m.amount_type_normalized
@@ -124,12 +176,22 @@ unmapped AS (
     sv.settlement_id,
     sv.company_id
   FROM service_name_builder sv
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."services" s
-    ON s.name = sv.service_name
-   AND CAST(s.company_id AS VARCHAR) = sv.company_id
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."accounts" a
-    ON s.income_account_id = a.id
-  WHERE s.name IS NULL OR a.id IS NULL
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."services" s_exact
+    ON s_exact.name = sv.service_name
+   AND CAST(s_exact.company_id AS VARCHAR) = sv.company_id
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."accounts" a_exact
+    ON s_exact.income_account_id = a_exact.id
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."services" s_marketplace
+    ON s_marketplace.name = sv.marketplace_service_name
+   AND CAST(s_marketplace.company_id AS VARCHAR) = sv.company_id
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."accounts" a_marketplace
+    ON s_marketplace.income_account_id = a_marketplace.id
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."services" s_parent
+    ON s_parent.name = sv.parent_service_name
+   AND CAST(s_parent.company_id AS VARCHAR) = sv.company_id
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."accounts" a_parent
+    ON s_parent.income_account_id = a_parent.id
+  WHERE COALESCE(a_exact.id, a_marketplace.id, a_parent.id) IS NULL
 ),
 
 -- ── Filter by marketplace if requested ───────────────────────────────

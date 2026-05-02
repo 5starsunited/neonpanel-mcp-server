@@ -57,8 +57,33 @@ WITH params AS (
 
 -- ─── Currency rates (USD is base; no row for USD → COALESCE to 1.0) ─────────
 currency_rates AS (
-  SELECT currency, date, rate
+  SELECT lower(currency) AS currency_key, date, max(rate) AS rate
   FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
+  GROUP BY lower(currency), date
+),
+
+-- ─── Statement headers / marketplace dimensions are not guaranteed unique ───
+statement_headers AS (
+  SELECT
+    settlement_id,
+    company_id,
+    MIN(settlement_start_date) AS settlement_start_date,
+    MAX(settlement_end_date) AS settlement_end_date,
+    MAX(deposit_date) AS deposit_date,
+    MAX(marketplace_name) AS marketplace_name,
+    MAX(currency) AS currency
+  FROM "{{catalog}}"."sp_api_iceberg"."amazon_statements"
+  GROUP BY settlement_id, company_id
+),
+
+marketplaces_by_name AS (
+  SELECT
+    name,
+    MIN(code) AS code,
+    MIN(country) AS country,
+    MIN(currency_iso) AS currency_iso
+  FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
+  GROUP BY name
 ),
 
 -- ─── Enriched detail rows ───────────────────────────────────────────────────
@@ -114,14 +139,14 @@ enriched AS (
 
   FROM "{{catalog}}"."sp_api_iceberg"."amazon_statement_details" d
 
-  INNER JOIN "{{catalog}}"."sp_api_iceberg"."amazon_statements" s
+  INNER JOIN statement_headers s
     ON s.settlement_id = d.settlement_id
     AND s.company_id = d.company_id
 
   INNER JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" c
     ON CAST(c.id AS VARCHAR) = d.company_id
 
-  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
+  LEFT JOIN marketplaces_by_name m
     ON m.name = s.marketplace_name
 
   -- Fallback: resolve marketplace by currency when marketplace_name is NULL
@@ -139,7 +164,7 @@ enriched AS (
     AND m_cur.currency_iso = s.currency
 
   LEFT JOIN currency_rates cr
-    ON lower(cr.currency) = lower(COALESCE(d.currency, m.currency_iso, m_cur.currency_iso))
+    ON cr.currency_key = lower(COALESCE(d.currency, m.currency_iso, m_cur.currency_iso))
     AND cr.date = CAST(d.transaction_date AS DATE)
 
   CROSS JOIN params p

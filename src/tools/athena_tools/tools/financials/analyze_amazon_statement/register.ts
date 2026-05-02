@@ -90,6 +90,8 @@ const querySchema = z
         fulfillment_ids: z.array(z.string()).optional(),
         min_amount: z.coerce.number().optional(),
         max_amount: z.coerce.number().optional(),
+        start_date: z.string().optional(),
+        end_date: z.string().optional(),
       })
       .strict(),
     time: z
@@ -98,6 +100,8 @@ const querySchema = z
         end_date: z.string().optional(),
       })
       .optional(),
+    start_date: z.string().optional(),
+    end_date: z.string().optional(),
     aggregation: z
       .object({
         periodicity: z.enum(PERIODICITY_OPTIONS).default('total').optional(),
@@ -121,7 +125,14 @@ type QueryInput = z.infer<typeof querySchema>;
 
 const inputSchema = z
   .object({
-    query: querySchema,
+    query: querySchema.optional(),
+    filters: z.unknown().optional(),
+    time: z.unknown().optional(),
+    aggregation: z.unknown().optional(),
+    sort: z.unknown().optional(),
+    limit: z.unknown().optional(),
+    start_date: z.string().optional(),
+    end_date: z.string().optional(),
   })
   .strict();
 
@@ -150,7 +161,17 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
     specJson,
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
-      const query = parsed.query as QueryInput;
+      const query = querySchema.parse(
+        parsed.query ?? {
+          filters: parsed.filters,
+          time: parsed.time,
+          aggregation: parsed.aggregation,
+          sort: parsed.sort,
+          limit: parsed.limit,
+          start_date: parsed.start_date,
+          end_date: parsed.end_date,
+        },
+      ) as QueryInput;
 
       // ── Permission check – user needs at least ONE of these permissions ──
       const permissions = [
@@ -218,8 +239,9 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
       // All date arithmetic uses America/Los_Angeles so that "today" and
       // month boundaries match the business day in LA, even when the
       // server runs on UTC (ECS).
-      let startDate = query.time?.start_date;
-      let endDate = query.time?.end_date;
+      let startDate =
+        query.time?.start_date ?? query.filters.start_date ?? query.start_date ?? parsed.start_date;
+      let endDate = query.time?.end_date ?? query.filters.end_date ?? query.end_date ?? parsed.end_date;
       if (!startDate && !endDate) {
         const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
         const [y, m] = todayLA.split('-').map(Number);

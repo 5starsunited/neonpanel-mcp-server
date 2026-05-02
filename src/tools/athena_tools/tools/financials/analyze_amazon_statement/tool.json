@@ -5,6 +5,32 @@
   "inputSchema": {
     "type": "object",
     "properties": {
+      "filters": {
+        "type": "object",
+        "description": "Compatibility alias for query.filters. Prefer query.filters.",
+        "additionalProperties": true
+      },
+      "time": {
+        "type": "object",
+        "description": "Compatibility alias for query.time. Prefer query.time.",
+        "additionalProperties": true
+      },
+      "aggregation": {
+        "type": "object",
+        "description": "Compatibility alias for query.aggregation. Prefer query.aggregation.",
+        "additionalProperties": true
+      },
+      "sort": {
+        "type": "object",
+        "description": "Compatibility alias for query.sort. Prefer query.sort.",
+        "additionalProperties": true
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "description": "Compatibility alias for query.limit. Prefer query.limit."
+      },
       "query": {
         "type": "object",
         "description": "Query envelope for Amazon statement analysis.",
@@ -81,6 +107,16 @@
               "max_amount": {
                 "type": "number",
                 "description": "Maximum transaction amount (inclusive)."
+              },
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Compatibility alias for time.start_date. Prefer query.time.start_date. Start of transaction_date range (YYYY-MM-DD)."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Compatibility alias for time.end_date. Prefer query.time.end_date. End of transaction_date range (YYYY-MM-DD)."
               }
             },
             "required": [
@@ -104,6 +140,16 @@
               }
             },
             "additionalProperties": false
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Compatibility alias for time.start_date. Prefer query.time.start_date. Start of transaction_date range (YYYY-MM-DD)."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Compatibility alias for time.end_date. Prefer query.time.end_date. End of transaction_date range (YYYY-MM-DD)."
           },
           "aggregation": {
             "type": "object",
@@ -189,10 +235,19 @@
         ],
         "additionalProperties": false
       }
+      ,
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Compatibility alias for query.time.start_date. Prefer query.time.start_date."
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Compatibility alias for query.time.end_date. Prefer query.time.end_date."
+      }
     },
-    "required": [
-      "query"
-    ],
+    "required": [],
     "additionalProperties": false
   },
   "outputSchema": {

@@ -38,23 +38,29 @@ statement_marketplace AS (
   SELECT
     s.settlement_id,
     s.company_id,
-    COALESCE(m.currency_iso, m_cur.currency_iso)                           AS marketplace_currency,
-    COALESCE(s.marketplace_name, m_cur.name,
-             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)              AS marketplace_name,
-    COALESCE(m.code, m_cur.code)                                           AS marketplace_code,
-    COALESCE(m.country, m_cur.country,
-             CASE WHEN s.currency = 'EUR' THEN 'Europe' END)              AS marketplace_country
+    MAX(COALESCE(m.currency_iso, m_cur.currency_iso))                      AS marketplace_currency,
+    MAX(COALESCE(s.marketplace_name, m_cur.name,
+             CASE WHEN s.currency = 'EUR' THEN 'Europe' END))             AS marketplace_name,
+    MAX(COALESCE(m.code, m_cur.code))                                      AS marketplace_code,
+    MAX(COALESCE(m_parent.code, m_cur_parent.code))                        AS parent_marketplace_code,
+    MAX(COALESCE(m.country, m_cur.country,
+             CASE WHEN s.currency = 'EUR' THEN 'Europe' END))             AS marketplace_country
   FROM "{{catalog}}"."sp_api_iceberg"."amazon_statements" s
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
     ON m.name = s.marketplace_name
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m_parent
+    ON m_parent.id = m.parent_id
   LEFT JOIN (
     SELECT currency_iso,
-           MIN(name) AS name, MIN(code) AS code, MIN(country) AS country
+           MIN(name) AS name, MIN(code) AS code, MIN(country) AS country, MIN(parent_id) AS parent_id
     FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
     WHERE currency_iso IS NOT NULL AND currency_iso <> 'EUR'
     GROUP BY currency_iso
   ) m_cur
     ON s.marketplace_name IS NULL AND m_cur.currency_iso = s.currency
+  LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m_cur_parent
+    ON m_cur_parent.id = m_cur.parent_id
+  GROUP BY s.settlement_id, s.company_id
 ),
 
 -- ── Service → Account mapping (with parent account chain) ────────────
@@ -209,19 +215,19 @@ coa_mapped AS (
     cv.transaction_date_tz,
     cv.amount,
     cv.quantity,
-    cv.service_name,
+    COALESCE(sam_exact.service_name, sam_marketplace.service_name, sam_parent.service_name, cv.service_name) AS service_name,
 
     -- CoA mapping status
     CASE
-      WHEN sam.account_name IS NOT NULL THEN 'mapped'
+      WHEN COALESCE(sam_exact.account_name, sam_marketplace.account_name, sam_parent.account_name) IS NOT NULL THEN 'mapped'
       ELSE 'unmapped'
     END AS mapping_status,
-    sam.account_name,
-    sam.account_type,
-    sam.account_type_detail,
-    sam.account_description,
-    sam.account_classification,
-    sam.pnl_class_name,
+    COALESCE(sam_exact.account_name, sam_marketplace.account_name, sam_parent.account_name) AS account_name,
+    COALESCE(sam_exact.account_type, sam_marketplace.account_type, sam_parent.account_type) AS account_type,
+    COALESCE(sam_exact.account_type_detail, sam_marketplace.account_type_detail, sam_parent.account_type_detail) AS account_type_detail,
+    COALESCE(sam_exact.account_description, sam_marketplace.account_description, sam_parent.account_description) AS account_description,
+    COALESCE(sam_exact.account_classification, sam_marketplace.account_classification, sam_parent.account_classification) AS account_classification,
+    COALESCE(sam_exact.pnl_class_name, sam_marketplace.pnl_class_name, sam_parent.pnl_class_name) AS pnl_class_name,
 
     -- Marketplace from statement header
     sm.marketplace_code,
@@ -243,15 +249,37 @@ coa_mapped AS (
 
   FROM service_name_builder cv
 
-  -- CoA mapping: service_name → accounts (with parent chain)
-  LEFT JOIN service_account_map sam
-    ON CAST(sam.company_id AS VARCHAR) = cv.company_id
-    AND sam.service_name = cv.service_name
-
   -- Marketplace from statement header
   LEFT JOIN statement_marketplace sm
     ON sm.settlement_id = cv.settlement_id
     AND sm.company_id = cv.company_id
+
+  -- CoA mapping: service_name → accounts (with parent chain)
+  LEFT JOIN service_account_map sam_exact
+    ON CAST(sam_exact.company_id AS VARCHAR) = cv.company_id
+    AND sam_exact.service_name = cv.service_name
+  LEFT JOIN service_account_map sam_marketplace
+    ON CAST(sam_marketplace.company_id AS VARCHAR) = cv.company_id
+    AND sam_marketplace.service_name = IF(
+      sm.marketplace_code IS NOT NULL,
+      regexp_replace(
+        cv.service_name,
+        ' ([^ ]+)$',
+        ' ' || sm.marketplace_code || ' $1'
+      ),
+      NULL
+    )
+  LEFT JOIN service_account_map sam_parent
+    ON CAST(sam_parent.company_id AS VARCHAR) = cv.company_id
+    AND sam_parent.service_name = IF(
+      sm.parent_marketplace_code IS NOT NULL,
+      regexp_replace(
+        cv.service_name,
+        ' ([^ ]+)$',
+        ' ' || sm.parent_marketplace_code || ' $1'
+      ),
+      NULL
+    )
 
   LEFT JOIN "{{catalog}}"."neonpanel_iceberg"."app_companies" comp
     ON comp.id = CAST(cv.company_id AS BIGINT)
