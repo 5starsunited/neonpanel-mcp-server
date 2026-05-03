@@ -4,15 +4,15 @@
 
 Create a new MCP toolset named `project_management` in the existing NeonPanel MCP server. This toolset will expose project-like NeonPanel records through a consistent set of MCP tools for listing, reading, creating, updating, and eventually deleting projects.
 
-The first supported project type is Inventory Orders / Purchase Orders:
+The first supported project types are Inventory Orders / Purchase Orders and Bills:
 
 - `project_type: "inventory_order"`
+- `project_type: "bill"`
 - NeonPanel routes from `documents.yaml`
 - Base URL: `https://my.neonpanel.com/api/v1`
 
 Future project types can include:
 
-- `bill`
 - `invoice`
 - Other NeonPanel project/document records as their endpoints become available
 
@@ -33,7 +33,7 @@ src/tools/project_management/
 Recommended responsibilities:
 
 - `index.ts`: registers the MCP tools with the shared `ToolRegistry`.
-- `schemas.ts`: contains Zod input schemas for project-management tools and Inventory Order payloads.
+- `schemas.ts`: contains Zod input schemas for project-management tools, Inventory Order payloads, Bill payloads, and payment request updates.
 - `adapters.ts`: maps generic `project_type` operations to concrete NeonPanel REST endpoints.
 
 If shared NeonPanel helpers are needed, extract them from `src/tools/neonpanel.ts` into a small shared module such as `src/tools/neonpanel-common.ts`.
@@ -44,7 +44,7 @@ If shared NeonPanel helpers are needed, extract them from `src/tools/neonpanel.t
 
 List project records for a company.
 
-Initial support:
+Supported examples:
 
 ```json
 {
@@ -61,13 +61,14 @@ Maps to:
 
 ```text
 GET /api/v1/companies/{companyUuid}/inventory-orders
+GET /api/v1/companies/{companyUuid}/bills
 ```
 
 Behavior:
 
 - Accept `company_id` or `companyUuid`.
 - Resolve `company_id` to UUID using the existing company lookup pattern.
-- Pass through supported filters: `search`, `warehouses`, `vendors`, `date`.
+- Pass through supported filters: `search`, `warehouses` for inventory orders, `vendors`, `date`.
 - Return the NeonPanel paginated response.
 - Mark as non-consequential.
 
@@ -75,7 +76,7 @@ Behavior:
 
 Read one project in full.
 
-Initial support:
+Supported examples:
 
 ```json
 {
@@ -89,18 +90,19 @@ Maps to:
 
 ```text
 GET /api/v1/companies/{companyUuid}/inventory-orders/{orderId}
+GET /api/v1/companies/{companyUuid}/bills/{billId}
 ```
 
 Behavior:
 
-- Return full Inventory Order details, including line items, warehouse, vendor, and payment requests.
+- Return full project details, including line items, vendor, and payment requests.
 - Mark as non-consequential.
 
 ### `project_management_create_project`
 
 Create a new project record.
 
-Initial support:
+Supported examples:
 
 ```json
 {
@@ -122,42 +124,28 @@ Initial support:
         "quantity": 50,
         "price": 12.99
       }
-    ],
-    "payment_requests": []
+    ]
   }
 }
 ```
 
-Maps to:
-
-```text
-POST /api/v1/companies/{companyUuid}/inventory-orders
-```
-
-Behavior:
-
-- Send `project` as the request body.
-- Return the newly created Inventory Order resource.
-- Mark as consequential.
-
-### `project_management_update_project`
-
-Sparse-update an existing project record.
-
-Initial support:
-
 ```json
 {
-  "project_type": "inventory_order",
+  "project_type": "bill",
   "company_id": 230,
-  "project_id": 42,
   "project": {
-    "payment_requests": [
+    "name": "Bill-2024-001",
+    "ref_number": "REF-BILL-001",
+    "date": "2024-03-15",
+    "market": "US",
+    "currency": "USD",
+    "vendor_id": 7,
+    "payment_term_id": 2,
+    "details": [
       {
-        "paid_amount": 500,
-        "payment_date": "2026-05-03",
-        "transaction_number": "WIRE-12345",
-        "memo": "First installment paid"
+        "service": "Freight Forwarding",
+        "quantity": 3,
+        "rate": 250
       }
     ]
   }
@@ -167,13 +155,55 @@ Initial support:
 Maps to:
 
 ```text
+POST /api/v1/companies/{companyUuid}/inventory-orders
+POST /api/v1/companies/{companyUuid}/bills
+```
+
+Behavior:
+
+- Send `project` as the request body.
+- Return the newly created project resource.
+- Mark as consequential.
+
+### `project_management_update_project`
+
+Sparse-update an existing project record.
+
+Supported examples:
+
+```json
+{
+  "project_type": "inventory_order",
+  "company_id": 230,
+  "project_id": 42,
+  "project": {
+    "date_manufacturing_completed": "2026-06-15"
+  }
+}
+```
+
+```json
+{
+  "project_type": "bill",
+  "company_id": 230,
+  "project_id": 17,
+  "project": {
+    "date": "2026-05-03"
+  }
+}
+```
+
+Maps to:
+
+```text
 PUT /api/v1/companies/{companyUuid}/inventory-orders/{orderId}
+PUT /api/v1/companies/{companyUuid}/bills/{billId}
 ```
 
 Behavior:
 
 - Send only fields the caller intends to update.
-- Return the updated Inventory Order resource.
+- Return the updated project resource.
 - Mark as consequential.
 
 Important safety notes:
@@ -184,20 +214,19 @@ Important safety notes:
 
 ## Payment Request Management Tools
 
-Payment requests should be managed as first-class project-management resources as soon as direct endpoints are available.
+Payment requests are managed as first-class project-management resources through direct endpoints.
 
-The live documents schema now confirms this read endpoint:
+The live documents schema now confirms these endpoints:
 
 ```text
 GET /api/v1/companies/{companyUuid}/payment-requests
+PUT /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
 ```
 
-Expected direct mutation endpoints are planned by the NeonPanel API team and should be used when delivered:
+Other direct endpoints remain future additions until they appear in the documents schema:
 
 ```text
 GET /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
-PATCH /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
-PUT /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
 POST /api/v1/companies/{companyUuid}/payment-requests
 DELETE /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
 ```
@@ -252,9 +281,9 @@ Known response fields:
 - `document.ref_number`
 - `document.date`
 
-Implementation requirement:
+Implementation note:
 
-- Confirm the list response includes a stable payment request `id`. If it does not, ask API to add it before implementing direct update/delete tools.
+- The list response includes a stable payment request `id`, used by `project_management_update_payment_request`.
 
 ### `project_management_get_payment_request`
 
@@ -285,13 +314,13 @@ Behavior:
 
 Update payment request fields by stable ID.
 
-Planned support:
+Supported:
 
 ```json
 {
   "company_id": 230,
-  "payment_request_id": 12345,
-  "payment_request": {
+  "payment_id": 12345,
+  "payment": {
     "paid_amount": 500,
     "payment_date": "2026-05-03",
     "transaction_number": "WIRE-12345",
@@ -300,13 +329,7 @@ Planned support:
 }
 ```
 
-Expected mapping, depending on API delivery:
-
-```text
-PATCH /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
-```
-
-or:
+Mapping:
 
 ```text
 PUT /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
@@ -317,7 +340,7 @@ Behavior:
 - Send only fields the caller intends to update.
 - Return the updated payment request resource.
 - Mark as consequential.
-- Prefer `PATCH` semantics if the API supports sparse updates.
+- The API uses `PUT` with sparse-update semantics.
 
 Allowed update fields should match `PaymentRequestInput`:
 
@@ -330,12 +353,12 @@ Allowed update fields should match `PaymentRequestInput`:
 
 Convenience wrapper for marking a payment installment as paid.
 
-Planned support:
+Supported:
 
 ```json
 {
   "company_id": 230,
-  "payment_request_id": 12345,
+  "payment_id": 12345,
   "paid_amount": 500,
   "payment_date": "2026-05-03",
   "transaction_number": "WIRE-12345",
@@ -343,10 +366,10 @@ Planned support:
 }
 ```
 
-Expected mapping:
+Mapping:
 
 ```text
-PATCH /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
+PUT /api/v1/companies/{companyUuid}/payment-requests/{paymentRequestId}
 ```
 
 Behavior:
@@ -354,7 +377,7 @@ Behavior:
 - A narrower, safer wrapper over `project_management_update_payment_request`.
 - Validate `paid_amount` and `payment_date` are present.
 - Mark as consequential.
-- Good first write tool once direct mutation endpoints are delivered.
+- Uses the same direct update endpoint as `project_management_update_payment_request`.
 
 ### `project_management_create_payment_request`
 
@@ -436,10 +459,17 @@ const projectAdapters = {
     updatePath: (companyUuid, projectId) => `/api/v1/companies/${companyUuid}/inventory-orders/${projectId}`,
     supportsDelete: false,
   },
+  bill: {
+    listPath: (companyUuid) => `/api/v1/companies/${companyUuid}/bills`,
+    getPath: (companyUuid, projectId) => `/api/v1/companies/${companyUuid}/bills/${projectId}`,
+    createPath: (companyUuid) => `/api/v1/companies/${companyUuid}/bills`,
+    updatePath: (companyUuid, projectId) => `/api/v1/companies/${companyUuid}/bills/${projectId}`,
+    supportsDelete: false,
+  },
 };
 ```
 
-Later additions can add `bill`, `invoice`, and other project/document types without changing the public tool names.
+Later additions can add `invoice` and other project/document types without changing the public tool names.
 
 ## Validation
 
@@ -447,10 +477,10 @@ Use Zod schemas for runtime validation and tool schema emission.
 
 Common fields:
 
-- `project_type`: enum, initially only `inventory_order`.
+- `project_type`: enum, currently `inventory_order` or `bill`.
 - `company_id` or `companyUuid`.
 - `project_id`: positive integer for get/update.
-- `payment_request_id`: positive integer for direct payment request get/update/delete.
+- `payment_id`: positive integer for direct payment request update.
 
 Inventory Order payload fields:
 
@@ -464,7 +494,7 @@ Inventory Order payload fields:
 - `warehouse_id`
 - `payment_term_id`
 - `details`
-- `payment_requests`
+
 
 Inventory Order line item fields:
 
@@ -478,6 +508,23 @@ Payment request fields:
 - `payment_date`
 - `transaction_number`
 - `memo`
+
+Bill payload fields:
+
+- `name`
+- `ref_number`
+- `date`
+- `market`
+- `currency`
+- `vendor_id`
+- `payment_term_id`
+- `details`
+
+Bill line item fields:
+
+- `service`
+- `quantity`
+- `rate`
 
 Payment request list filters:
 
@@ -496,13 +543,15 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     .register(/* project_management_create_project */)
     .register(/* project_management_update_project */)
     .register(/* project_management_list_payment_requests */)
-    .register(/* project_management_get_payment_request */)
     .register(/* project_management_update_payment_request */)
+    .register(/* project_management_list_vendors */)
+    .register(/* project_management_list_payment_terms */)
+    .register(/* project_management_get_payment_request */)
     .register(/* project_management_record_payment */);
 }
 ```
 
-Register `project_management_get_payment_request`, `project_management_update_payment_request`, and `project_management_record_payment` only after direct payment request mutation/read-by-id endpoints are confirmed. Register `project_management_list_payment_requests` immediately because it is already present in the live documents schema.
+Register `project_management_get_payment_request` only after a direct read endpoint is confirmed. `project_management_list_payment_requests`, `project_management_update_payment_request`, and `project_management_record_payment` are available now from the live documents schema.
 
 Then wire it into the existing server tool registration flow next to the existing NeonPanel and Athena tool registrations.
 
@@ -518,10 +567,10 @@ Add focused tests for:
 - `project_management_create_project` sends the expected POST body.
 - `project_management_update_project` sends the expected sparse PUT body.
 - `project_management_list_payment_requests` maps `start_date` and `end_date` filters correctly.
-- Direct payment request tools are hidden or not registered until corresponding endpoints are available.
-- `project_management_record_payment` sends only payment fields once direct mutation endpoints exist.
+- `project_management_update_payment_request` sends only payment fields.
+- `project_management_record_payment` requires `paid_amount` and `payment_date` and sends optional memo/reference fields.
 - Unsupported `project_type` fails with a clear validation error.
-- Delete is not exposed for Inventory Orders until a DELETE endpoint exists.
+- Delete is not exposed for Inventory Orders or Bills until DELETE endpoints exist.
 
 Manual smoke-test order:
 
@@ -530,7 +579,7 @@ Manual smoke-test order:
 3. Run `project_management_list_projects` against a known company.
 4. Run `project_management_get_project` for a known Inventory Order.
 5. Run `project_management_list_payment_requests` for a known company/date range.
-6. Only then test `project_management_update_project` or direct payment write tools on a safe record.
+6. Only then test `project_management_update_project`, `project_management_update_payment_request`, or `project_management_record_payment` on a safe record.
 
 ## Rollout Sequence
 
@@ -539,10 +588,11 @@ Manual smoke-test order:
 3. Implement list and get first.
 4. Add create and update with consequential flags.
 5. Implement `project_management_list_payment_requests` from the confirmed endpoint.
-6. Add direct payment request read/update/record-payment tools as soon as API endpoints are delivered.
-7. Add tests.
-8. Build and inspect `tools/list`.
-9. Smoke test read-only tools.
-10. Smoke test write tools on safe records.
-11. Add `bill` support as the next adapter from `documents.yaml`.
-12. Add delete only after supported API endpoints exist.
+6. Add `project_management_update_payment_request` from the confirmed direct update endpoint.
+7. Add `project_management_record_payment` convenience wrapper over the direct update endpoint.
+8. Add `bill` support as the next adapter from `documents.yaml`.
+9. Add tests.
+10. Build and inspect `tools/list`.
+11. Smoke test read-only tools.
+12. Smoke test write tools on safe records.
+13. Add delete only after supported API endpoints exist.

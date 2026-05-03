@@ -1,0 +1,1326 @@
+openapi: 3.1.0
+info:
+  title: NeonPanel Documents API
+  version: 1.0.0
+  x-snapshot-date: 2026-05-03
+  description: >
+    Endpoints for managing Documents (Inventory Orders, Bills) scoped to a specific company.
+    All routes require authentication via OAuth2.
+    The `companyUuid` path parameter identifies the company context and is
+    validated server-side via `CompanyResourceRequestManager`.
+
+servers:
+  - url: https://my.neonpanel.com/api/v1
+    description: NeonPanel production API
+
+security:
+  - OAuth2: [openid]
+
+tags:
+  - name: Inventory Orders
+    description: >
+      CRUD operations for inventory purchase orders. Each order belongs to a
+      company, may reference a vendor, a marketplace, and a destination warehouse.
+      Orders contain line-item details (inventory SKUs + quantities + prices) and
+      optionally a payment term that auto-generates payment request installments.
+  - name: Bills
+    description: >
+      CRUD operations for vendor bills. Each bill belongs to a company and may
+      reference a vendor and a marketplace. Bill line items reference services
+      looked up or auto-created by name. Optionally a payment term auto-generates
+      payment request installments.
+  - name: Payment Requests
+    description: Payment request installment listing and direct updates.
+  - name: Vendors
+    description: Vendor lookup helpers for company-scoped document creation.
+  - name: Payment Terms
+    description: Global payment term lookup helpers for document creation.
+
+paths:
+  /companies/{companyUuid}/inventory-orders:
+    get:
+      tags: [Inventory Orders]
+      operationId: inventoryOrders.list
+      summary: List inventory orders for a company
+      description: >
+        Returns a paginated list of inventory orders belonging to the specified
+        company. Supports optional server-side filters passed as query params
+        under the `filters` key. Each order in the response includes its line
+        items, warehouse, marketplace, vendor, and payment requests.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: search
+          in: query
+          required: false
+          description: Free-text search string applied across order fields.
+          schema:
+            type: string
+            example: "PO-2024"
+        - name: warehouses
+          in: query
+          required: false
+          description: Filter by one or more warehouse IDs.
+          schema:
+            type: array
+            items:
+              type: integer
+            example: [3, 7]
+        - name: vendors
+          in: query
+          required: false
+          description: Filter by one or more vendor IDs.
+          schema:
+            type: array
+            items:
+              type: integer
+            example: [1, 5]
+        - name: date
+          in: query
+          required: false
+          description: Filter by order placement date (ISO 8601 date string).
+          schema:
+            type: string
+            format: date
+            example: "2024-03-15"
+      responses:
+        '200':
+          description: Paginated list of inventory orders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryOrderListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Inventory Orders]
+      operationId: inventoryOrders.create
+      summary: Create a new inventory order
+      description: >
+        Creates a new inventory order for the specified company. The authenticated
+        user is recorded as the creator. If a `payment_term_id` is provided, the
+        server automatically generates payment request installments according to
+        the term schema via `PaymentRequestService`. Additional manual overrides
+        to those installments can be supplied in `payment_requests`.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryOrderPayload'
+      responses:
+        '200':
+          description: The newly created inventory order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryOrderResource'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/inventory-orders/{orderId}:
+    get:
+      tags: [Inventory Orders]
+      operationId: inventoryOrders.read
+      summary: Get a single inventory order
+      description: >
+        Retrieves full details of a single inventory order by its integer ID.
+        The order must belong to the company identified by `companyUuid`;
+        otherwise a 404 is returned. Response includes all relations: line items
+        with product info, warehouse, marketplace, vendor, and payment requests.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - $ref: '#/components/parameters/orderId'
+      responses:
+        '200':
+          description: Full inventory order detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryOrderResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      tags: [Inventory Orders]
+      operationId: inventoryOrders.update
+      summary: Update an existing inventory order
+      description: >
+        Partially updates an existing inventory order. Only fields present in the
+        request body are applied — absent fields are left unchanged (sparse update
+        pattern via `isset()` checks in `fillOrderData`). If `details` is provided,
+        the existing line items are **replaced entirely** (deleted and re-created).
+        If a `payment_term_id` is present and a term exists, payment request
+        installments are regenerated via `PaymentRequestService`. Individual payment
+        request fields (paid_amount, payment_date, transaction_number, memo) can be
+        patched via the `payment_requests` array, indexed to match the current
+        installment order.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - $ref: '#/components/parameters/orderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryOrderPayload'
+      responses:
+        '200':
+          description: The updated inventory order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryOrderResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/bills:
+    get:
+      tags: [Bills]
+      operationId: bills.list
+      summary: List bills for a company
+      description: >
+        Returns a paginated list of bills belonging to the specified company.
+        Supports optional server-side filters. Each bill includes its line items
+        (with service and service group), vendor, and payment requests.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: search
+          in: query
+          required: false
+          description: Free-text search string applied across bill fields.
+          schema:
+            type: string
+            example: "INV-2024"
+        - name: vendors
+          in: query
+          required: false
+          description: Filter by one or more vendor IDs.
+          schema:
+            type: array
+            items:
+              type: integer
+            example: [1, 5]
+        - name: date
+          in: query
+          required: false
+          description: Filter by bill date (ISO 8601 date string).
+          schema:
+            type: string
+            format: date
+            example: "2024-03-15"
+      responses:
+        '200':
+          description: Paginated list of bills.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Bills]
+      operationId: bills.create
+      summary: Create a new bill
+      description: >
+        Creates a new bill for the specified company. The authenticated user is
+        recorded as the creator. Line item services are looked up or auto-created
+        by name via `ServiceRepository::firstOrCreateByNameAndCompany`. If a
+        `payment_term_id` is provided, payment request installments are
+        auto-generated via `PaymentRequestService`. Manual overrides to those
+        installments can be supplied in `payment_requests`.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillPayload'
+      responses:
+        '200':
+          description: The newly created bill.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResource'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/bills/{billId}:
+    get:
+      tags: [Bills]
+      operationId: bills.read
+      summary: Get a single bill
+      description: >
+        Retrieves full details of a single bill by its integer ID. The bill must
+        belong to the company identified by `companyUuid`; otherwise a 404 is
+        returned. Response includes all relations: line items with service and
+        service group, vendor, and payment requests.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - $ref: '#/components/parameters/billId'
+      responses:
+        '200':
+          description: Full bill detail.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      tags: [Bills]
+      operationId: bills.update
+      summary: Update an existing bill
+      description: >
+        Partially updates an existing bill. Only fields present in the request
+        body are applied (sparse update). If `details` is provided, existing line
+        items are **replaced entirely** (deleted and re-created). Services are
+        looked up or auto-created by name. If a `payment_term_id` is present,
+        payment request installments are regenerated. Individual payment request
+        fields can be patched via the `payment_requests` array, indexed to match
+        the current installment order.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - $ref: '#/components/parameters/billId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BillPayload'
+      responses:
+        '200':
+          description: The updated bill.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/payment-requests:
+    get:
+      tags: [Payment Requests]
+      operationId: paymentRequests.list
+      summary: List payment requests for a company
+      description: >
+        Returns a paginated list of payment request installments belonging to
+        documents in the specified company. Supports due-date range filters.
+        Each item includes payment request fields and parent document context.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: start_date
+          in: query
+          required: false
+          description: Filter payment requests with `due_date` >= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Filter payment requests with `due_date` <= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
+      responses:
+        '200':
+          description: Paginated list of payment requests with document context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRequestListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/payment-requests/{paymentId}:
+    put:
+      tags: [Payment Requests]
+      operationId: paymentRequests.update
+      summary: Update a payment request
+      description: >
+        Sparse-updates payment fields for a single payment request installment.
+        Only supplied fields are written.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - $ref: '#/components/parameters/paymentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequestUpdatePayload'
+      responses:
+        '200':
+          description: The updated payment request with document context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRequestItemResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/vendors:
+    get:
+      tags: [Vendors]
+      operationId: vendors.list
+      summary: List vendors for a company
+      description: >
+        Returns a paginated list of vendors belonging to the specified company.
+        Supports optional free-text search by vendor name.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: search
+          in: query
+          required: false
+          description: Free-text search applied against vendor name.
+          schema:
+            type: string
+            example: "Acme"
+        - name: per_page
+          in: query
+          required: false
+          description: Number of results per page. Defaults to 100.
+          schema:
+            type: integer
+            example: 50
+      responses:
+        '200':
+          description: Paginated list of vendors.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VendorListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /payment-terms:
+    get:
+      tags: [Payment Terms]
+      operationId: paymentTerms.list
+      summary: List all payment terms
+      description: >
+        Returns all configured payment terms. Terms include the document type
+        they apply to, such as InventoryOrder or Bill.
+      responses:
+        '200':
+          description: List of payment terms.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentTermListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      description: |
+        OAuth 2.0 Authorization Code. `tokenUrl` retrieves standard **POST**
+        request with `grant_type=authorization_code` and `refresh_token` for refreshing.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://my.neonpanel.com/oauth2/authorize
+          tokenUrl: https://my.neonpanel.com/oauth2/token
+          scopes:
+            openid: Basic authentication scope
+
+  parameters:
+    companyUuid:
+      name: companyUuid
+      in: path
+      required: true
+      description: UUID of the company that owns the resource.
+      schema:
+        type: string
+        format: uuid
+        example: 550e8400-e29b-41d4-a716-446655440000
+
+    orderId:
+      name: orderId
+      in: path
+      required: true
+      description: Integer primary key of the inventory order.
+      schema:
+        type: integer
+        example: 42
+
+    billId:
+      name: billId
+      in: path
+      required: true
+      description: Integer primary key of the bill.
+      schema:
+        type: integer
+        example: 17
+
+    paymentId:
+      name: paymentId
+      in: path
+      required: true
+      description: Integer primary key of the payment request.
+      schema:
+        type: integer
+        example: 9
+
+  schemas:
+
+    # ─── Request payload ────────────────────────────────────────────────────────
+
+    BillPayload:
+      type: object
+      description: >
+        Fields accepted when creating or updating a bill.
+        All fields are optional on update (sparse patch). On create, `ref_number`
+        is stored directly on the bill record.
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: Free-text display name for the bill.
+          example: "Bill-2024-001"
+        ref_number:
+          type: string
+          description: >
+            Human-readable reference number. Used only during create
+            (`sometimes` rule); ignored on update.
+          example: "REF-BILL-001"
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: Bill date.
+          example: "2024-03-15"
+        market:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 2
+          description: ISO 3166-1 alpha-2 country code. Must exist in the marketplaces table.
+          example: "US"
+        currency:
+          type: string
+          nullable: true
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 three-letter currency code.
+          example: "USD"
+        vendor_id:
+          type: integer
+          nullable: true
+          description: FK to the vendors table.
+          example: 7
+        payment_term_id:
+          type: integer
+          nullable: true
+          description: >
+            FK to the payment_terms table. When set, auto-generates installment
+            records via `PaymentRequestService::handlePaymentTermsSchema`.
+          example: 2
+        details:
+          type: array
+          description: >
+            Line items for the bill. On update, providing this array **replaces
+            all existing line items** (full replace, not merge). Services are
+            looked up or auto-created by name within the company scope.
+          items:
+            $ref: '#/components/schemas/BillDetailInput'
+        payment_requests:
+          type: array
+          description: >
+            Optional overrides for auto-generated payment request installments.
+            Indexed to match the current installment order. Only supplied fields
+            are updated.
+          items:
+            $ref: '#/components/schemas/PaymentRequestInput'
+
+    BillDetailInput:
+      type: object
+      required: [service, quantity, rate]
+      description: A single line item in a bill.
+      properties:
+        service:
+          type: string
+          description: >
+            Service name. Looked up or auto-created via
+            `ServiceRepository::firstOrCreateByNameAndCompany`.
+          example: "Freight Forwarding"
+        quantity:
+          type: integer
+          minimum: 1
+          description: Number of units.
+          example: 3
+        rate:
+          type: number
+          format: float
+          description: Unit rate in the bill currency.
+          example: 250.00
+
+    # ─── Response schemas ────────────────────────────────────────────────────────
+
+    BillResource:
+      type: object
+      description: Full representation of a bill as returned by the API.
+      properties:
+        id:
+          type: integer
+          example: 17
+        name:
+          type: string
+          nullable: true
+          example: "Bill-2024-001"
+        ref_number:
+          type: string
+          nullable: true
+          example: "REF-BILL-001"
+        date:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-03-15"
+        market:
+          type: string
+          nullable: true
+          example: "US"
+        amount:
+          type: number
+          format: float
+          description: Sum of (quantity × rate) across all line items. Computed server-side.
+          example: 750.00
+        currency:
+          type: string
+          nullable: true
+          example: "USD"
+        vendor:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: integer
+              nullable: true
+              example: 7
+            name:
+              type: string
+              nullable: true
+              example: "Acme Logistics Ltd."
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillDetailResource'
+        payment_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequestResource'
+
+    BillDetailResource:
+      type: object
+      description: >
+        A single bill line item. Items where the service relation is missing
+        are filtered out (returned as null in the collection).
+      properties:
+        service_id:
+          type: integer
+          example: 55
+        name:
+          type: string
+          description: Service display name.
+          example: "Freight Forwarding"
+        group:
+          type: string
+          nullable: true
+          description: Service group name, if the service belongs to a group.
+          example: "Logistics"
+        quantity:
+          type: integer
+          example: 3
+        rate:
+          type: number
+          format: float
+          example: 250.00
+        amount:
+          type: number
+          format: float
+          example: 750.00
+
+    BillListResponse:
+      type: object
+      description: Paginated wrapper returned by the bills list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        last_page:
+          type: integer
+          example: 2
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillResource'
+
+    InventoryOrderPayload:
+      type: object
+      description: >
+        Fields accepted when creating or updating an inventory order.
+        All fields are optional on update (sparse patch). On create, `ref_number`
+        is used as the human-readable PO reference stored in `order_id`.
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: Free-text display name for the order.
+          example: "PO-2024-Spring"
+
+        ref_number:
+          type: string
+          description: >
+            Human-readable reference / PO number. Used only during create
+            (`sometimes` rule); ignored on update.
+          example: "REF-0042"
+
+        date_order_placed:
+          type: string
+          format: date
+          nullable: true
+          description: Date the purchase order was placed (maps to `po_date`).
+          example: "2024-03-15"
+
+        date_manufacturing_completed:
+          type: string
+          format: date
+          nullable: true
+          description: >
+            Date manufacturing was completed / goods were received
+            (maps to `date_order_received`).
+          example: "2024-05-01"
+
+        market:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 2
+          description: >
+            ISO 3166-1 alpha-2 country code. Must exist in the `amazon_marketplaces`
+            table (`code` column). The server resolves this to a `marketplace_id`.
+          example: "US"
+
+        currency:
+          type: string
+          nullable: true
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 three-letter currency code.
+          example: "USD"
+
+        vendor_id:
+          type: integer
+          nullable: true
+          description: FK to the vendors table.
+          example: 7
+
+        warehouse_id:
+          type: integer
+          nullable: true
+          description: FK to the inventory_warehouses table (destination warehouse).
+          example: 3
+
+        payment_term_id:
+          type: integer
+          nullable: true
+          description: >
+            FK to the payment_terms table. When set, the server calls
+            `PaymentRequestService::handlePaymentTermsSchema` to auto-generate
+            installment records for this order.
+          example: 2
+
+        details:
+          type: array
+          description: >
+            Line items for the order. On update, providing this array **replaces all
+            existing line items** (full replace, not merge). Each item must reference
+            an inventory record belonging to the same company.
+          items:
+            $ref: '#/components/schemas/InventoryOrderDetailInput'
+
+        payment_requests:
+          type: array
+          description: >
+            Optional overrides for auto-generated payment request installments.
+            Indexed to match the current installment order returned by the server.
+            Only supplied fields are updated; absent fields are left unchanged.
+          items:
+            $ref: '#/components/schemas/PaymentRequestInput'
+
+    InventoryOrderDetailInput:
+      type: object
+      required: [inventory_id, quantity, price]
+      description: A single line-item in an inventory order.
+      properties:
+        inventory_id:
+          type: integer
+          description: >
+            FK to the inventory table. Must exist and belong to the company; items
+            that fail the company-scope check are silently skipped.
+          example: 101
+
+        quantity:
+          type: integer
+          minimum: 1
+          description: Number of units ordered.
+          example: 50
+
+        price:
+          type: number
+          format: float
+          description: Unit price in the order currency.
+          example: 12.99
+
+    PaymentRequestInput:
+      type: object
+      description: >
+        Patch fields for a single payment request installment.
+        All fields are nullable — only supplied fields are written.
+      properties:
+        paid_amount:
+          type: number
+          format: float
+          nullable: true
+          description: Amount already paid for this installment.
+          example: 500.00
+
+        payment_date:
+          type: string
+          format: date
+          nullable: true
+          description: Date the payment was made.
+          example: "2024-04-10"
+
+        transaction_number:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Bank / gateway transaction reference.
+          example: "TXN-9988776"
+
+        memo:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: Free-text note attached to this payment.
+          example: "Wire transfer — first installment"
+
+    # ─── Response schemas ────────────────────────────────────────────────────────
+
+    InventoryOrderResource:
+      type: object
+      description: Full representation of an inventory order as returned by the API.
+      properties:
+        id:
+          type: integer
+          description: Primary key.
+          example: 42
+
+        name:
+          type: string
+          nullable: true
+          example: "PO-2024-Spring"
+
+        ref_number:
+          type: string
+          nullable: true
+          description: Human-readable PO reference (stored as `order_id` on the model).
+          example: "REF-0042"
+
+        date_order_placed:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-03-15"
+
+        date_manufacturing_completed:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-05-01"
+
+        market:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 country code.
+          example: "US"
+
+        total_amount:
+          type: number
+          format: float
+          description: >
+            Sum of (quantity × price) across all line items. Computed server-side
+            when `details` is provided.
+          example: 3247.50
+
+        currency:
+          type: string
+          nullable: true
+          example: "USD"
+
+        vendor:
+          type: object
+          nullable: true
+          description: Denormalised vendor snapshot.
+          properties:
+            id:
+              type: integer
+              nullable: true
+              example: 7
+            name:
+              type: string
+              nullable: true
+              example: "Acme Supplies Ltd."
+
+        warehouse:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WarehouseResource'
+
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryOrderDetailResource'
+
+        payment_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequestResource'
+
+    WarehouseResource:
+      type: object
+      description: Denormalised snapshot of a warehouse.
+      properties:
+        id:
+          type: integer
+          example: 3
+        uuid:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name:
+          type: string
+          example: "FBA East Coast"
+        type:
+          type: string
+          nullable: true
+          description: Warehouse type label (e.g. FBA, FBM, 3PL).
+          example: "FBA"
+        country_code:
+          type: string
+          nullable: true
+          description: Two-letter country code derived from the associated marketplace.
+          example: "US"
+
+    InventoryOrderDetailResource:
+      type: object
+      description: A single line item as returned in the order response.
+      properties:
+        inventory_id:
+          type: integer
+          example: 101
+        sku:
+          type: string
+          description: Amazon / internal SKU from the linked product.
+          example: "SKU-ABC-123"
+        name:
+          type: string
+          description: Product display name.
+          example: "Blue Widget (Pack of 10)"
+        quantity:
+          type: integer
+          example: 50
+        price:
+          type: number
+          format: float
+          description: Unit price at the time the order was saved.
+          example: 12.99
+
+    PaymentRequestResource:
+      type: object
+      description: A single payment installment record.
+      properties:
+        id:
+          type: integer
+          example: 9
+        amount_due:
+          type: number
+          format: float
+          nullable: true
+          description: Total amount due for this installment (set by the payment term schema).
+          example: 1623.75
+        paid_amount:
+          type: number
+          format: float
+          nullable: true
+          example: 500.00
+        due_date:
+          type: string
+          format: date
+          nullable: true
+          description: Deadline for this installment (set by the payment term schema).
+          example: "2024-04-01"
+        payment_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-04-10"
+        currency:
+          type: string
+          nullable: true
+          example: "USD"
+        description:
+          type: string
+          nullable: true
+          description: Human-readable label generated from the payment term (e.g. "30% Deposit").
+          example: "30% Deposit"
+        classification:
+          type: string
+          nullable: true
+          description: Internal classification tag for accounting purposes.
+          example: "deposit"
+        transaction_number:
+          type: string
+          nullable: true
+          example: "TXN-9988776"
+        memo:
+          type: string
+          nullable: true
+          example: "Wire transfer — first installment"
+
+    InventoryOrderListResponse:
+      type: object
+      description: Paginated wrapper returned by the list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        last_page:
+          type: integer
+          example: 4
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryOrderResource'
+
+    PaymentRequestUpdatePayload:
+      type: object
+      description: Fields accepted when updating a payment request. All fields are optional (sparse update).
+      properties:
+        paid_amount:
+          type: number
+          format: float
+          nullable: true
+          example: 500.00
+        payment_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-04-10"
+        transaction_number:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: "TXN-9988776"
+        memo:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: "Wire transfer — first installment"
+
+    PaymentRequestListResponse:
+      type: object
+      description: Paginated wrapper returned by the payment requests list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        last_page:
+          type: integer
+          example: 5
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequestItemResource'
+
+    PaymentRequestItemResource:
+      type: object
+      description: >
+        A payment request installment with its parent document context.
+        The response is a flat merge: payment request fields are at the top
+        level alongside the `document` key.
+      allOf:
+        - $ref: '#/components/schemas/PaymentRequestResource'
+        - type: object
+          properties:
+            document:
+              $ref: '#/components/schemas/DocumentResource'
+
+    DocumentResource:
+      type: object
+      description: >
+        Contextual reference to the parent document that owns this payment request.
+        Returns an empty object if the document relation is null. The `type` field
+        is the short class name of the underlying model (e.g. `InventoryOrder`,
+        `Bill`, `Shipment`). Project-related fields are only present when the
+        document has an associated project.
+      properties:
+        id:
+          type: integer
+          description: Primary key of the underlying document model.
+          example: 42
+        type:
+          type: string
+          description: Short class name of the underlying document model.
+          example: "InventoryOrder"
+        link:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the project task view in the processes UI.
+          example: "https://my.neonpanel.com/processes/abc-123/tasks/def-456"
+        status:
+          type: string
+          nullable: true
+          description: Name of the kanban column the project is currently in.
+          example: "In Production"
+        completed:
+          type: string
+          format: date-time
+          nullable: true
+          description: Datetime when the project was marked as completed.
+          example: "2024-05-01T12:00:00Z"
+        ref_number:
+          type: string
+          nullable: true
+          description: Document reference number.
+          example: "REF-0042"
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: FIFO transaction date of the document, when available.
+          example: "2024-03-15"
+
+    PaymentTermResource:
+      type: object
+      description: A single payment term record.
+      properties:
+        id:
+          type: integer
+          example: 2
+        document:
+          type: string
+          description: >
+            Short class name of the document type this term applies to,
+            resolved via reflection from the stored FQCN.
+          example: "InventoryOrder"
+        name:
+          type: string
+          example: "30/70 Net 30"
+
+    PaymentTermListResponse:
+      type: object
+      description: Non-paginated list of all payment terms.
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentTermResource'
+
+    VendorResource:
+      type: object
+      description: A single vendor record.
+      properties:
+        id:
+          type: integer
+          example: 7
+        bk_id:
+          type: string
+          nullable: true
+          description: External bookkeeping system ID (e.g. Xero/QuickBooks contact ID).
+          example: "xero-contact-abc123"
+        bk_type:
+          type: string
+          nullable: true
+          description: Bookkeeping system type identifier.
+          example: "xero"
+        name:
+          type: string
+          nullable: true
+          example: "Acme Supplies Ltd."
+        code:
+          type: string
+          nullable: true
+          description: Short vendor code.
+          example: "ACME"
+
+    VendorListResponse:
+      type: object
+      description: Paginated wrapper returned by the vendors list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 100
+        last_page:
+          type: integer
+          example: 1
+        filters:
+          type: object
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VendorResource'
+
+    ErrorResource:
+      type: object
+      description: Standard error envelope used across the API.
+      properties:
+        message:
+          type: string
+          example: "Order not found."
+
+    ValidationErrorResource:
+      type: object
+      description: Laravel validation error response (HTTP 422).
+      properties:
+        message:
+          type: string
+          example: "The given data was invalid."
+        errors:
+          type: object
+          description: Field-level error messages keyed by input field name.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            details.0.quantity: ["The details.0.quantity field must be at least 1."]
+
+  responses:
+    BadRequest:
+      description: A required route parameter is missing or malformed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResource'
+
+    NotFound:
+      description: The requested order does not exist or does not belong to this company.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResource'
+
+    ValidationError:
+      description: Input validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResource'
+
+    Unauthorized:
+      description: Missing or invalid Bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResource'
+
+    Forbidden:
+      description: Authenticated user lacks permission to access this company resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResource'

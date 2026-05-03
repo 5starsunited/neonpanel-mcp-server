@@ -3,7 +3,7 @@ import { companyIdentifierSchema, hasCompanyIdentifier } from '../neonpanel-comm
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
 
-export const projectTypeSchema = z.enum(['inventory_order']);
+export const projectTypeSchema = z.enum(['inventory_order', 'bill']);
 
 const companyScopedBaseSchema = z.object({
   ...companyIdentifierSchema,
@@ -41,20 +41,80 @@ export const inventoryOrderPayloadSchema = z.object({
   details: z.array(inventoryOrderDetailInputSchema).optional(),
 });
 
-export const createProjectInputSchema = companyScopedBaseSchema.extend({
-  project_type: projectTypeSchema.default('inventory_order').optional(),
+export const billDetailInputSchema = z.object({
+  service: z.string().min(1),
+  quantity: z.coerce.number().int().min(1),
+  rate: z.coerce.number().min(0),
+});
+
+export const billPayloadSchema = z.object({
+  name: z.string().nullable().optional(),
+  ref_number: z.string().optional(),
+  date: isoDateSchema.nullable().optional(),
+  market: z.string().length(2).nullable().optional(),
+  currency: z.string().length(3).nullable().optional(),
+  vendor_id: z.coerce.number().int().min(1).nullable().optional(),
+  payment_term_id: z.coerce.number().int().min(1).nullable().optional(),
+  details: z.array(billDetailInputSchema).optional(),
+});
+
+const inventoryOrderCreateInputSchema = companyScopedBaseSchema.extend({
+  project_type: z.literal('inventory_order').default('inventory_order').optional(),
   project: inventoryOrderPayloadSchema,
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
-export const updateProjectInputSchema = companyScopedBaseSchema.extend({
-  project_type: projectTypeSchema.default('inventory_order').optional(),
+const billCreateInputSchema = companyScopedBaseSchema.extend({
+  project_type: z.literal('bill'),
+  project: billPayloadSchema,
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const createProjectInputSchema = z.union([
+  billCreateInputSchema,
+  inventoryOrderCreateInputSchema,
+]);
+
+const inventoryOrderUpdateInputSchema = companyScopedBaseSchema.extend({
+  project_type: z.literal('inventory_order').default('inventory_order').optional(),
   project_id: z.coerce.number().int().min(1),
   project: inventoryOrderPayloadSchema,
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
+const billUpdateInputSchema = companyScopedBaseSchema.extend({
+  project_type: z.literal('bill'),
+  project_id: z.coerce.number().int().min(1),
+  project: billPayloadSchema,
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const updateProjectInputSchema = z.union([
+  billUpdateInputSchema,
+  inventoryOrderUpdateInputSchema,
+]);
+
 export const listPaymentRequestsInputSchema = companyScopedBaseSchema.extend({
   start_date: isoDateSchema.optional(),
   end_date: isoDateSchema.optional(),
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const paymentRequestUpdatePayloadSchema = z.object({
+  paid_amount: z.coerce.number().min(0).nullable().optional(),
+  payment_date: isoDateSchema.nullable().optional(),
+  transaction_number: z.string().max(255).nullable().optional(),
+  memo: z.string().max(255).nullable().optional(),
+}).refine((payload) => Object.keys(payload).length > 0, {
+  message: 'Provide at least one payment request field to update',
+});
+
+export const updatePaymentRequestInputSchema = companyScopedBaseSchema.extend({
+  payment_id: z.coerce.number().int().min(1),
+  payment: paymentRequestUpdatePayloadSchema,
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const recordPaymentInputSchema = companyScopedBaseSchema.extend({
+  payment_id: z.coerce.number().int().min(1),
+  paid_amount: z.coerce.number().min(0),
+  payment_date: isoDateSchema,
+  transaction_number: z.string().max(255).nullable().optional(),
+  memo: z.string().max(255).nullable().optional(),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const listVendorsInputSchema = companyScopedBaseSchema.extend({
