@@ -4,6 +4,7 @@ import { RpcDispatcher } from './rpc/dispatcher';
 import { ToolRegistry } from '../tools/types';
 import { registerAthenaTools } from '../tools/athena_tools';
 import { registerNeonPanelTools } from '../tools/neonpanel';
+import { registerProjectManagementTools } from '../tools/project_management';
 import { userTokenProvider, type UserTokenProvider } from '../auth/user-token-provider';
 import { logger } from '../logging/logger';
 
@@ -247,6 +248,7 @@ export function createRpcDispatcher(options: RpcFactoryOptions = {}): RpcDispatc
   // Register Athena-backed tools first to keep high-value tools early in tools/list.
   registerAthenaTools(registry);
   registerNeonPanelTools(registry);
+  registerProjectManagementTools(registry);
   const provider = options.userTokenProvider ?? userTokenProvider;
 
   return RpcDispatcher.fromRecord({

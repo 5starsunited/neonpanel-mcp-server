@@ -1,77 +1,7 @@
 import { z } from 'zod';
 import { neonPanelRequest, NeonPanelApiError } from '../clients/neonpanel-api';
 import type { ToolRegistry } from './types';
-
-// ── Company ID → UUID resolver ─────────────────────────────────────────────────
-// Agents already know company_id from Athena tools.  The NeonPanel REST API
-// requires a UUID.  This helper bridges the gap so every NeonPanel tool can
-// accept *either* company_id (number) or companyUuid (string).
-
-interface CompanyEntry {
-  id?: number;
-  company_id?: number;
-  uuid?: string;
-  name?: string;
-}
-
-// Simple per-request cache keyed by bearer token (avoids repeated /api/v1/companies calls).
-const _companyCache = new Map<string, { ts: number; entries: CompanyEntry[] }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
-
-async function fetchCompanyList(token: string): Promise<CompanyEntry[]> {
-  const cached = _companyCache.get(token);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.entries;
-
-  const res = await neonPanelRequest<{ data?: CompanyEntry[] }>({
-    token,
-    path: '/api/v1/companies',
-    query: { per_page: 60 },
-  });
-
-  const entries = Array.isArray(res?.data) ? res.data : [];
-  _companyCache.set(token, { ts: Date.now(), entries });
-  return entries;
-}
-
-/**
- * Accepts company_id (number) **or** companyUuid (string) and always returns a UUID.
- * When company_id is provided, calls /api/v1/companies to find the matching UUID.
- */
-async function resolveCompanyUuid(
-  opts: { company_id?: number; companyUuid?: string },
-  token: string,
-): Promise<string> {
-  if (opts.companyUuid) return opts.companyUuid;
-
-  if (!opts.company_id) {
-    throw new NeonPanelApiError('Either company_id or companyUuid must be provided', {
-      status: 400,
-      code: 'missing_company_identifier',
-    });
-  }
-
-  const companies = await fetchCompanyList(token);
-  const match = companies.find(
-    (c) => (c.id ?? c.company_id) === opts.company_id,
-  );
-
-  if (!match?.uuid) {
-    throw new NeonPanelApiError(
-      `Company with id ${opts.company_id} not found or has no UUID. Available companies: ${companies.map((c) => `${c.id ?? c.company_id}=${c.name ?? '?'}`).join(', ')}`,
-      { status: 404, code: 'company_not_found' },
-    );
-  }
-
-  return match.uuid;
-}
-
-/** Reusable Zod fragment: accept company_id (preferred) or companyUuid. */
-const companyIdentifierSchema = {
-  company_id: z.coerce.number().int().min(1).optional()
-    .describe('Numeric company ID (preferred – same as in Athena-based tools). Provide this OR companyUuid.'),
-  companyUuid: z.string().min(1).optional()
-    .describe('Company UUID string. Use company_id instead when possible.'),
-};
+import { companyIdentifierSchema, resolveCompanyUuid } from './neonpanel-common';
 
 const listCompaniesInputSchema = z.object({
   page: z.number().int().min(1).optional(),
