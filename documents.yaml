@@ -43,6 +43,10 @@ tags:
       Read-only access to the global list of payment terms. Not scoped to a
       company — terms are shared across all companies. Each term includes its
       applicable document type (short class name).
+  - name: Services
+    description: >
+      Read-only access to services scoped to a company. Used as line item
+      references in Bills. Supports search and pagination. Default page size is 100.
 
 paths:
   /companies/{companyUuid}/inventory-orders:
@@ -274,8 +278,11 @@ paths:
       summary: Create a new bill
       description: >
         Creates a new bill for the specified company. The authenticated user is
-        recorded as the creator. Line item services are looked up or auto-created
-        by name via `ServiceRepository::firstOrCreateByNameAndCompany`. If a
+        recorded as the creator. Each line item in `details` must supply either
+        `service_id` (FK to an existing service — use `GET /companies/{companyUuid}/services`
+        to look up available options) or `service_name` (auto-creates the service
+        if it does not exist). `service_name` takes precedence when both are
+        supplied; items where neither is set are silently skipped. If a
         `payment_term_id` is provided, payment request installments are
         auto-generated via `PaymentRequestService`. Payment request installments
         can be updated individually via the dedicated
@@ -338,8 +345,12 @@ paths:
       description: >
         Partially updates an existing bill. Only fields present in the request
         body are applied (sparse update). If `details` is provided, existing line
-        items are **replaced entirely** (deleted and re-created). Services are
-        looked up or auto-created by name. If a `payment_term_id` is present,
+        items are **replaced entirely** (deleted and re-created). Each line item
+        must supply either `service_id` (FK to an existing service — use
+        `GET /companies/{companyUuid}/services` to look up available options) or
+        `service_name` (auto-creates the service if it does not exist).
+        `service_name` takes precedence when both are supplied; items where
+        neither is set are silently skipped. If a `payment_term_id` is present,
         payment request installments are regenerated. To update individual payment
         request fields (paid_amount, payment_date, transaction_number, memo), use
         the dedicated `PUT /payment-requests/{paymentId}` endpoint.
@@ -486,6 +497,43 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /companies/{companyUuid}/services:
+    get:
+      tags: [Services]
+      operationId: services.list
+      summary: List services for a company
+      description: >
+        Returns a paginated list of services belonging to the specified company.
+        Supports optional free-text search by name. Default page size is 100,
+        overridable via `per_page`.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: search
+          in: query
+          required: false
+          description: Free-text search applied against service name.
+          schema:
+            type: string
+            example: "Freight"
+        - name: per_page
+          in: query
+          required: false
+          description: Number of results per page. Defaults to 100.
+          schema:
+            type: integer
+            example: 50
+      responses:
+        '200':
+          description: Paginated list of services.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /payment-terms:
     get:
       tags: [Payment Terms]
@@ -562,7 +610,9 @@ components:
         example: 9
 
   schemas:
-    # Request payloads
+
+    # ─── Request payloads ────────────────────────────────────────────────────────
+
     InventoryOrderPayload:
       type: object
       description: >
@@ -721,14 +771,23 @@ components:
 
     BillDetailInput:
       type: object
-      required: [service, quantity, rate]
-      description: A single line item in a bill.
+      required: [quantity, rate]
+      description: >
+        A single line item in a bill. Either `service_id` or `service_name` must
+        be provided — items where neither is set are skipped. If `service_name` is
+        provided, the service is looked up or auto-created via
+        `ServiceRepository::firstOrCreateByNameAndCompany`. If `service_id` is
+        provided, the service is looked up directly by ID.
       properties:
-        service:
+        service_id:
+          type: integer
+          description: FK to the services table. Used when referencing an existing service by ID.
+          example: 55
+        service_name:
           type: string
           description: >
-            Service name. Looked up or auto-created via
-            `ServiceRepository::firstOrCreateByNameAndCompany`.
+            Service name. Takes precedence over `service_id` when both are supplied.
+            Looked up or auto-created within the company scope.
           example: "Freight Forwarding"
         quantity:
           type: integer
@@ -766,7 +825,8 @@ components:
           maxLength: 255
           example: "Wire transfer — first installment"
 
-    # Response schemas
+    # ─── Response schemas ────────────────────────────────────────────────────────
+
     InventoryOrderResource:
       type: object
       description: Full representation of an inventory order as returned by the API.
@@ -979,18 +1039,17 @@ components:
 
     BillDetailResource:
       type: object
-      description: >
-        A single bill line item. Items where the service relation is missing
-        are returned as null in the collection.
+      description: A single bill line item.
       properties:
         service_id:
           type: integer
           example: 55
-        name:
+        service_name:
           type: string
+          nullable: true
           description: Service display name.
           example: "Freight Forwarding"
-        group:
+        service_group:
           type: string
           nullable: true
           description: Service group name, if the service belongs to a group.
@@ -1262,6 +1321,44 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/VendorResource'
+
+    ServiceResource:
+      type: object
+      description: A single service record.
+      properties:
+        id:
+          type: integer
+          example: 55
+        name:
+          type: string
+          nullable: true
+          example: "Freight Forwarding"
+        group:
+          type: string
+          nullable: true
+          description: Service group name, if the service belongs to a group.
+          example: "Logistics"
+
+    ServiceListResponse:
+      type: object
+      description: Paginated wrapper returned by the services list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 100
+        last_page:
+          type: integer
+          example: 1
+        filters:
+          type: object
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceResource'
 
     ErrorResource:
       type: object

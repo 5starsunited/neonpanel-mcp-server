@@ -43,10 +43,14 @@ export const inventoryOrderPayloadSchema = z.object({
 });
 
 export const billDetailInputSchema = z.object({
-  service: z.string().min(1),
+  service_id: z.coerce.number().int().min(1).optional(),
+  service_name: z.string().min(1).optional(),
   quantity: z.coerce.number().int().min(1),
   rate: z.coerce.number().min(0),
-});
+}).refine(
+  (d) => d.service_id !== undefined || d.service_name !== undefined,
+  { message: 'Provide service_id or service_name for each bill line item' },
+);
 
 export const billPayloadSchema = z.object({
   name: z.string().nullable().optional(),
@@ -119,6 +123,11 @@ export const recordPaymentInputSchema = companyScopedBaseSchema.extend({
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const listVendorsInputSchema = companyScopedBaseSchema.extend({
+  search: z.string().optional(),
+  per_page: z.coerce.number().int().min(1).max(500).optional(),
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const listServicesInputSchema = companyScopedBaseSchema.extend({
   search: z.string().optional(),
   per_page: z.coerce.number().int().min(1).max(500).optional(),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
