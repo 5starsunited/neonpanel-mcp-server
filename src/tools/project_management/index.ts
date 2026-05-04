@@ -20,6 +20,114 @@ function getProjectAdapter(projectType: ProjectType | undefined) {
   return projectAdapters[projectType ?? 'inventory_order'];
 }
 
+const companyIdentifierJsonSchema = {
+  company_id: {
+    type: 'integer',
+    minimum: 1,
+    description: 'Numeric company ID. Provide this or companyUuid.',
+  },
+  companyUuid: {
+    type: 'string',
+    minLength: 1,
+    description: 'Company UUID. Provide this or company_id.',
+  },
+};
+
+const inventoryOrderProjectJsonSchema = {
+  type: 'object',
+  description: 'Inventory Order / Purchase Order payload. Use when project_type is inventory_order or omitted.',
+  properties: {
+    name: { type: ['string', 'null'], description: 'Free-text display name for the order.' },
+    ref_number: { type: 'string', description: 'Human-readable PO reference.' },
+    date_order_placed: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Date the purchase order was placed (YYYY-MM-DD).' },
+    date_manufacturing_completed: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Date manufacturing was completed / goods were received (YYYY-MM-DD).' },
+    market: { type: ['string', 'null'], minLength: 2, maxLength: 2, description: 'ISO 3166-1 alpha-2 marketplace/country code.' },
+    currency: { type: ['string', 'null'], minLength: 3, maxLength: 3, description: 'ISO 4217 currency code.' },
+    vendor_id: { type: ['integer', 'null'], minimum: 1, description: 'Vendor ID.' },
+    warehouse_id: { type: ['integer', 'null'], minimum: 1, description: 'Destination warehouse ID.' },
+    payment_term_id: { type: ['integer', 'null'], minimum: 1, description: 'Payment term ID used to generate payment requests.' },
+    details: {
+      type: 'array',
+      description: 'Inventory order line items. On update, providing details replaces all existing line items.',
+      items: {
+        type: 'object',
+        properties: {
+          inventory_id: { type: 'integer', minimum: 1, description: 'Inventory record ID.' },
+          quantity: { type: 'integer', minimum: 1 },
+          price: { type: 'number', minimum: 0 },
+        },
+        required: ['inventory_id', 'quantity', 'price'],
+        additionalProperties: false,
+      },
+    },
+  },
+  additionalProperties: false,
+};
+
+const billProjectJsonSchema = {
+  type: 'object',
+  description: 'Bill payload. Use when project_type is bill.',
+  properties: {
+    name: { type: ['string', 'null'], description: 'Free-text display name for the bill.' },
+    ref_number: { type: 'string', description: 'Human-readable bill reference.' },
+    date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Bill date (YYYY-MM-DD).' },
+    market: { type: ['string', 'null'], minLength: 2, maxLength: 2, description: 'ISO 3166-1 alpha-2 marketplace/country code.' },
+    currency: { type: ['string', 'null'], minLength: 3, maxLength: 3, description: 'ISO 4217 currency code.' },
+    vendor_id: { type: ['integer', 'null'], minimum: 1, description: 'Vendor ID.' },
+    payment_term_id: { type: ['integer', 'null'], minimum: 1, description: 'Payment term ID used to generate payment requests.' },
+    details: {
+      type: 'array',
+      description: 'Bill line items. On update, providing details replaces all existing line items.',
+      items: {
+        type: 'object',
+        properties: {
+          service: { type: 'string', minLength: 1, description: 'Service name. NeonPanel resolves or creates the service internally.' },
+          quantity: { type: 'integer', minimum: 1 },
+          rate: { type: 'number', minimum: 0 },
+        },
+        required: ['service', 'quantity', 'rate'],
+        additionalProperties: false,
+      },
+    },
+  },
+  additionalProperties: false,
+};
+
+const projectInputJsonSchemaProperties = {
+  ...companyIdentifierJsonSchema,
+  project_type: {
+    type: 'string',
+    enum: ['inventory_order', 'bill'],
+    default: 'inventory_order',
+    description: 'Project/document type. Omit for inventory_order; set to bill for vendor bills.',
+  },
+  project: {
+    oneOf: [inventoryOrderProjectJsonSchema, billProjectJsonSchema],
+    description: 'Project payload. Use the Inventory Order shape for project_type inventory_order and the Bill shape for project_type bill.',
+  },
+};
+
+const createProjectInputJsonSchema = {
+  type: 'object',
+  properties: projectInputJsonSchemaProperties,
+  required: ['project'],
+  additionalProperties: false,
+};
+
+const updateProjectInputJsonSchema = {
+  type: 'object',
+  properties: {
+    ...projectInputJsonSchemaProperties,
+    project_id: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Inventory order ID when project_type is inventory_order; bill ID when project_type is bill.',
+    },
+  },
+  required: ['project_id', 'project'],
+  additionalProperties: false,
+};
+
 export function registerProjectManagementTools(registry: ToolRegistry) {
   registry
     .register({
@@ -102,6 +210,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
       isConsequential: true,
       inputSchema: createProjectInputSchema,
       outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_create_project',
+        description: 'Create a NeonPanel project record. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Inventory order details use inventory_id, quantity, price. Bill details use service, quantity, rate. Payment request mutation is handled by direct payment request tools.',
+        isConsequential: true,
+        inputSchema: createProjectInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
       examples: [
         {
           name: 'Create Inventory Order',
@@ -154,6 +269,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
       isConsequential: true,
       inputSchema: updateProjectInputSchema,
       outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_update_project',
+        description: 'Sparse-update a NeonPanel project record. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Only send project fields that should change. Warning: details[] replaces existing line items when provided; payment_term_id may regenerate payment schedule server-side. Use project_management_update_payment_request for payment request mutation.',
+        isConsequential: true,
+        inputSchema: updateProjectInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
       examples: [
         {
           name: 'Update Inventory Order Memo-Free Fields',
