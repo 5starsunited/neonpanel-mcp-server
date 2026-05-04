@@ -132,7 +132,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
   registry
     .register({
       name: 'project_management_list_projects',
-      description: 'List NeonPanel project records for a company. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Optional filters: search, warehouses for inventory orders, vendors, and date. Use company_id when available; companyUuid is also accepted.',
+      description: 'List NeonPanel project records for a company. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Optional filters: search, warehouses for inventory orders, vendors, and date range (start_date, end_date). Use company_id when available; companyUuid is also accepted.',
       isConsequential: false,
       inputSchema: listProjectsInputSchema,
       outputSchema: passthroughOutputSchema,
@@ -165,7 +165,8 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
             search: parsed.search,
             warehouses: parsed.warehouses,
             vendors: parsed.vendors,
-            date: parsed.date,
+            start_date: parsed.start_date,
+            end_date: parsed.end_date,
           },
         });
       },

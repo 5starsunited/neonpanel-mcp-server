@@ -14,7 +14,8 @@ export const listProjectsInputSchema = companyScopedBaseSchema.extend({
   search: z.string().optional(),
   warehouses: z.array(z.coerce.number().int().min(1)).optional(),
   vendors: z.array(z.coerce.number().int().min(1)).optional(),
-  date: isoDateSchema.optional(),
+  start_date: isoDateSchema.optional(),
+  end_date: isoDateSchema.optional(),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const getProjectInputSchema = companyScopedBaseSchema.extend({

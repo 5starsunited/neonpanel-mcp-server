@@ -2,7 +2,6 @@ openapi: 3.1.0
 info:
   title: NeonPanel Documents API
   version: 1.0.0
-  x-snapshot-date: 2026-05-03
   description: >
     Endpoints for managing Documents (Inventory Orders, Bills) scoped to a specific company.
     All routes require authentication via OAuth2.
@@ -30,11 +29,20 @@ tags:
       looked up or auto-created by name. Optionally a payment term auto-generates
       payment request installments.
   - name: Payment Requests
-    description: Payment request installment listing and direct updates.
+    description: >
+      Read-only access to payment request installments across all document types
+      (Inventory Orders, Bills) scoped to a company. Each payment request is
+      returned with its parent document context. Supports date range filtering
+      by `due_date`.
   - name: Vendors
-    description: Vendor lookup helpers for company-scoped document creation.
+    description: >
+      Read-only access to vendors scoped to a company. Supports search and
+      pagination. Default page size is 100.
   - name: Payment Terms
-    description: Global payment term lookup helpers for document creation.
+    description: >
+      Read-only access to the global list of payment terms. Not scoped to a
+      company — terms are shared across all companies. Each term includes its
+      applicable document type (short class name).
 
 paths:
   /companies/{companyUuid}/inventory-orders:
@@ -74,14 +82,22 @@ paths:
             items:
               type: integer
             example: [1, 5]
-        - name: date
+        - name: start_date
           in: query
           required: false
-          description: Filter by order placement date (ISO 8601 date string).
+          description: Filter orders with `date_order_received` >= this date (ISO 8601).
           schema:
             type: string
             format: date
-            example: "2024-03-15"
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Filter orders with `date_order_received` <= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
       responses:
         '200':
           description: Paginated list of inventory orders.
@@ -102,8 +118,9 @@ paths:
         Creates a new inventory order for the specified company. The authenticated
         user is recorded as the creator. If a `payment_term_id` is provided, the
         server automatically generates payment request installments according to
-        the term schema via `PaymentRequestService`. Additional manual overrides
-        to those installments can be supplied in `payment_requests`.
+        the term schema via `PaymentRequestService`. Payment request installments
+        can be updated individually via the dedicated
+        `PUT /payment-requests/{paymentId}` endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
       requestBody:
@@ -165,10 +182,10 @@ paths:
         pattern via `isset()` checks in `fillOrderData`). If `details` is provided,
         the existing line items are **replaced entirely** (deleted and re-created).
         If a `payment_term_id` is present and a term exists, payment request
-        installments are regenerated via `PaymentRequestService`. Individual payment
-        request fields (paid_amount, payment_date, transaction_number, memo) can be
-        patched via the `payment_requests` array, indexed to match the current
-        installment order.
+        installments are regenerated via `PaymentRequestService`. To update
+        individual payment request fields (paid_amount, payment_date,
+        transaction_number, memo), use the dedicated
+        `PUT /payment-requests/{paymentId}` endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
         - $ref: '#/components/parameters/orderId'
@@ -223,14 +240,22 @@ paths:
             items:
               type: integer
             example: [1, 5]
-        - name: date
+        - name: start_date
           in: query
           required: false
-          description: Filter by bill date (ISO 8601 date string).
+          description: Filter bills with `date` >= this date (ISO 8601).
           schema:
             type: string
             format: date
-            example: "2024-03-15"
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Filter bills with `date` <= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
       responses:
         '200':
           description: Paginated list of bills.
@@ -252,8 +277,9 @@ paths:
         recorded as the creator. Line item services are looked up or auto-created
         by name via `ServiceRepository::firstOrCreateByNameAndCompany`. If a
         `payment_term_id` is provided, payment request installments are
-        auto-generated via `PaymentRequestService`. Manual overrides to those
-        installments can be supplied in `payment_requests`.
+        auto-generated via `PaymentRequestService`. Payment request installments
+        can be updated individually via the dedicated
+        `PUT /payment-requests/{paymentId}` endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
       requestBody:
@@ -314,9 +340,9 @@ paths:
         body are applied (sparse update). If `details` is provided, existing line
         items are **replaced entirely** (deleted and re-created). Services are
         looked up or auto-created by name. If a `payment_term_id` is present,
-        payment request installments are regenerated. Individual payment request
-        fields can be patched via the `payment_requests` array, indexed to match
-        the current installment order.
+        payment request installments are regenerated. To update individual payment
+        request fields (paid_amount, payment_date, transaction_number, memo), use
+        the dedicated `PUT /payment-requests/{paymentId}` endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
         - $ref: '#/components/parameters/billId'
@@ -350,9 +376,12 @@ paths:
       operationId: paymentRequests.list
       summary: List payment requests for a company
       description: >
-        Returns a paginated list of payment request installments belonging to
-        documents in the specified company. Supports due-date range filters.
-        Each item includes payment request fields and parent document context.
+        Returns a paginated list of payment request installments belonging to the
+        specified company, across all document types (Inventory Orders, Bills).
+        Each item is a flat merge of the payment request fields and a nested
+        `document` object that provides context about the parent document and its
+        project/process position. Supports optional date range filtering by
+        `due_date`. Default page size is 20.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
         - name: start_date
@@ -389,8 +418,10 @@ paths:
       operationId: paymentRequests.update
       summary: Update a payment request
       description: >
-        Sparse-updates payment fields for a single payment request installment.
-        Only supplied fields are written.
+        Partially updates a single payment request installment. Only fields
+        present in the request body are applied (sparse update). Returns the
+        updated payment request merged with its parent document context —
+        same shape as items in the list endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
         - $ref: '#/components/parameters/paymentId'
@@ -425,7 +456,8 @@ paths:
       summary: List vendors for a company
       description: >
         Returns a paginated list of vendors belonging to the specified company.
-        Supports optional free-text search by vendor name.
+        Supports optional free-text search by name. Default page size is 100,
+        overridable via `per_page`.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
         - name: search
@@ -460,8 +492,10 @@ paths:
       operationId: paymentTerms.list
       summary: List all payment terms
       description: >
-        Returns all configured payment terms. Terms include the document type
-        they apply to, such as InventoryOrder or Bill.
+        Returns a flat (non-paginated) list of all available payment terms.
+        Terms are global — not scoped to a company. The `document` field is the
+        short class name of the document type the term applies to (e.g.
+        `InventoryOrder`, `Bill`), resolved via reflection from the stored FQCN.
       responses:
         '200':
           description: List of payment terms.
@@ -528,8 +562,103 @@ components:
         example: 9
 
   schemas:
+    # Request payloads
+    InventoryOrderPayload:
+      type: object
+      description: >
+        Fields accepted when creating or updating an inventory order.
+        All fields are optional on update (sparse patch). On create, `ref_number`
+        is used as the human-readable PO reference stored in `order_id`.
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: Free-text display name for the order.
+          example: "PO-2024-Spring"
+        ref_number:
+          type: string
+          description: >
+            Human-readable reference / PO number. Used only during create
+            (`sometimes` rule); ignored on update.
+          example: "REF-0042"
+        date_order_placed:
+          type: string
+          format: date
+          nullable: true
+          description: Date the purchase order was placed (maps to `po_date`).
+          example: "2024-03-15"
+        date_manufacturing_completed:
+          type: string
+          format: date
+          nullable: true
+          description: >
+            Date manufacturing was completed / goods were received
+            (maps to `date_order_received`).
+          example: "2024-05-01"
+        market:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 2
+          description: >
+            ISO 3166-1 alpha-2 country code. Must exist in the `amazon_marketplaces`
+            table (`code` column). The server resolves this to a `marketplace_id`.
+          example: "US"
+        currency:
+          type: string
+          nullable: true
+          minLength: 3
+          maxLength: 3
+          description: ISO 4217 three-letter currency code.
+          example: "USD"
+        vendor_id:
+          type: integer
+          nullable: true
+          description: FK to the vendors table.
+          example: 7
+        warehouse_id:
+          type: integer
+          nullable: true
+          description: FK to the inventory_warehouses table (destination warehouse).
+          example: 3
+        payment_term_id:
+          type: integer
+          nullable: true
+          description: >
+            FK to the payment_terms table. When set, the server calls
+            `PaymentRequestService::handlePaymentTermsSchema` to auto-generate
+            installment records for this order.
+          example: 2
+        details:
+          type: array
+          description: >
+            Line items for the order. On update, providing this array **replaces all
+            existing line items** (full replace, not merge). Each item must reference
+            an inventory record belonging to the same company.
+          items:
+            $ref: '#/components/schemas/InventoryOrderDetailInput'
 
-    # ─── Request payload ────────────────────────────────────────────────────────
+    InventoryOrderDetailInput:
+      type: object
+      required: [inventory_id, quantity, price]
+      description: A single line-item in an inventory order.
+      properties:
+        inventory_id:
+          type: integer
+          description: >
+            FK to the inventory table. Must exist and belong to the company; items
+            that fail the company-scope check are silently skipped.
+          example: 101
+        quantity:
+          type: integer
+          minimum: 1
+          description: Number of units ordered.
+          example: 50
+        price:
+          type: number
+          format: float
+          description: Unit price in the order currency.
+          example: 12.99
 
     BillPayload:
       type: object
@@ -589,14 +718,6 @@ components:
             looked up or auto-created by name within the company scope.
           items:
             $ref: '#/components/schemas/BillDetailInput'
-        payment_requests:
-          type: array
-          description: >
-            Optional overrides for auto-generated payment request installments.
-            Indexed to match the current installment order. Only supplied fields
-            are updated.
-          items:
-            $ref: '#/components/schemas/PaymentRequestInput'
 
     BillDetailInput:
       type: object
@@ -620,7 +741,168 @@ components:
           description: Unit rate in the bill currency.
           example: 250.00
 
-    # ─── Response schemas ────────────────────────────────────────────────────────
+    PaymentRequestUpdatePayload:
+      type: object
+      description: Fields accepted when updating a payment request. All fields are optional (sparse update).
+      properties:
+        paid_amount:
+          type: number
+          format: float
+          nullable: true
+          example: 500.00
+        payment_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-04-10"
+        transaction_number:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: "TXN-9988776"
+        memo:
+          type: string
+          nullable: true
+          maxLength: 255
+          example: "Wire transfer — first installment"
+
+    # Response schemas
+    InventoryOrderResource:
+      type: object
+      description: Full representation of an inventory order as returned by the API.
+      properties:
+        id:
+          type: integer
+          description: Primary key.
+          example: 42
+        name:
+          type: string
+          nullable: true
+          example: "PO-2024-Spring"
+        link:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the project task view. Null if no project exists.
+          example: "https://my.neonpanel.com/processes/abc-123/tasks/def-456"
+        ref_number:
+          type: string
+          nullable: true
+          description: Human-readable PO reference (stored as `order_id` on the model).
+          example: "REF-0042"
+        date_order_placed:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-03-15"
+        date_manufacturing_completed:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-05-01"
+        market:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 country code.
+          example: "US"
+        total_amount:
+          type: number
+          format: float
+          description: >
+            Sum of (quantity × price) across all line items. Computed server-side
+            when `details` is provided.
+          example: 3247.50
+        currency:
+          type: string
+          nullable: true
+          example: "USD"
+        vendor:
+          type: object
+          nullable: true
+          description: Denormalised vendor snapshot.
+          properties:
+            id:
+              type: integer
+              nullable: true
+              example: 7
+            name:
+              type: string
+              nullable: true
+              example: "Acme Supplies Ltd."
+        warehouse:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WarehouseResource'
+        payment_term:
+          type: object
+          nullable: true
+          description: Payment term attached to this order, if any.
+          properties:
+            id:
+              type: integer
+              nullable: true
+              example: 2
+            name:
+              type: string
+              nullable: true
+              example: "30/70 Net 30"
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryOrderDetailResource'
+        payment_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequestResource'
+
+    WarehouseResource:
+      type: object
+      description: Denormalised snapshot of a warehouse.
+      properties:
+        id:
+          type: integer
+          example: 3
+        uuid:
+          type: string
+          format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name:
+          type: string
+          example: "FBA East Coast"
+        type:
+          type: string
+          nullable: true
+          description: Warehouse type label (e.g. FBA, FBM, 3PL).
+          example: "FBA"
+        country_code:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 country code derived from the associated marketplace.
+          example: "US"
+
+    InventoryOrderDetailResource:
+      type: object
+      description: A single line item as returned in the order response.
+      properties:
+        inventory_id:
+          type: integer
+          example: 101
+        sku:
+          type: string
+          description: Amazon / internal SKU from the linked product.
+          example: "SKU-ABC-123"
+        name:
+          type: string
+          description: Product display name.
+          example: "Blue Widget (Pack of 10)"
+        quantity:
+          type: integer
+          example: 50
+        price:
+          type: number
+          format: float
+          description: Unit price at the time the order was saved.
+          example: 12.99
 
     BillResource:
       type: object
@@ -633,6 +915,12 @@ components:
           type: string
           nullable: true
           example: "Bill-2024-001"
+        link:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the project task view. Null if no project exists.
+          example: "https://my.neonpanel.com/processes/abc-123/tasks/def-456"
         ref_number:
           type: string
           nullable: true
@@ -667,6 +955,19 @@ components:
               type: string
               nullable: true
               example: "Acme Logistics Ltd."
+        payment_term:
+          type: object
+          nullable: true
+          description: Payment term attached to this bill, if any.
+          properties:
+            id:
+              type: integer
+              nullable: true
+              example: 2
+            name:
+              type: string
+              nullable: true
+              example: "30/70 Net 30"
         details:
           type: array
           items:
@@ -680,7 +981,7 @@ components:
       type: object
       description: >
         A single bill line item. Items where the service relation is missing
-        are filtered out (returned as null in the collection).
+        are returned as null in the collection.
       properties:
         service_id:
           type: integer
@@ -705,310 +1006,6 @@ components:
           type: number
           format: float
           example: 750.00
-
-    BillListResponse:
-      type: object
-      description: Paginated wrapper returned by the bills list endpoint.
-      properties:
-        current_page:
-          type: integer
-          example: 1
-        per_page:
-          type: integer
-          example: 15
-        last_page:
-          type: integer
-          example: 2
-        filters:
-          type: object
-          description: Echo of the filter params that were applied.
-          additionalProperties: true
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/BillResource'
-
-    InventoryOrderPayload:
-      type: object
-      description: >
-        Fields accepted when creating or updating an inventory order.
-        All fields are optional on update (sparse patch). On create, `ref_number`
-        is used as the human-readable PO reference stored in `order_id`.
-      properties:
-        name:
-          type: string
-          nullable: true
-          description: Free-text display name for the order.
-          example: "PO-2024-Spring"
-
-        ref_number:
-          type: string
-          description: >
-            Human-readable reference / PO number. Used only during create
-            (`sometimes` rule); ignored on update.
-          example: "REF-0042"
-
-        date_order_placed:
-          type: string
-          format: date
-          nullable: true
-          description: Date the purchase order was placed (maps to `po_date`).
-          example: "2024-03-15"
-
-        date_manufacturing_completed:
-          type: string
-          format: date
-          nullable: true
-          description: >
-            Date manufacturing was completed / goods were received
-            (maps to `date_order_received`).
-          example: "2024-05-01"
-
-        market:
-          type: string
-          nullable: true
-          minLength: 2
-          maxLength: 2
-          description: >
-            ISO 3166-1 alpha-2 country code. Must exist in the `amazon_marketplaces`
-            table (`code` column). The server resolves this to a `marketplace_id`.
-          example: "US"
-
-        currency:
-          type: string
-          nullable: true
-          minLength: 3
-          maxLength: 3
-          description: ISO 4217 three-letter currency code.
-          example: "USD"
-
-        vendor_id:
-          type: integer
-          nullable: true
-          description: FK to the vendors table.
-          example: 7
-
-        warehouse_id:
-          type: integer
-          nullable: true
-          description: FK to the inventory_warehouses table (destination warehouse).
-          example: 3
-
-        payment_term_id:
-          type: integer
-          nullable: true
-          description: >
-            FK to the payment_terms table. When set, the server calls
-            `PaymentRequestService::handlePaymentTermsSchema` to auto-generate
-            installment records for this order.
-          example: 2
-
-        details:
-          type: array
-          description: >
-            Line items for the order. On update, providing this array **replaces all
-            existing line items** (full replace, not merge). Each item must reference
-            an inventory record belonging to the same company.
-          items:
-            $ref: '#/components/schemas/InventoryOrderDetailInput'
-
-        payment_requests:
-          type: array
-          description: >
-            Optional overrides for auto-generated payment request installments.
-            Indexed to match the current installment order returned by the server.
-            Only supplied fields are updated; absent fields are left unchanged.
-          items:
-            $ref: '#/components/schemas/PaymentRequestInput'
-
-    InventoryOrderDetailInput:
-      type: object
-      required: [inventory_id, quantity, price]
-      description: A single line-item in an inventory order.
-      properties:
-        inventory_id:
-          type: integer
-          description: >
-            FK to the inventory table. Must exist and belong to the company; items
-            that fail the company-scope check are silently skipped.
-          example: 101
-
-        quantity:
-          type: integer
-          minimum: 1
-          description: Number of units ordered.
-          example: 50
-
-        price:
-          type: number
-          format: float
-          description: Unit price in the order currency.
-          example: 12.99
-
-    PaymentRequestInput:
-      type: object
-      description: >
-        Patch fields for a single payment request installment.
-        All fields are nullable — only supplied fields are written.
-      properties:
-        paid_amount:
-          type: number
-          format: float
-          nullable: true
-          description: Amount already paid for this installment.
-          example: 500.00
-
-        payment_date:
-          type: string
-          format: date
-          nullable: true
-          description: Date the payment was made.
-          example: "2024-04-10"
-
-        transaction_number:
-          type: string
-          nullable: true
-          maxLength: 255
-          description: Bank / gateway transaction reference.
-          example: "TXN-9988776"
-
-        memo:
-          type: string
-          nullable: true
-          maxLength: 255
-          description: Free-text note attached to this payment.
-          example: "Wire transfer — first installment"
-
-    # ─── Response schemas ────────────────────────────────────────────────────────
-
-    InventoryOrderResource:
-      type: object
-      description: Full representation of an inventory order as returned by the API.
-      properties:
-        id:
-          type: integer
-          description: Primary key.
-          example: 42
-
-        name:
-          type: string
-          nullable: true
-          example: "PO-2024-Spring"
-
-        ref_number:
-          type: string
-          nullable: true
-          description: Human-readable PO reference (stored as `order_id` on the model).
-          example: "REF-0042"
-
-        date_order_placed:
-          type: string
-          format: date
-          nullable: true
-          example: "2024-03-15"
-
-        date_manufacturing_completed:
-          type: string
-          format: date
-          nullable: true
-          example: "2024-05-01"
-
-        market:
-          type: string
-          nullable: true
-          description: ISO 3166-1 alpha-2 country code.
-          example: "US"
-
-        total_amount:
-          type: number
-          format: float
-          description: >
-            Sum of (quantity × price) across all line items. Computed server-side
-            when `details` is provided.
-          example: 3247.50
-
-        currency:
-          type: string
-          nullable: true
-          example: "USD"
-
-        vendor:
-          type: object
-          nullable: true
-          description: Denormalised vendor snapshot.
-          properties:
-            id:
-              type: integer
-              nullable: true
-              example: 7
-            name:
-              type: string
-              nullable: true
-              example: "Acme Supplies Ltd."
-
-        warehouse:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/WarehouseResource'
-
-        details:
-          type: array
-          items:
-            $ref: '#/components/schemas/InventoryOrderDetailResource'
-
-        payment_requests:
-          type: array
-          items:
-            $ref: '#/components/schemas/PaymentRequestResource'
-
-    WarehouseResource:
-      type: object
-      description: Denormalised snapshot of a warehouse.
-      properties:
-        id:
-          type: integer
-          example: 3
-        uuid:
-          type: string
-          format: uuid
-          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-        name:
-          type: string
-          example: "FBA East Coast"
-        type:
-          type: string
-          nullable: true
-          description: Warehouse type label (e.g. FBA, FBM, 3PL).
-          example: "FBA"
-        country_code:
-          type: string
-          nullable: true
-          description: Two-letter country code derived from the associated marketplace.
-          example: "US"
-
-    InventoryOrderDetailResource:
-      type: object
-      description: A single line item as returned in the order response.
-      properties:
-        inventory_id:
-          type: integer
-          example: 101
-        sku:
-          type: string
-          description: Amazon / internal SKU from the linked product.
-          example: "SKU-ABC-123"
-        name:
-          type: string
-          description: Product display name.
-          example: "Blue Widget (Pack of 10)"
-        quantity:
-          type: integer
-          example: 50
-        price:
-          type: number
-          format: float
-          description: Unit price at the time the order was saved.
-          example: 12.99
 
     PaymentRequestResource:
       type: object
@@ -1062,80 +1059,11 @@ components:
           nullable: true
           example: "Wire transfer — first installment"
 
-    InventoryOrderListResponse:
-      type: object
-      description: Paginated wrapper returned by the list endpoint.
-      properties:
-        current_page:
-          type: integer
-          example: 1
-        per_page:
-          type: integer
-          example: 15
-        last_page:
-          type: integer
-          example: 4
-        filters:
-          type: object
-          description: Echo of the filter params that were applied.
-          additionalProperties: true
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/InventoryOrderResource'
-
-    PaymentRequestUpdatePayload:
-      type: object
-      description: Fields accepted when updating a payment request. All fields are optional (sparse update).
-      properties:
-        paid_amount:
-          type: number
-          format: float
-          nullable: true
-          example: 500.00
-        payment_date:
-          type: string
-          format: date
-          nullable: true
-          example: "2024-04-10"
-        transaction_number:
-          type: string
-          nullable: true
-          maxLength: 255
-          example: "TXN-9988776"
-        memo:
-          type: string
-          nullable: true
-          maxLength: 255
-          example: "Wire transfer — first installment"
-
-    PaymentRequestListResponse:
-      type: object
-      description: Paginated wrapper returned by the payment requests list endpoint.
-      properties:
-        current_page:
-          type: integer
-          example: 1
-        per_page:
-          type: integer
-          example: 20
-        last_page:
-          type: integer
-          example: 5
-        filters:
-          type: object
-          description: Echo of the filter params that were applied.
-          additionalProperties: true
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/PaymentRequestItemResource'
-
     PaymentRequestItemResource:
       type: object
       description: >
         A payment request installment with its parent document context.
-        The response is a flat merge: payment request fields are at the top
+        The response is a flat merge — payment request fields are at the top
         level alongside the `document` key.
       allOf:
         - $ref: '#/components/schemas/PaymentRequestResource'
@@ -1149,9 +1077,11 @@ components:
       description: >
         Contextual reference to the parent document that owns this payment request.
         Returns an empty object if the document relation is null. The `type` field
-        is the short class name of the underlying model (e.g. `InventoryOrder`,
-        `Bill`, `Shipment`). Project-related fields are only present when the
-        document has an associated project.
+        is the short class name of the underlying model (e.g. `InventoryOrder`, `Bill`,
+        `Shipment`). `ref_number` and `date` are present for all supported document
+        types: `FifoDocument` implementors (includes `InventoryOrder` and others),
+        `Bill`, and `ShipmentExtension`. Project-related fields (`link`, `status`,
+        `completed`) are only present when the document has an associated project.
       properties:
         id:
           type: integer
@@ -1181,14 +1111,83 @@ components:
         ref_number:
           type: string
           nullable: true
-          description: Document reference number.
+          description: Document reference number (present for FifoDocument / ShipmentExtension models only).
           example: "REF-0042"
         date:
           type: string
           format: date
           nullable: true
-          description: FIFO transaction date of the document, when available.
+          description: >
+            FIFO transaction date of the document, field name resolved dynamically
+            via `getFifoTransactionDateAttribute()` (present for FifoDocument /
+            ShipmentExtension models only).
           example: "2024-03-15"
+
+    InventoryOrderListResponse:
+      type: object
+      description: Paginated wrapper returned by the inventory orders list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        last_page:
+          type: integer
+          example: 4
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventoryOrderResource'
+
+    BillListResponse:
+      type: object
+      description: Paginated wrapper returned by the bills list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        last_page:
+          type: integer
+          example: 2
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillResource'
+
+    PaymentRequestListResponse:
+      type: object
+      description: Paginated wrapper returned by the payment requests list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        last_page:
+          type: integer
+          example: 5
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequestItemResource'
 
     PaymentTermResource:
       type: object
@@ -1201,7 +1200,7 @@ components:
           type: string
           description: >
             Short class name of the document type this term applies to,
-            resolved via reflection from the stored FQCN.
+            resolved via reflection from the stored FQCN (e.g. `InventoryOrder`, `Bill`).
           example: "InventoryOrder"
         name:
           type: string
@@ -1298,7 +1297,7 @@ components:
             $ref: '#/components/schemas/ErrorResource'
 
     NotFound:
-      description: The requested order does not exist or does not belong to this company.
+      description: The requested resource does not exist or does not belong to this company.
       content:
         application/json:
           schema:
