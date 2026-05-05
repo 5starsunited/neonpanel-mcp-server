@@ -45,9 +45,9 @@ latest_snapshot AS (
   LIMIT 1
 ),
 
--- Forecast run selection: pick the latest row per (company_id, inventory_id, forecast_period).
--- Partitioning by forecast_period ensures all periods are included even when rows for the same
--- item were written with different updated_at timestamps (e.g. partial re-calculations).
+-- Forecast run selection: pick the latest row per forecast segment, then sum segments per item/period.
+-- Segment dimensions must stay in the window partition; otherwise marketplace/channel/country rows
+-- collapse to a single arbitrary row and company-level group_by totals are understated.
 forecast_latest_rows AS (
   SELECT
     f.company_id,
@@ -66,7 +66,14 @@ forecast_latest_rows AS (
     SELECT
       f.*,
       row_number() OVER (
-        PARTITION BY f.company_id, f.inventory_id, f.forecast_period
+        PARTITION BY
+          f.company_id,
+          f.inventory_id,
+          f.forecast_period,
+          COALESCE(f.scenario_uuid, ''),
+          COALESCE(f.amazon_marketplace_id, ''),
+          COALESCE(f.sales_channel, ''),
+          COALESCE(f.country_code, '')
         ORDER BY f.calc_period DESC, f.updated_at DESC
       ) AS rn
     FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
@@ -79,6 +86,24 @@ forecast_latest_rows AS (
       AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
   ) ranked
   WHERE rn = 1
+),
+
+forecast_item_periods AS (
+  SELECT
+    fr.company_id,
+    fr.inventory_id,
+    MAX(fr.run_calc_period) AS run_calc_period,
+    MAX(fr.run_updated_at) AS run_updated_at,
+    MAX(fr.dataset) AS dataset,
+    MAX(fr.scenario_uuid) AS scenario_uuid,
+    MAX(fr.currency) AS currency,
+    MAX(fr.amazon_marketplace_id) AS marketplace_id,
+    MAX(fr.sku) AS sku,
+    fr.forecast_period,
+    SUM(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0)) AS units_sold,
+    SUM(COALESCE(CAST(fr.sales_amount AS DOUBLE), 0.0)) AS sales_amount
+  FROM forecast_latest_rows fr
+  GROUP BY fr.company_id, fr.inventory_id, fr.forecast_period
 ),
 
 forecast_item_plan AS (
@@ -98,11 +123,11 @@ forecast_item_plan AS (
       1, MAX(p.horizon_months)
     ) AS forecast_plan_periods_array,
     slice(
-      array_agg(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
+      array_agg(fr.units_sold ORDER BY fr.forecast_period),
       1, MAX(p.horizon_months)
     ) AS forecast_plan_units_array,
     slice(
-      array_agg(COALESCE(CAST(fr.sales_amount AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
+      array_agg(fr.sales_amount ORDER BY fr.forecast_period),
       1, MAX(p.horizon_months)
     ) AS forecast_plan_sales_array,
     slice(
@@ -110,13 +135,13 @@ forecast_item_plan AS (
       1, MAX(p.horizon_months)
     ) AS forecast_plan_currency_array
 
-  FROM forecast_latest_rows fr
+  FROM forecast_item_periods fr
   CROSS JOIN params p
   GROUP BY 1, 2
 ),
 
 -- Actual (historical) data from the same forecast table where dataset='actual'
--- Same deduplication pattern: per (company_id, inventory_id, forecast_period).
+-- Same segment-preserving deduplication pattern, followed by item/period summation.
 actual_latest_rows AS (
   SELECT
     f.company_id,
@@ -134,7 +159,14 @@ actual_latest_rows AS (
       f.sales_amount,
       f.currency,
       row_number() OVER (
-        PARTITION BY f.company_id, f.inventory_id, f.forecast_period
+        PARTITION BY
+          f.company_id,
+          f.inventory_id,
+          f.forecast_period,
+          COALESCE(f.scenario_uuid, ''),
+          COALESCE(f.amazon_marketplace_id, ''),
+          COALESCE(f.sales_channel, ''),
+          COALESCE(f.country_code, '')
         ORDER BY f.calc_period DESC, f.updated_at DESC
       ) AS rn
     FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
@@ -148,6 +180,17 @@ actual_latest_rows AS (
   WHERE rn = 1
 ),
 
+actual_item_periods AS (
+  SELECT
+    ar.company_id,
+    ar.inventory_id,
+    ar.forecast_period,
+    SUM(COALESCE(CAST(ar.units_sold AS DOUBLE), 0.0)) AS units_sold,
+    SUM(COALESCE(CAST(ar.sales_amount AS DOUBLE), 0.0)) AS sales_amount
+  FROM actual_latest_rows ar
+  GROUP BY 1, 2, 3
+),
+
 actual_item_series AS (
   SELECT
     ar.company_id,
@@ -155,7 +198,7 @@ actual_item_series AS (
     array_agg(CAST(ar.forecast_period AS VARCHAR) ORDER BY ar.forecast_period) AS actual_periods_array,
     array_agg(COALESCE(CAST(ar.units_sold AS DOUBLE), 0.0) ORDER BY ar.forecast_period) AS actual_units_array,
     array_agg(COALESCE(CAST(ar.sales_amount AS DOUBLE), 0.0) ORDER BY ar.forecast_period) AS actual_sales_array
-  FROM actual_latest_rows ar
+  FROM actual_item_periods ar
   GROUP BY 1, 2
 ),
 
