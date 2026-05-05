@@ -44,35 +44,11 @@ latest_snapshot AS (
   LIMIT 1
 ),
 
--- Forecast run selection: if scenario_uuid + calc_period provided, use those; else auto-latest.
-forecast_latest_key AS (
-  SELECT
-    company_id,
-    inventory_id,
-    calc_period,
-    updated_at
-  FROM (
-    SELECT
-      f.company_id,
-      f.inventory_id,
-      f.calc_period,
-      f.updated_at,
-      row_number() OVER (
-        PARTITION BY f.company_id, f.inventory_id
-        ORDER BY f.calc_period DESC, f.updated_at DESC
-      ) AS rn
-    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-    CROSS JOIN params p
-    WHERE contains(p.company_ids, f.company_id)
-      AND f.dataset <> 'actual'
-      AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
-      AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
-      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
-      AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
-  ) ranked
-  WHERE rn = 1
-),
-
+-- Forecast run selection: pick the latest row per (company_id, inventory_id, forecast_period).
+-- Partitioning by forecast_period (not just inventory_id) ensures all forecast periods are
+-- included even when rows for the same item were written with different updated_at timestamps
+-- (e.g. partial re-calculations or batch writes). Using only inventory_id in PARTITION BY
+-- caused the updated_at filter to drop periods that weren't part of the "latest" write batch.
 forecast_latest_rows AS (
   SELECT
     f.company_id,
@@ -87,12 +63,23 @@ forecast_latest_rows AS (
     f.currency,
     f.amazon_marketplace_id,
     f.sku
-  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-  INNER JOIN forecast_latest_key k
-    ON k.company_id = f.company_id
-    AND k.inventory_id = f.inventory_id
-    AND k.calc_period = f.calc_period
-    AND k.updated_at = f.updated_at
+  FROM (
+    SELECT
+      f.*,
+      row_number() OVER (
+        PARTITION BY f.company_id, f.inventory_id, f.forecast_period
+        ORDER BY f.calc_period DESC, f.updated_at DESC
+      ) AS rn
+    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+    CROSS JOIN params p
+    WHERE contains(p.company_ids, f.company_id)
+      AND f.dataset <> 'actual'
+      AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
+      AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
+      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+      AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
+  ) ranked
+  WHERE rn = 1
 ),
 
 forecast_item_plan AS (
@@ -130,20 +117,25 @@ forecast_item_plan AS (
 ),
 
 -- Actual (historical) data from the same forecast table where dataset='actual'
-actual_latest_key AS (
+-- Same deduplication pattern: per (company_id, inventory_id, forecast_period).
+actual_latest_rows AS (
   SELECT
-    company_id,
-    inventory_id,
-    calc_period,
-    updated_at
+    f.company_id,
+    f.inventory_id,
+    f.forecast_period,
+    f.units_sold,
+    f.sales_amount,
+    f.currency
   FROM (
     SELECT
       f.company_id,
       f.inventory_id,
-      f.calc_period,
-      f.updated_at,
+      f.forecast_period,
+      f.units_sold,
+      f.sales_amount,
+      f.currency,
       row_number() OVER (
-        PARTITION BY f.company_id, f.inventory_id
+        PARTITION BY f.company_id, f.inventory_id, f.forecast_period
         ORDER BY f.calc_period DESC, f.updated_at DESC
       ) AS rn
     FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
@@ -155,22 +147,6 @@ actual_latest_key AS (
       AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
   ) ranked
   WHERE rn = 1
-),
-
-actual_latest_rows AS (
-  SELECT
-    f.company_id,
-    f.inventory_id,
-    f.forecast_period,
-    f.units_sold,
-    f.sales_amount,
-    f.currency
-  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-  INNER JOIN actual_latest_key ak
-    ON ak.company_id = f.company_id
-    AND ak.inventory_id = f.inventory_id
-    AND ak.calc_period = f.calc_period
-    AND ak.updated_at = f.updated_at
 ),
 
 actual_item_series AS (
