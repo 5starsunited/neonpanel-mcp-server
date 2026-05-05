@@ -24,6 +24,7 @@ WITH params AS (
     {{apply_sku_filter_sql}} AS apply_sku_filter,
     {{apply_parent_asin_filter_sql}} AS apply_parent_asin_filter,
     {{apply_product_family_filter_sql}} AS apply_product_family_filter,
+    {{apply_all_items_filter_sql}} AS apply_all_items_filter,
 
     {{scenario_names_array}} AS scenario_names,
     {{sales_channels_array}} AS sales_channels,
@@ -85,6 +86,8 @@ items AS (
       contains(p.company_ids, pil.company_id)
       AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
       AND (
+        p.apply_all_items_filter
+        OR
         (p.apply_inventory_id_filter AND contains(p.inventory_ids, TRY_CAST(pil.inventory_id AS BIGINT)))
         OR (
           p.apply_sku_filter
@@ -113,7 +116,7 @@ items AS (
     FROM deduped d
   ) ranked_items
   CROSS JOIN params p
-  WHERE ranked_items.rn <= p.max_items
+  WHERE p.max_items <= 0 OR ranked_items.rn <= p.max_items
 ),
 
 run_candidates AS (
@@ -128,7 +131,9 @@ run_candidates AS (
       INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
         ON m.amazon_marketplace_id = f.amazon_marketplace_id
       INNER JOIN items i
-        ON f.company_id = i.company_id AND f.sku = i.sku AND m.code = i.marketplace_key
+        ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
+        AND lower(trim(f.sku)) = i.normalized_sku
+        AND lower(trim(m.code)) = i.normalized_marketplace_key
       CROSS JOIN params p
       WHERE
         f.dataset <> 'actual'
@@ -149,95 +154,258 @@ run_candidates AS (
     OR (p.run_selector_type <> 'latest_n' AND ranked.rn <= 1000)
 ),
 
+forecast_latest_rows AS (
+  SELECT
+    ranked.company_id,
+    ranked.inventory_id,
+    ranked.sku,
+    ranked.marketplace_key,
+    ranked.child_asin,
+    ranked.parent_asin,
+    ranked.asin,
+    ranked.product_name,
+    ranked.product_family,
+    ranked.brand,
+    ranked.snapshot_date,
+    ranked.series_type,
+    ranked.scenario_name,
+    ranked.run_updated_at,
+    ranked.period,
+    ranked.units_sold,
+    ranked.sales_amount,
+    ranked.currency
+  FROM (
+    SELECT
+      i.company_id,
+      i.inventory_id,
+      i.sku,
+      i.marketplace_key,
+      i.child_asin,
+      i.parent_asin,
+      i.asin,
+      i.product_name,
+      i.product_family,
+      i.brand,
+      i.snapshot_date,
+      'forecast' AS series_type,
+      COALESCE(f.dataset, 'unknown') AS scenario_name,
+      f.updated_at AS run_updated_at,
+      f.forecast_period AS period,
+      f.units_sold,
+      f.sales_amount,
+      f.currency,
+      row_number() OVER (
+        PARTITION BY
+          i.company_id,
+          i.inventory_id,
+          f.forecast_period,
+          COALESCE(f.dataset, ''),
+          COALESCE(f.scenario_uuid, ''),
+          COALESCE(f.amazon_marketplace_id, ''),
+          COALESCE(f.sales_channel, ''),
+          COALESCE(f.country_code, ''),
+          f.updated_at
+        ORDER BY f.calc_period DESC, f.updated_at DESC
+      ) AS rn
+    FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
+    INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+      ON m.amazon_marketplace_id = f.amazon_marketplace_id
+    INNER JOIN items i
+      ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
+      AND lower(trim(f.sku)) = i.normalized_sku
+      AND lower(trim(m.code)) = i.normalized_marketplace_key
+    CROSS JOIN params p
+    WHERE
+      f.dataset <> 'actual'
+      AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
+      AND (p.compare_mode <> 'runs' OR cardinality(p.scenario_names) > 0)
+      AND (
+        (p.run_selector_type = 'latest_n' AND f.updated_at IN (SELECT updated_at FROM run_candidates))
+        OR (
+          p.run_selector_type = 'date_range'
+          AND (p.updated_at_from IS NULL OR f.updated_at >= p.updated_at_from)
+          AND (p.updated_at_to IS NULL OR f.updated_at < p.updated_at_to)
+        )
+      )
+      AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
+      AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
+      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+  ) ranked
+  WHERE rn = 1
+),
+
+forecast_item_periods AS (
+  SELECT
+    fr.company_id,
+    fr.inventory_id,
+    fr.sku,
+    fr.marketplace_key,
+    fr.child_asin,
+    fr.parent_asin,
+    fr.asin,
+    fr.product_name,
+    fr.product_family,
+    fr.brand,
+    fr.snapshot_date,
+    fr.series_type,
+    fr.scenario_name,
+    fr.run_updated_at,
+    fr.period,
+    SUM(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0)) AS units_sold,
+    SUM(COALESCE(CAST(fr.sales_amount AS DOUBLE), 0.0)) AS sales_amount,
+    MIN(fr.currency) AS currency
+  FROM forecast_latest_rows fr
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+),
+
 forecast_rows AS (
   SELECT
-    i.company_id,
-    i.inventory_id,
-    i.sku,
-    i.marketplace_key,
-    i.child_asin,
-    i.parent_asin,
-    i.asin,
-    i.product_name,
-    i.product_family,
-    i.brand,
-    i.snapshot_date,
-    'forecast' AS series_type,
-    COALESCE(f.dataset, 'unknown') AS scenario_name,
-    f.updated_at AS run_updated_at,
-    f.forecast_period AS period,
-    CAST(ROUND(CAST(f.units_sold AS DOUBLE), 0) AS BIGINT) AS units_sold,
-    ROUND(CAST(f.sales_amount AS DOUBLE), 2) AS sales_amount,
+    fp.company_id,
+    fp.inventory_id,
+    fp.sku,
+    fp.marketplace_key,
+    fp.child_asin,
+    fp.parent_asin,
+    fp.asin,
+    fp.product_name,
+    fp.product_family,
+    fp.brand,
+    fp.snapshot_date,
+    fp.series_type,
+    fp.scenario_name,
+    fp.run_updated_at,
+    fp.period,
+    CAST(ROUND(fp.units_sold, 0) AS BIGINT) AS units_sold,
+    ROUND(fp.sales_amount, 2) AS sales_amount,
     ROUND(
-      CASE WHEN CAST(f.units_sold AS DOUBLE) > 0
-           THEN CAST(f.sales_amount AS DOUBLE) / CAST(f.units_sold AS DOUBLE)
+      CASE WHEN fp.units_sold > 0
+           THEN fp.sales_amount / fp.units_sold
            ELSE CAST(NULL AS DOUBLE) END, 3
     ) AS unit_price,
-    f.currency AS currency
-  FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
-  INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-    ON m.amazon_marketplace_id = f.amazon_marketplace_id
-  INNER JOIN items i
-    ON f.company_id = i.company_id
-    AND lower(trim(f.sku)) = i.normalized_sku
-    AND lower(trim(m.code)) = i.normalized_marketplace_key
-  CROSS JOIN params p
-  WHERE
-    f.dataset <> 'actual'
-    AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
-    AND (p.compare_mode <> 'runs' OR cardinality(p.scenario_names) > 0)
-    AND (
-      (p.run_selector_type = 'latest_n' AND f.updated_at IN (SELECT updated_at FROM run_candidates))
-      OR (
-        p.run_selector_type = 'date_range'
-        AND (p.updated_at_from IS NULL OR f.updated_at >= p.updated_at_from)
-        AND (p.updated_at_to IS NULL OR f.updated_at < p.updated_at_to)
-      )
-    )
-    AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
-    AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
-    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+    fp.currency
+  FROM forecast_item_periods fp
+),
+
+actual_latest_rows AS (
+  SELECT
+    ranked.company_id,
+    ranked.inventory_id,
+    ranked.sku,
+    ranked.marketplace_key,
+    ranked.child_asin,
+    ranked.parent_asin,
+    ranked.asin,
+    ranked.product_name,
+    ranked.product_family,
+    ranked.brand,
+    ranked.snapshot_date,
+    ranked.series_type,
+    ranked.scenario_name,
+    ranked.run_updated_at,
+    ranked.period,
+    ranked.units_sold,
+    ranked.sales_amount,
+    ranked.currency
+  FROM (
+    SELECT
+      i.company_id,
+      i.inventory_id,
+      i.sku,
+      i.marketplace_key,
+      i.child_asin,
+      i.parent_asin,
+      i.asin,
+      i.product_name,
+      i.product_family,
+      i.brand,
+      i.snapshot_date,
+      'actual' AS series_type,
+      'actual' AS scenario_name,
+      CAST(NULL AS TIMESTAMP) AS run_updated_at,
+      f.forecast_period AS period,
+      f.units_sold,
+      f.sales_amount,
+      f.currency,
+      row_number() OVER (
+        PARTITION BY
+          i.company_id,
+          i.inventory_id,
+          f.forecast_period,
+          COALESCE(f.dataset, ''),
+          COALESCE(f.scenario_uuid, ''),
+          COALESCE(f.amazon_marketplace_id, ''),
+          COALESCE(f.sales_channel, ''),
+          COALESCE(f.country_code, '')
+        ORDER BY f.calc_period DESC, f.updated_at DESC
+      ) AS rn
+    FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
+    INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
+      ON m.amazon_marketplace_id = f.amazon_marketplace_id
+    INNER JOIN items i
+      ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
+      AND lower(trim(f.sku)) = i.normalized_sku
+      AND lower(trim(m.code)) = i.normalized_marketplace_key
+    CROSS JOIN params p
+    WHERE
+      p.include_actuals
+      AND f.dataset = 'actual'
+      AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
+      AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
+      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+  ) ranked
+  WHERE rn = 1
+),
+
+actual_item_periods AS (
+  SELECT
+    ar.company_id,
+    ar.inventory_id,
+    ar.sku,
+    ar.marketplace_key,
+    ar.child_asin,
+    ar.parent_asin,
+    ar.asin,
+    ar.product_name,
+    ar.product_family,
+    ar.brand,
+    ar.snapshot_date,
+    ar.series_type,
+    ar.scenario_name,
+    ar.run_updated_at,
+    ar.period,
+    SUM(COALESCE(CAST(ar.units_sold AS DOUBLE), 0.0)) AS units_sold,
+    SUM(COALESCE(CAST(ar.sales_amount AS DOUBLE), 0.0)) AS sales_amount,
+    MIN(ar.currency) AS currency
+  FROM actual_latest_rows ar
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 ),
 
 actual_rows AS (
   SELECT
-    i.company_id,
-    i.inventory_id,
-    i.sku,
-    i.marketplace_key,
-    i.child_asin,
-    i.parent_asin,
-    i.asin,
-    i.product_name,
-    i.product_family,
-    i.brand,
-    i.snapshot_date,
-    'actual' AS series_type,
-    'actual' AS scenario_name,
-    CAST(NULL AS TIMESTAMP) AS run_updated_at,
-    f.forecast_period AS period,
-    CAST(ROUND(CAST(f.units_sold AS DOUBLE), 0) AS BIGINT) AS units_sold,
-    ROUND(CAST(f.sales_amount AS DOUBLE), 2) AS sales_amount,
+    ap.company_id,
+    ap.inventory_id,
+    ap.sku,
+    ap.marketplace_key,
+    ap.child_asin,
+    ap.parent_asin,
+    ap.asin,
+    ap.product_name,
+    ap.product_family,
+    ap.brand,
+    ap.snapshot_date,
+    ap.series_type,
+    ap.scenario_name,
+    ap.run_updated_at,
+    ap.period,
+    CAST(ROUND(ap.units_sold, 0) AS BIGINT) AS units_sold,
+    ROUND(ap.sales_amount, 2) AS sales_amount,
     ROUND(
-      CASE WHEN CAST(f.units_sold AS DOUBLE) > 0
-           THEN CAST(f.sales_amount AS DOUBLE) / CAST(f.units_sold AS DOUBLE)
+      CASE WHEN ap.units_sold > 0
+           THEN ap.sales_amount / ap.units_sold
            ELSE CAST(NULL AS DOUBLE) END, 3
     ) AS unit_price,
-    f.currency AS currency
-  FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
-  INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-    ON m.amazon_marketplace_id = f.amazon_marketplace_id
-  INNER JOIN items i
-    ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-    AND lower(trim(f.sku)) = i.normalized_sku
-    AND lower(trim(m.code)) = i.normalized_marketplace_key
-  CROSS JOIN params p
-  WHERE
-    p.include_actuals
-    AND f.dataset = 'actual'
-    AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
-    AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
-    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+    ap.currency
+  FROM actual_item_periods ap
 ),
 
 base_rows AS (

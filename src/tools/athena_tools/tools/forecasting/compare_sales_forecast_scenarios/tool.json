@@ -1,6 +1,6 @@
 {
   "name": "forecasting_compare_sales_forecast_scenarios",
-  "description": "Deep-dive forecasting comparison for multiple items. Supports selectors by inventory_ids, sku+country_code, parent_asin, or product_family (pick one). Compares forecast outputs across scenarios and/or forecast runs, with actuals overlay (include_actuals=true by default). Read-only; no side effects.\n\nLatest forecast evaluation:\n- The 'actual' scenario/dataset is always excluded when selecting forecast runs\n- Actuals are overlaid separately (same periods) when include_actuals=true, enabling actual-vs-forecast comparison\n\nAggregation:\n- query.aggregation.group_by: optional array of dimensions to aggregate by\n- Supported: company, brand, product_family, parent_asin, asin\n- company_id is always included for authorization\n- When aggregated, numeric fields (units_sold, sales_amount) are summed per (group, period, scenario)\n- If group_by is omitted, returns per-item detail rows\n\nCompany selection:\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n\nActual-vs-forecast comparison:\n- Set include_actuals=true (default) and optionally filter scenario_names to compare specific forecasts against actuals\n- Output rows have series_type='actual' or series_type='forecast' to distinguish them",
+  "description": "Deep-dive forecasting comparison for multiple items. Supports selectors by inventory_ids, sku+country_code, parent_asin, or product_family (pick one) for detail mode. Aggregated mode can also run company-wide with only company_id + group_by. Compares forecast outputs across scenarios and/or forecast runs, with actuals overlay (include_actuals=true by default). Read-only; no side effects.\n\nLatest forecast evaluation:\n- The 'actual' scenario/dataset is always excluded when selecting forecast runs\n- Actuals are overlaid separately (same periods) when include_actuals=true, enabling actual-vs-forecast comparison\n\nAggregation:\n- query.aggregation.group_by: optional array of dimensions to aggregate by\n- Supported: company, brand, product_family, parent_asin, asin\n- company_id is always included for authorization\n- When aggregated, numeric fields (units_sold, sales_amount) are summed per (group, period, scenario)\n- If group_by is provided without an item selector, all authorized company items are included\n- If group_by is omitted, returns per-item detail rows and requires one item selector\n\nCompany selection:\n- Use query.filters.company_id (preferred) or query.filters.company (numeric string)\n\nActual-vs-forecast comparison:\n- Set include_actuals=true (default) and optionally filter scenario_names to compare specific forecasts against actuals\n- Output rows have series_type='actual' or 'forecast' to distinguish them",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -10,7 +10,7 @@
         "properties": {
           "filters": {
             "type": "object",
-            "description": "Item selector and optional filters. Provide exactly one selector path: inventory_ids OR sku + country_code OR parent_asin OR product_family.",
+            "description": "Item selector and optional filters. Detail mode requires exactly one selector path: inventory_ids OR sku + country_code OR parent_asin OR product_family. Aggregated mode can omit selectors to aggregate all company items.",
             "properties": {
               "company": {
                 "type": "string",
@@ -78,7 +78,7 @@
           },
           "aggregation": {
             "type": "object",
-            "description": "Optional aggregation. If group_by is provided, returns aggregated rows instead of per-item detail.",
+            "description": "Optional aggregation. If group_by is provided, returns aggregated rows instead of per-item detail and may run company-wide without an item selector.",
             "properties": {
               "group_by": {
                 "type": "array",

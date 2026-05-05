@@ -306,7 +306,13 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         .filter(([, active]) => active)
         .map(([key]) => key);
 
-      if (activeSelectors.length === 0) {
+      // ---- Aggregation mode ----
+      const validGroupByKeys = new Set(['company', 'brand', 'product_family', 'parent_asin', 'asin']);
+      const groupBy = [...new Set((parsed.query.aggregation?.group_by ?? []).filter((g) => validGroupByKeys.has(g)))];
+      const isAggregated = groupBy.length > 0;
+      const useAllCompanyItems = isAggregated && activeSelectors.length === 0;
+
+      if (activeSelectors.length === 0 && !isAggregated) {
         return {
           rows: [],
           meta: {
@@ -350,11 +356,6 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         return { rows: [], meta: { warnings, error: 'Not authorized for requested company_id.' } };
       }
 
-      // ---- Aggregation mode ----
-      const validGroupByKeys = new Set(['company', 'brand', 'product_family', 'parent_asin', 'asin']);
-      const groupBy = [...new Set((parsed.query.aggregation?.group_by ?? []).filter((g) => validGroupByKeys.has(g)))];
-      const isAggregated = groupBy.length > 0;
-
       // ---- Limits ----
       const limit = Math.min(500, parsed.query.limit ?? 200);
       const selectorCount = selectorFlags.inventory
@@ -368,7 +369,9 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
               : 0;
       const fallbackMaxItems = Math.min(limit, 20);
       const maxItems =
-        selectorFlags.inventory || selectorFlags.sku
+        useAllCompanyItems
+          ? 0
+          : selectorFlags.inventory || selectorFlags.sku
           ? Math.max(1, Math.min(selectorCount, 20))
           : Math.max(1, fallbackMaxItems);
       const rowsPerItemEstimate = isAggregated ? 150 : 250;
@@ -406,6 +409,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         apply_sku_filter_sql: sqlBooleanLiteral(selectorFlags.sku),
         apply_parent_asin_filter_sql: sqlBooleanLiteral(selectorFlags.parent_asin),
         apply_product_family_filter_sql: sqlBooleanLiteral(selectorFlags.product_family),
+        apply_all_items_filter_sql: sqlBooleanLiteral(useAllCompanyItems),
 
         scenario_names_array: sqlVarcharArrayExpr(
           (Array.isArray(compare.scenario_names) ? compare.scenario_names : [])
