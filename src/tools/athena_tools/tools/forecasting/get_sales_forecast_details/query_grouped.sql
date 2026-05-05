@@ -281,50 +281,6 @@ t_plan_expanded AS (
     AND cardinality(t.forecast_plan_periods_array) > 0
 ),
 
--- Sum forecast values per (group, period), then re-aggregate into a JSON series per group.
-t_group_plan AS (
-  SELECT
-    {{group_select_raw}},
-    json_format(
-      CAST(
-        transform(
-          sequence(1, cardinality(periods)),
-          i -> CAST(ROW(
-            element_at(periods, i),
-            CAST(ROUND(element_at(units, i), 0) AS BIGINT),
-            ROUND(element_at(sales, i), 2),
-            ROUND(IF(element_at(units, i) > 0, element_at(sales, i) / element_at(units, i), CAST(NULL AS DOUBLE)), 3),
-            CAST(1.0 AS DOUBLE)
-          ) AS ROW(
-            period VARCHAR,
-            units_sold BIGINT,
-            sales_amount DOUBLE,
-            unit_price DOUBLE,
-            seasonality_index DOUBLE
-          ))
-        )
-      AS JSON)
-    ) AS forecast_series_json
-  FROM (
-    SELECT
-      {{group_select_raw}},
-      array_agg(forecast_period ORDER BY month_index) AS periods,
-      array_agg(sum_units ORDER BY month_index) AS units,
-      array_agg(sum_sales ORDER BY month_index) AS sales
-    FROM (
-      SELECT
-        {{group_select_raw}},
-        forecast_period,
-        month_index,
-        SUM(units) AS sum_units,
-        SUM(sales_amount) AS sum_sales
-      FROM t_plan_expanded
-      GROUP BY {{group_by_clause_raw}}, forecast_period, month_index
-    ) x
-    GROUP BY {{group_by_clause_raw}}
-  ) y
-),
-
 -- Expand per-item actuals into (dimension, period, value) rows.
 t_actuals_expanded AS (
   SELECT
@@ -337,48 +293,6 @@ t_actuals_expanded AS (
   CROSS JOIN UNNEST(t.actual_periods_array) WITH ORDINALITY AS e(period, idx)
   WHERE t.actual_periods_array IS NOT NULL
     AND cardinality(t.actual_periods_array) > 0
-),
-
--- Sum actuals per (group, period), then re-aggregate into JSON series per group.
-t_group_actuals AS (
-  SELECT
-    {{group_select_raw}},
-    json_format(
-      CAST(
-        transform(
-          sequence(1, cardinality(periods)),
-          i -> CAST(ROW(
-            element_at(periods, i),
-            CAST(ROUND(element_at(units, i), 0) AS BIGINT),
-            ROUND(element_at(sales, i), 2),
-            ROUND(IF(element_at(units, i) > 0, element_at(sales, i) / element_at(units, i), CAST(NULL AS DOUBLE)), 3)
-          ) AS ROW(
-            period VARCHAR,
-            units_sold BIGINT,
-            sales_amount DOUBLE,
-            unit_price DOUBLE
-          ))
-        )
-      AS JSON)
-    ) AS actuals_series_json
-  FROM (
-    SELECT
-      {{group_select_raw}},
-      array_agg(actual_period ORDER BY month_index) AS periods,
-      array_agg(sum_units ORDER BY month_index) AS units,
-      array_agg(sum_sales ORDER BY month_index) AS sales
-    FROM (
-      SELECT
-        {{group_select_raw}},
-        actual_period,
-        month_index,
-        SUM(units) AS sum_units,
-        SUM(sales_amount) AS sum_sales
-      FROM t_actuals_expanded
-      GROUP BY {{group_by_clause_raw}}, actual_period, month_index
-    ) x
-    GROUP BY {{group_by_clause_raw}}
-  ) y
 ),
 
 -- Main grouping: aggregate KPIs per dimension combination.
@@ -399,34 +313,83 @@ t_grouped AS (
 
   FROM t_base t
   GROUP BY {{group_by_clause_base}}
+),
+
+t_grouped_limited AS (
+  SELECT *
+  FROM t_grouped
+  ORDER BY
+    sales_last_30_days DESC,
+    units_sold_last_30_days DESC
+  LIMIT {{limit_top_n}}
+),
+
+-- Sum forecast values per (group, period), preserving flat period rows instead of JSON blobs.
+-- NOTE: group by forecast_period only (not month_index) so items with the same period
+-- but different array positions (different forecast start dates) are summed together correctly.
+t_group_plan_periods AS (
+  SELECT
+    {{group_select_raw}},
+    forecast_period AS period,
+    SUM(units) AS units_sold,
+    SUM(sales_amount) AS sales_amount
+  FROM t_plan_expanded
+  GROUP BY {{group_by_clause_raw}}, forecast_period
+),
+
+-- Sum actuals per (group, period), same reasoning.
+t_group_actual_periods AS (
+  SELECT
+    {{group_select_raw}},
+    actual_period AS period,
+    SUM(units) AS units_sold,
+    SUM(sales_amount) AS sales_amount
+  FROM t_actuals_expanded
+  GROUP BY {{group_by_clause_raw}}, actual_period
 )
 
--- Final aggregated output
+-- Final aggregated output: one row per group + period + series type.
 SELECT
   g.*,
-
-  CASE
-    WHEN (SELECT include_plan_series FROM params)
-    THEN gp.forecast_series_json
-    ELSE CAST(NULL AS VARCHAR)
-  END AS forecast_series_json,
-
-  CASE
-    WHEN (SELECT include_actuals FROM params)
-    THEN ga.actuals_series_json
-    ELSE CAST(NULL AS VARCHAR)
-  END AS actuals_series_json
-
-FROM t_grouped g
-
-LEFT JOIN t_group_plan gp
+  CAST('forecast' AS VARCHAR) AS series_type,
+  CAST(pe.period AS VARCHAR) AS period,
+  CAST(ROUND(pe.units_sold, 0) AS BIGINT) AS units_sold,
+  ROUND(pe.sales_amount, 2) AS sales_amount,
+  ROUND(IF(pe.units_sold > 0, pe.sales_amount / pe.units_sold, CAST(NULL AS DOUBLE)), 3) AS unit_price
+FROM t_grouped_limited g
+LEFT JOIN t_group_plan_periods pe
   ON {{group_plan_join_condition}}
+WHERE (SELECT include_plan_series FROM params)
 
-LEFT JOIN t_group_actuals ga
+UNION ALL
+
+SELECT
+  g.*,
+  CAST('actual' AS VARCHAR) AS series_type,
+  CAST(ae.period AS VARCHAR) AS period,
+  CAST(ROUND(ae.units_sold, 0) AS BIGINT) AS units_sold,
+  ROUND(ae.sales_amount, 2) AS sales_amount,
+  ROUND(IF(ae.units_sold > 0, ae.sales_amount / ae.units_sold, CAST(NULL AS DOUBLE)), 3) AS unit_price
+FROM t_grouped_limited g
+LEFT JOIN t_group_actual_periods ae
   ON {{group_actuals_join_condition}}
+WHERE (SELECT include_actuals FROM params)
+
+UNION ALL
+
+SELECT
+  g.*,
+  CAST(NULL AS VARCHAR) AS series_type,
+  CAST(NULL AS VARCHAR) AS period,
+  CAST(NULL AS BIGINT) AS units_sold,
+  CAST(NULL AS DOUBLE) AS sales_amount,
+  CAST(NULL AS DOUBLE) AS unit_price
+FROM t_grouped_limited g
+WHERE NOT (SELECT include_plan_series FROM params)
+  AND NOT (SELECT include_actuals FROM params)
 
 ORDER BY
-  g.sales_last_30_days DESC,
-  g.units_sold_last_30_days DESC
-
-LIMIT {{limit_top_n}}
+  company_id,
+  company_name,
+  series_type,
+  period

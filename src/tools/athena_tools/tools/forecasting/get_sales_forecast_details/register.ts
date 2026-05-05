@@ -203,8 +203,8 @@ function buildGroupTemplateVars(dims: DimColumn[]): Record<string, string> {
     group_by_clause_base: dims.map((d) => d.baseExpr).join(', '),
     group_select_raw: dims.map((d) => d.alias).join(', '),
     group_by_clause_raw: dims.map((d) => d.alias).join(', '),
-    group_plan_join_condition: dims.map((d) => `gp.${d.alias} = g.${d.alias}`).join(' AND '),
-    group_actuals_join_condition: dims.map((d) => `ga.${d.alias} = g.${d.alias}`).join(' AND '),
+    group_plan_join_condition: dims.map((d) => `pe.${d.alias} = g.${d.alias}`).join(' AND '),
+    group_actuals_join_condition: dims.map((d) => `ae.${d.alias} = g.${d.alias}`).join(' AND '),
   };
 }
 
@@ -295,6 +295,7 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
       const hasSkuFilter = skuList.length > 0;
       const limitTopN = hasSkuFilter ? Math.max(limit, Math.max(10, skuList.length)) : limit;
       const maxRows = hasSkuFilter ? Math.max(50, limit * 5) : limit;
+      const groupedMaxRows = Math.min(10000, Math.max(limitTopN, limitTopN * Number(toolSpecific.horizon_months ?? 12) * 2 + limitTopN));
 
       // Common template variables shared by both detail and grouped SQL paths.
       const commonTemplateVars: Record<string, string | number> = {
@@ -341,7 +342,7 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
           database,
           workGroup: config.athena.workgroup,
           outputLocation: config.athena.outputLocation,
-          maxRows,
+          maxRows: groupedMaxRows,
         });
 
         const items = (athenaResult.rows ?? []).map((row) => row as Record<string, unknown>);

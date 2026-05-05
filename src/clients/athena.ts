@@ -125,21 +125,33 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
     await sleep(pollIntervalMs);
   }
 
-  const maxRows = Math.max(1, Math.min(1000, options.maxRows ?? 200));
+  const maxRows = Math.max(1, Math.min(10000, options.maxRows ?? 200));
 
   const executionStats = lastExecution?.QueryExecution?.Statistics;
 
-  // Athena always includes a header row in results that counts toward MaxResults.
-  // Request one extra row so stripHeaderRow() doesn't eat into the actual data.
-  const results = await client.send(
-    new GetQueryResultsCommand({
-      QueryExecutionId: queryExecutionId,
-      MaxResults: maxRows + 1,
-    }),
-  );
+  // Athena returns at most 1,000 rows per GetQueryResults call. Paginate up to
+  // the tool-requested row cap, plus one raw row so the header does not eat data.
+  const rawRows: Row[] = [];
+  let columnInfo: ColumnInfo[] = [];
+  let nextToken: string | undefined;
+  const rawRowLimit = maxRows + 1;
 
-  const columnInfo = results.ResultSet?.ResultSetMetadata?.ColumnInfo ?? [];
-  const rows = results.ResultSet?.Rows ?? [];
+  do {
+    const remainingRows = rawRowLimit - rawRows.length;
+    const results = await client.send(
+      new GetQueryResultsCommand({
+        QueryExecutionId: queryExecutionId,
+        MaxResults: Math.min(1000, remainingRows),
+        NextToken: nextToken,
+      }),
+    );
+
+    if (columnInfo.length === 0) {
+      columnInfo = results.ResultSet?.ResultSetMetadata?.ColumnInfo ?? [];
+    }
+    rawRows.push(...(results.ResultSet?.Rows ?? []));
+    nextToken = results.NextToken;
+  } while (nextToken && rawRows.length < rawRowLimit);
 
   const columns = columnInfo
     .map((col) => ({
@@ -148,7 +160,7 @@ export async function runAthenaQuery(options: AthenaQueryOptions): Promise<Athen
     }))
     .filter((col) => col.name.trim().length > 0);
 
-  const dataRows = stripHeaderRow(rows, columns);
+  const dataRows = stripHeaderRow(rawRows, columns).slice(0, maxRows);
 
   return {
     queryExecutionId,

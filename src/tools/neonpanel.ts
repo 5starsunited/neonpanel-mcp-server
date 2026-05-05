@@ -833,7 +833,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
         const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/details`,
+          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/inventory-items/${encodeURIComponent(String(parsed.inventoryId))}/balances`,
           query: {
             balances_date: parsed.balancesDate,
           },
