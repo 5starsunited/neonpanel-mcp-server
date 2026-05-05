@@ -43,14 +43,10 @@ export const inventoryOrderPayloadSchema = z.object({
 });
 
 export const billDetailInputSchema = z.object({
-  service_id: z.coerce.number().int().min(1).optional(),
-  service_name: z.string().min(1).optional(),
+  service_id: z.coerce.number().int().min(1),
   quantity: z.coerce.number().int().min(1),
   rate: z.coerce.number().min(0),
-}).refine(
-  (d) => d.service_id !== undefined || d.service_name !== undefined,
-  { message: 'Provide service_id or service_name for each bill line item' },
-);
+});
 
 export const billPayloadSchema = z.object({
   name: z.string().nullable().optional(),

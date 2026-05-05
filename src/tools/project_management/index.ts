@@ -78,16 +78,15 @@ const billProjectJsonSchema = {
     payment_term_id: { type: ['integer', 'null'], minimum: 1, description: 'Payment term ID used to generate payment requests.' },
     details: {
       type: 'array',
-      description: 'Bill line items. On update, providing details replaces all existing line items. Each item must have service_id or service_name (or both).',
+      description: 'Bill line items. On update, providing details replaces all existing line items. Use project_management_list_services to find service IDs.',
       items: {
         type: 'object',
         properties: {
-          service_id: { type: 'integer', minimum: 1, description: 'FK to an existing service. Use project_management_list_services to look up IDs.' },
-          service_name: { type: 'string', minLength: 1, description: 'Service name. Takes precedence over service_id; auto-creates the service if it does not exist.' },
+          service_id: { type: 'integer', minimum: 1, description: 'ID of an existing service. Use project_management_list_services to search and obtain the ID.' },
           quantity: { type: 'integer', minimum: 1 },
           rate: { type: 'number', minimum: 0 },
         },
-        required: ['quantity', 'rate'],
+        required: ['service_id', 'quantity', 'rate'],
         additionalProperties: false,
       },
     },
@@ -209,13 +208,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_create_project',
-      description: 'Create a NeonPanel project record. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Inventory order details use inventory_id, quantity, price. Bill details use service_id or service_name (use project_management_list_services to look up IDs), quantity, rate. Payment request mutation is handled by direct payment request tools.',
+      description: 'Create a NeonPanel project record. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Inventory order details use inventory_id, quantity, price. Bill details use service_id (use project_management_list_services to search and find existing service IDs), quantity, rate. Payment request mutation is handled by direct payment request tools.',
       isConsequential: true,
       inputSchema: createProjectInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
         name: 'project_management_create_project',
-        description: 'Create a NeonPanel project record. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Inventory order details use inventory_id, quantity, price. Bill details use service_id or service_name (use project_management_list_services to look up IDs), quantity, rate. Payment request mutation is handled by direct payment request tools.',
+        description: 'Create a NeonPanel project record. Supports project_type="inventory_order" / Purchase Orders and project_type="bill" / Bills. Inventory order details use inventory_id, quantity, price. Bill details use service_id (use project_management_list_services to search and find existing service IDs), quantity, rate. Payment request mutation is handled by direct payment request tools.',
         isConsequential: true,
         inputSchema: createProjectInputJsonSchema,
         outputSchema: passthroughOutputSchema,
@@ -249,7 +248,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
               currency: 'USD',
               vendor_id: 7,
               payment_term_id: 2,
-              details: [{ service_name: 'Freight Forwarding', quantity: 3, rate: 250 }],
+              details: [{ service_id: 55, quantity: 3, rate: 250 }],
             },
           },
         },
@@ -442,7 +441,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_list_services',
-      description: 'List services for a company for use when creating or updating Bill line items (NeonPanel: GET /api/v1/companies/{uuid}/services). Use the returned service ID in bill details service_id field. Supports optional search and per_page.',
+      description: 'List services for a company for use when creating or updating Bill line items (NeonPanel: GET /api/v1/companies/{uuid}/services). Search for a service by name to obtain its ID, then pass that ID as service_id in bill details. Supports optional search and per_page.',
       isConsequential: false,
       inputSchema: listServicesInputSchema,
       outputSchema: passthroughOutputSchema,
