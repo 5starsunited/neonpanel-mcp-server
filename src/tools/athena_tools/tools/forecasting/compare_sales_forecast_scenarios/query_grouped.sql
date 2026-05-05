@@ -120,20 +120,18 @@ items AS (
 ),
 
 run_candidates AS (
-  SELECT updated_at
+  SELECT scenario_name, updated_at
   FROM (
     SELECT
+      scenario_name,
       updated_at,
-      row_number() OVER (ORDER BY updated_at DESC) AS rn
+      row_number() OVER (PARTITION BY scenario_name ORDER BY updated_at DESC) AS rn
     FROM (
-      SELECT DISTINCT f.updated_at
+      SELECT DISTINCT COALESCE(f.dataset, 'unknown') AS scenario_name, f.updated_at
       FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
-      INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-        ON m.amazon_marketplace_id = f.amazon_marketplace_id
       INNER JOIN items i
         ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-        AND lower(trim(f.sku)) = i.normalized_sku
-        AND lower(trim(m.code)) = i.normalized_marketplace_key
+        AND TRY_CAST(f.inventory_id AS BIGINT) = i.inventory_id
       CROSS JOIN params p
       WHERE
         f.dataset <> 'actual'
@@ -208,19 +206,21 @@ forecast_latest_rows AS (
         ORDER BY f.calc_period DESC, f.updated_at DESC
       ) AS rn
     FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
-    INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-      ON m.amazon_marketplace_id = f.amazon_marketplace_id
     INNER JOIN items i
       ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-      AND lower(trim(f.sku)) = i.normalized_sku
-      AND lower(trim(m.code)) = i.normalized_marketplace_key
+      AND TRY_CAST(f.inventory_id AS BIGINT) = i.inventory_id
     CROSS JOIN params p
     WHERE
       f.dataset <> 'actual'
       AND (cardinality(p.scenario_names) = 0 OR contains(p.scenario_names, f.dataset))
       AND (p.compare_mode <> 'runs' OR cardinality(p.scenario_names) > 0)
       AND (
-        (p.run_selector_type = 'latest_n' AND f.updated_at IN (SELECT updated_at FROM run_candidates))
+        (p.run_selector_type = 'latest_n' AND EXISTS (
+          SELECT 1
+          FROM run_candidates rc
+          WHERE rc.scenario_name = COALESCE(f.dataset, 'unknown')
+            AND rc.updated_at = f.updated_at
+        ))
         OR (
           p.run_selector_type = 'date_range'
           AND (p.updated_at_from IS NULL OR f.updated_at >= p.updated_at_from)
@@ -339,12 +339,9 @@ actual_latest_rows AS (
         ORDER BY f.calc_period DESC, f.updated_at DESC
       ) AS rn
     FROM "{{forecast_catalog}}"."{{forecast_database}}"."{{forecast_table_sales_forecast}}" f
-    INNER JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-      ON m.amazon_marketplace_id = f.amazon_marketplace_id
     INNER JOIN items i
       ON CAST(f.company_id AS VARCHAR) = CAST(i.company_id AS VARCHAR)
-      AND lower(trim(f.sku)) = i.normalized_sku
-      AND lower(trim(m.code)) = i.normalized_marketplace_key
+      AND TRY_CAST(f.inventory_id AS BIGINT) = i.inventory_id
     CROSS JOIN params p
     WHERE
       p.include_actuals
