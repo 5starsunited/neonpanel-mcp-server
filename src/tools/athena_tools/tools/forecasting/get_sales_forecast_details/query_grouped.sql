@@ -49,18 +49,18 @@ latest_snapshot AS (
 -- collapse to a single arbitrary row and company-level group_by totals are understated.
 forecast_latest_rows AS (
   SELECT
-    f.company_id,
-    f.inventory_id,
-    f.calc_period AS run_calc_period,
-    f.updated_at AS run_updated_at,
-    f.forecast_period,
-    f.units_sold,
-    f.sales_amount,
-    f.dataset,
-    f.scenario_uuid,
-    f.currency,
-    f.amazon_marketplace_id,
-    f.sku
+    ranked.company_id,
+    ranked.inventory_id,
+    ranked.calc_period AS run_calc_period,
+    ranked.updated_at AS run_updated_at,
+    ranked.forecast_period,
+    ranked.units_sold,
+    ranked.sales_amount,
+    ranked.dataset,
+    ranked.scenario_uuid,
+    ranked.currency,
+    ranked.amazon_marketplace_id,
+    ranked.sku
   FROM (
     SELECT
       f.*,
@@ -114,7 +114,7 @@ forecast_item_plan AS (
     MAX(fr.dataset) AS dataset,
     MAX(fr.scenario_uuid) AS scenario_uuid,
     MAX(fr.currency) AS currency,
-    MAX(fr.amazon_marketplace_id) AS marketplace_id,
+    MAX(fr.marketplace_id) AS marketplace_id,
     MAX(fr.sku) AS sku,
 
     slice(
@@ -143,12 +143,12 @@ forecast_item_plan AS (
 -- Same segment-preserving deduplication pattern, followed by item/period summation.
 actual_latest_rows AS (
   SELECT
-    f.company_id,
-    f.inventory_id,
-    f.forecast_period,
-    f.units_sold,
-    f.sales_amount,
-    f.currency
+    ranked.company_id,
+    ranked.inventory_id,
+    ranked.forecast_period,
+    ranked.units_sold,
+    ranked.sales_amount,
+    ranked.currency
   FROM (
     SELECT
       f.company_id,
