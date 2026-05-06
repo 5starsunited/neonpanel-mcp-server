@@ -18,8 +18,10 @@ test('project management registers bill and payment write tools', () => {
   assert.ok(byName.has('project_management_create_project'));
   assert.ok(byName.has('project_management_update_payment_request'));
   assert.ok(byName.has('project_management_record_payment'));
+  assert.ok(byName.has('project_management_list_shipments'));
   assert.equal(byName.get('project_management_update_payment_request')?.isConsequential, true);
   assert.equal(byName.get('project_management_record_payment')?.isConsequential, true);
+  assert.equal(byName.get('project_management_list_shipments')?.isConsequential, false);
 });
 
 test('project management accepts bill project payloads', () => {
@@ -33,12 +35,14 @@ test('project management accepts bill project payloads', () => {
       currency: 'USD',
       vendor_id: 7,
       payment_term_id: 2,
-      details: [{ service: 'Freight Forwarding', quantity: 3, rate: 250 }],
+      documents: [{ type: 'InventoryOrder', id: 3690 }],
+      details: [{ service_id: 55, quantity: 3, rate: 250 }],
     },
   });
 
   assert.equal(parsed.project_type, 'bill');
-  assert.equal(parsed.project.details?.[0]?.service, 'Freight Forwarding');
+  assert.deepEqual(parsed.project.documents, [{ type: 'InventoryOrder', id: 3690 }]);
+  assert.equal(parsed.project.details?.[0]?.service_id, 55);
 });
 
 test('project management validates direct payment update payloads', () => {

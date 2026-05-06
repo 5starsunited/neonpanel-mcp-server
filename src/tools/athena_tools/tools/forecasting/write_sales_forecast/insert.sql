@@ -107,8 +107,9 @@ normalized AS (
 
   FROM writes_input w
   CROSS JOIN params p
-  LEFT JOIN "{{forecast_catalog}}"."{{forecast_database}}"."marketplaces" m
-    ON m.code = w.marketplace OR m.amazon_marketplace_id = w.marketplace
+  LEFT JOIN "{{forecast_catalog}}"."neonpanel_iceberg"."amazon_marketplaces" m
+    ON lower(trim(m.code)) = lower(trim(w.marketplace))
+    OR lower(trim(m.amazon_marketplace_id)) = lower(trim(w.marketplace))
 ),
 
 valid AS (

@@ -48,6 +48,11 @@ export const billDetailInputSchema = z.object({
   rate: z.coerce.number().min(0),
 });
 
+export const billDocumentInputSchema = z.object({
+  type: z.enum(['InventoryOrder', 'AssemblyOrder', 'Shipment']),
+  id: z.coerce.number().int().min(1),
+});
+
 export const billPayloadSchema = z.object({
   name: z.string().nullable().optional(),
   ref_number: z.string().optional(),
@@ -56,6 +61,7 @@ export const billPayloadSchema = z.object({
   currency: z.string().length(3).nullable().optional(),
   vendor_id: z.coerce.number().int().min(1).nullable().optional(),
   payment_term_id: z.coerce.number().int().min(1).nullable().optional(),
+  documents: z.array(billDocumentInputSchema).nullable().optional(),
   details: z.array(billDetailInputSchema).optional(),
 });
 
@@ -126,6 +132,13 @@ export const listVendorsInputSchema = companyScopedBaseSchema.extend({
 export const listServicesInputSchema = companyScopedBaseSchema.extend({
   search: z.string().optional(),
   per_page: z.coerce.number().int().min(1).max(500).optional(),
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const listShipmentsInputSchema = companyScopedBaseSchema.extend({
+  search: z.string().optional(),
+  warehouses: z.array(z.coerce.number().int().min(1)).optional(),
+  start_date: isoDateSchema.optional(),
+  end_date: isoDateSchema.optional(),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const listPaymentTermsInputSchema = z.object({});
