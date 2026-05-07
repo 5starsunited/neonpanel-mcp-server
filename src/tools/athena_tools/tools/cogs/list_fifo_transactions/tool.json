@@ -1,0 +1,139 @@
+{
+  "name": "cogs_list_fifo_transactions",
+  "description": "List raw FIFO transactions from neonpanel_iceberg.fifo_transactions_snapshot. Use this when the user asks for FIFO transaction rows, not aggregated COGS. Requires company_id and a bounded period (start_date/end_date). Optional filters support inventory, SKU, marketplace, warehouse, IO/source batch, final batch, document, document type, document reference, and transaction ID.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "required": ["filters"],
+        "properties": {
+          "filters": {
+            "type": "object",
+            "required": ["company_id", "start_date", "end_date"],
+            "properties": {
+              "company_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Company IDs. Required for tenant isolation and partition pruning."
+              },
+              "start_date": {
+                "type": "string",
+                "format": "date",
+                "description": "Start of period, inclusive, YYYY-MM-DD."
+              },
+              "end_date": {
+                "type": "string",
+                "format": "date",
+                "description": "End of period, inclusive, YYYY-MM-DD."
+              },
+              "inventory_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Optional inventory item IDs."
+              },
+              "sku": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional SKUs."
+              },
+              "marketplace": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional marketplace names, e.g. Amazon.com."
+              },
+              "warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional warehouse names. Matches origin_warehouse, destination_warehouse, or shipment_destination."
+              },
+              "origin_warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional origin warehouse names."
+              },
+              "destination_warehouse": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional destination warehouse names."
+              },
+              "io_batch_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Optional IO/source batch IDs."
+              },
+              "batch_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Optional final batch document IDs (batch_document_id)."
+              },
+              "document_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Optional transaction document IDs."
+              },
+              "document_type": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional document types, e.g. Invoice, Shipment, Transfer."
+              },
+              "document_ref_number": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional transaction document reference numbers."
+              },
+              "transaction_id": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "description": "Optional FIFO transaction IDs."
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": ["document_date", "transaction_updated_at", "transaction_id", "sku", "quantity", "transaction_amount"],
+                "default": "document_date"
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "desc"
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 100,
+            "description": "Maximum transaction rows to return."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": { "type": "object", "additionalProperties": true }
+      },
+      "meta": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  }
+}

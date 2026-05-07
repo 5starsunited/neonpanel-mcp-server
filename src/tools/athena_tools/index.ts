@@ -38,6 +38,7 @@ import { registerBrandAnalyticsGetConversionLeakAnalysisTool } from './tools/bra
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
+import { registerCogsListFifoTransactionsTool } from './tools/cogs/list_fifo_transactions/register';
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
 import { registerInventoryValuationAnalyze3plInventoryTool } from './tools/inventory_valuation/analyze_3pl_inventory/register';
 import { registerInventoryValuationAuditInventoryBalancesTool } from './tools/inventory_valuation/audit_inventory_balances/register';
@@ -103,6 +104,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsGrowthMachineDiagnosisTool(registry);
   registerBrandAnalyticsGetConversionLeakAnalysisTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
+  registerCogsListFifoTransactionsTool(registry);
   registerCogsListLostBatchesTool(registry);
   registerCogsExportUnitCostsTool(registry);
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
