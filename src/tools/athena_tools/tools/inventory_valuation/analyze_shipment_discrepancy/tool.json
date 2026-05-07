@@ -1,0 +1,80 @@
+{
+  "name": "inventory_valuation_analyze_shipment_discrepancy",
+  "description": "Analyze shipment shipped-vs-received quantity discrepancies using NeonPanel Iceberg shipment tables and the Amazon FBA inbound shipment ledger. Use this when the user asks which shipments, SKUs, Amazon shipment IDs, origins, destinations, statuses, or marketplaces have missing, under-received, or over-received quantities compared with shipped quantities. Detail mode is the default and returns shipment item rows. Grouped mode is enabled by aggregation.group_by or aggregation.time.periodicity and returns summarized discrepancy metrics.\n\nDATA RELATIONSHIP:\n- inventory_shipments and inventory_shipment_items provide the NeonPanel shipment document and item quantities.\n- shipment_status is mapped directly from inventory_shipments.status; workflow/task board columns are not used.\n- amazon_fba_inbound_shipments provides Amazon shipment metadata.\n- amazon_fba_inbound_shipment_ledger provides ledger-backed received quantities for FBA inbound documents.\n- For same-marketplace shipments, the tool reports the original inventory item/SKU. For destination-marketplace shipments, it reports the destination inventory item/SKU, matching the QuickSight logic.\n\nDATE BEHAVIOR:\n- filters.date_field selects which date column is bounded by start_date/end_date and defaults to shipped_at.\n- Supported date_field values: shipped_at, received_at, arrived_at, created_at, updated_at.\n\nDEFAULT EXCLUSIONS:\n- Cancelled and deleted shipments are excluded unless filters.include_cancelled_deleted=true.\n- Inactive shipments are excluded unless filters.include_inactive=true.\n\nDISCREPANCY FLAGS:\n- matched_within_tolerance: shipped and received differ by at most quantity_tolerance.\n- not_received: shipped quantity is positive and received quantity is zero.\n- under_received: received quantity is lower than shipped quantity.\n- over_received: received quantity is greater than shipped quantity.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 1, "description": "Required company IDs for tenant isolation." },
+              "start_date": { "type": "string", "format": "date", "description": "Start date inclusive, YYYY-MM-DD. Applied to filters.date_field." },
+              "end_date": { "type": "string", "format": "date", "description": "End date inclusive, YYYY-MM-DD. Applied to filters.date_field." },
+              "date_field": { "type": "string", "enum": ["shipped_at", "received_at", "arrived_at", "created_at", "updated_at"], "default": "shipped_at", "description": "Shipment date field to filter by." },
+              "sku": { "type": "array", "items": { "type": "string" }, "description": "Optional seller SKUs." },
+              "shipment_id": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "description": "Optional NeonPanel shipment IDs." },
+              "amazon_shipment_id": { "type": "array", "items": { "type": "string" }, "description": "Optional Amazon shipment IDs." },
+              "marketplace_id": { "type": "array", "items": { "type": "string" }, "description": "Optional marketplace IDs. Matches either marketplace_id or amazon_marketplace_id." },
+              "origin_warehouse": { "type": "array", "items": { "type": "string" }, "description": "Optional origin warehouse names, case-insensitive exact match after trim." },
+              "destination_warehouse": { "type": "array", "items": { "type": "string" }, "description": "Optional destination warehouse names, case-insensitive exact match after trim." },
+              "shipment_status": { "type": "array", "items": { "type": "string" }, "description": "Optional shipment status names such as Closed, Receiving, Shipped, In Transit. Case-insensitive." },
+              "shipment_type": { "type": "array", "items": { "type": "string" }, "description": "Optional Amazon shipment type values. Case-insensitive." },
+              "include_inactive": { "type": "boolean", "default": false, "description": "Set true to include inactive shipments." },
+              "include_cancelled_deleted": { "type": "boolean", "default": false, "description": "Set true to include cancelled and deleted shipments." }
+            },
+            "required": ["company_id", "start_date", "end_date"],
+            "additionalProperties": false
+          },
+          "discrepancy": {
+            "type": "object",
+            "properties": {
+              "quantity_tolerance": { "type": "number", "minimum": 0, "default": 0, "description": "Allowed absolute unit difference before a row is considered discrepant." },
+              "discrepancy_only": { "type": "boolean", "default": false, "description": "When true, return only rows or groups whose absolute discrepancy is greater than quantity_tolerance." }
+            },
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "group_by": { "type": "array", "items": { "type": "string", "enum": ["company", "shipment", "sku", "inventory_id", "marketplace", "origin", "destination", "status", "shipment_type", "amazon_status", "scope"] }, "default": [], "description": "Optional dimensions for grouped mode." },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "periodicity": { "type": "string", "enum": ["total", "day", "month", "year"], "default": "total" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string", "enum": ["selected_date", "shipped_at", "received_at", "quantity_shipped", "quantity_received", "quantity_discrepancy", "absolute_discrepancy", "received_rate_percent", "seller_sku", "shipment_id", "shipment_line_count", "shipment_count", "sku_count", "discrepant_line_count", "latest_selected_date"], "default": "absolute_discrepancy" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 500 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+      "meta": { "type": "object", "additionalProperties": true }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  },
+  "isConsequential": false
+}

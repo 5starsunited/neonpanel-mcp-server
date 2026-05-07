@@ -42,6 +42,7 @@ import { registerCogsListFifoTransactionsTool } from './tools/cogs/list_fifo_tra
 import { registerInventoryValuationAnalyzeInventoryValueTool } from './tools/inventory_valuation/analyze_inventory_value/register';
 import { registerInventoryValuationAnalyze3plInventoryTool } from './tools/inventory_valuation/analyze_3pl_inventory/register';
 import { registerInventoryValuationAuditInventoryBalancesTool } from './tools/inventory_valuation/audit_inventory_balances/register';
+import { registerInventoryValuationAnalyzeShipmentDiscrepancyTool } from './tools/inventory_valuation/analyze_shipment_discrepancy/register';
 import { registerSearchNeonpanelProjectUrl } from './tools/projects/search_neonpanel_project_url/register';
 import { registerProjectsListRecentActivityTool } from './tools/projects/list_recent_activity/register';
 import { registerAdvertisingAnalyzeSearchTermsTool } from './tools/amazon_advertising/analyze_search_terms/register';
@@ -110,6 +111,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerInventoryValuationAnalyzeInventoryValueTool(registry);
   registerInventoryValuationAnalyze3plInventoryTool(registry);
   registerInventoryValuationAuditInventoryBalancesTool(registry);
+  registerInventoryValuationAnalyzeShipmentDiscrepancyTool(registry);
   registerAdvertisingAnalyzeSearchTermsTool(registry);
   registerAdvertisingAnalyzeCampaignPerformanceTool(registry);
   registerFinancialsAnalyzeGeneralLedgerTool(registry);
