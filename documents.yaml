@@ -47,6 +47,16 @@ tags:
     description: >
       Read-only access to services scoped to a company. Used as line item
       references in Bills. Supports search and pagination. Default page size is 100.
+  - name: Shipments
+    description: >
+      Read-only access to shipments scoped to a company. Each shipment includes
+      line items with inventory and product info, origin/destination warehouses
+      and marketplaces.
+  - name: Invoices
+    description: >
+      Read-only access to invoices scoped to a company. Each invoice includes
+      line items referencing inventory SKUs or services, a customer, warehouse,
+      marketplace, and sales channel.
 
 paths:
   /companies/{companyUuid}/inventory-orders:
@@ -278,14 +288,13 @@ paths:
       summary: Create a new bill
       description: >
         Creates a new bill for the specified company. The authenticated user is
-        recorded as the creator. Each line item in `details` must supply either
-        `service_id` (FK to an existing service — use `GET /companies/{companyUuid}/services`
-        to look up available options) or `service_name` (auto-creates the service
-        if it does not exist). `service_name` takes precedence when both are
-        supplied; items where neither is set are silently skipped. If a
-        `payment_term_id` is provided, payment request installments are
-        auto-generated via `PaymentRequestService`. Payment request installments
-        can be updated individually via the dedicated
+        recorded as the creator. Each line item in `details` requires a
+        `service_id` — use `GET /companies/{companyUuid}/services` to look up
+        available options. Optionally, `documents` links the bill to source
+        documents (e.g. inventory orders); supported types: `InventoryOrder`
+        (more coming soon). If a `payment_term_id` is provided, payment request
+        installments are auto-generated via `PaymentRequestService`. Payment
+        request installments can be updated individually via the dedicated
         `PUT /payment-requests/{paymentId}` endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
@@ -346,14 +355,14 @@ paths:
         Partially updates an existing bill. Only fields present in the request
         body are applied (sparse update). If `details` is provided, existing line
         items are **replaced entirely** (deleted and re-created). Each line item
-        must supply either `service_id` (FK to an existing service — use
-        `GET /companies/{companyUuid}/services` to look up available options) or
-        `service_name` (auto-creates the service if it does not exist).
-        `service_name` takes precedence when both are supplied; items where
-        neither is set are silently skipped. If a `payment_term_id` is present,
-        payment request installments are regenerated. To update individual payment
-        request fields (paid_amount, payment_date, transaction_number, memo), use
-        the dedicated `PUT /payment-requests/{paymentId}` endpoint.
+        requires a `service_id` — use `GET /companies/{companyUuid}/services` to
+        look up available options. If `documents` is provided, all items must be of the same `type` —
+        mixed types are silently ignored. Documents of the given type are
+        synced via upsert: new entries are created, existing ones are updated,
+        and entries no longer present in the array are deleted. If a `payment_term_id` is present, payment
+        request installments are regenerated. To update individual payment request
+        fields (paid_amount, payment_date, transaction_number, memo), use the
+        dedicated `PUT /payment-requests/{paymentId}` endpoint.
       parameters:
         - $ref: '#/components/parameters/companyUuid'
         - $ref: '#/components/parameters/billId'
@@ -492,6 +501,109 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VendorListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/invoices:
+    get:
+      tags: [Invoices]
+      operationId: invoices.list
+      summary: List invoices for a company
+      description: >
+        Returns a paginated list of invoices belonging to the specified company.
+        Each invoice includes line items (inventory SKUs and/or services),
+        customer, warehouse, marketplace, and sales channel. Supports optional
+        free-text search and date range filtering by `transaction_date`.
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: search
+          in: query
+          required: false
+          description: Free-text search applied across invoice fields.
+          schema:
+            type: string
+            example: "INV-2024"
+        - name: start_date
+          in: query
+          required: false
+          description: Filter invoices with `transaction_date` >= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Filter invoices with `transaction_date` <= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
+      responses:
+        '200':
+          description: Paginated list of invoices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /companies/{companyUuid}/shipments:
+    get:
+      tags: [Shipments]
+      operationId: shipments.list
+      summary: List shipments for a company
+      description: >
+        Returns a paginated list of shipments belonging to the specified company.
+        Supports optional filters. Each shipment includes line items with
+        inventory/product info, origin and destination warehouses and marketplaces.
+        Date filters apply to `arrived_at` (start_date) and `shipped_at` (end_date).
+      parameters:
+        - $ref: '#/components/parameters/companyUuid'
+        - name: search
+          in: query
+          required: false
+          description: Free-text search applied against shipment `ref_number` and `name`.
+          schema:
+            type: string
+            example: "FBA-2024"
+        - name: warehouses
+          in: query
+          required: false
+          description: Filter by one or more warehouse IDs (matches origin or destination).
+          schema:
+            type: array
+            items:
+              type: integer
+            example: [3, 7]
+        - name: start_date
+          in: query
+          required: false
+          description: Filter shipments with `arrived_at` >= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: Filter shipments with `shipped_at` <= this date (ISO 8601).
+          schema:
+            type: string
+            format: date
+            example: "2024-12-31"
+      responses:
+        '200':
+          description: Paginated list of shipments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -760,35 +872,59 @@ components:
             FK to the payment_terms table. When set, auto-generates installment
             records via `PaymentRequestService::handlePaymentTermsSchema`.
           example: 2
+        documents:
+          type: array
+          nullable: true
+          description: >
+            References to source documents linked to this bill (e.g. inventory
+            orders). Each item specifies a `type` and an `id`. Supported types:
+            `InventoryOrder` (more types coming soon). Each `id` is validated
+            against the corresponding table.
+          items:
+            $ref: '#/components/schemas/BillDocumentInput'
         details:
           type: array
+          nullable: true
           description: >
             Line items for the bill. On update, providing this array **replaces
-            all existing line items** (full replace, not merge). Services are
-            looked up or auto-created by name within the company scope.
+            all existing line items** (full replace, not merge).
           items:
             $ref: '#/components/schemas/BillDetailInput'
 
+    BillDocumentInput:
+      type: object
+      required: [type, id]
+      description: A reference to a source document linked to a bill.
+      properties:
+        type:
+          type: string
+          description: Short class name of the document model.
+          enum: [InventoryOrder, AssemblyOrder, Shipment]
+          example: "InventoryOrder"
+        id:
+          type: integer
+          description: Primary key of the referenced document. Validated against the corresponding table.
+          example: 42
+
+    BillDocumentResource:
+      description: >
+        A source document linked to a bill. Same shape as `DocumentResource`
+        returned in payment request items.
+      allOf:
+        - $ref: '#/components/schemas/DocumentResource'
+
     BillDetailInput:
       type: object
-      required: [quantity, rate]
+      required: [service_id, quantity, rate]
       description: >
-        A single line item in a bill. Either `service_id` or `service_name` must
-        be provided — items where neither is set are skipped. If `service_name` is
-        provided, the service is looked up or auto-created via
-        `ServiceRepository::firstOrCreateByNameAndCompany`. If `service_id` is
-        provided, the service is looked up directly by ID.
+        A single line item in a bill. `service_id` must reference an existing
+        service belonging to the company — use `GET /companies/{companyUuid}/services`
+        to look up available options.
       properties:
         service_id:
           type: integer
-          description: FK to the services table. Used when referencing an existing service by ID.
+          description: FK to the services table.
           example: 55
-        service_name:
-          type: string
-          description: >
-            Service name. Takes precedence over `service_id` when both are supplied.
-            Looked up or auto-created within the company scope.
-          example: "Freight Forwarding"
         quantity:
           type: integer
           minimum: 1
@@ -844,7 +980,7 @@ components:
           format: uri
           nullable: true
           description: URL to the project task view. Null if no project exists.
-          example: "https://my.neonpanel.com/processes/abc-123/tasks/def-456"
+          example: "https://my.neonpanel.com/app/processes/abc-123/tasks/def-456"
         ref_number:
           type: string
           nullable: true
@@ -980,7 +1116,7 @@ components:
           format: uri
           nullable: true
           description: URL to the project task view. Null if no project exists.
-          example: "https://my.neonpanel.com/processes/abc-123/tasks/def-456"
+          example: "https://my.neonpanel.com/app/processes/abc-123/tasks/def-456"
         ref_number:
           type: string
           nullable: true
@@ -1028,6 +1164,10 @@ components:
               type: string
               nullable: true
               example: "30/70 Net 30"
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillDocumentResource'
         details:
           type: array
           items:
@@ -1155,7 +1295,7 @@ components:
           format: uri
           nullable: true
           description: URL to the project task view in the processes UI.
-          example: "https://my.neonpanel.com/processes/abc-123/tasks/def-456"
+          example: "https://my.neonpanel.com/app/processes/abc-123/tasks/def-456"
         status:
           type: string
           nullable: true
@@ -1321,6 +1461,316 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/VendorResource'
+
+    InvoiceResource:
+      type: object
+      description: Full representation of an invoice as returned by the API.
+      properties:
+        id:
+          type: integer
+          example: 33
+        name:
+          type: string
+          nullable: true
+          example: "INV-2024-001"
+        link:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the project task view. Null if no project exists.
+          example: "https://my.neonpanel.com/app/processes/abc-123/tasks/def-456"
+        ref_number:
+          type: string
+          nullable: true
+          example: "REF-INV-001"
+        transaction_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2024-03-15"
+        market:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 country code.
+          example: "US"
+        amount:
+          type: number
+          format: float
+          nullable: true
+          description: Total invoice amount.
+          example: 1500.00
+        currency:
+          type: string
+          nullable: true
+          example: "USD"
+        warehouse:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WarehouseResource'
+        customer:
+          type: object
+          nullable: true
+          description: Customer snapshot.
+          properties:
+            id:
+              type: integer
+              example: 5
+            bk_id:
+              type: string
+              nullable: true
+              description: External bookkeeping system ID.
+              example: "xero-contact-xyz"
+            bk_type:
+              type: string
+              nullable: true
+              description: Bookkeeping system type identifier.
+              example: "xero"
+            name:
+              type: string
+              nullable: true
+              example: "Acme Corp"
+            code:
+              type: string
+              nullable: true
+              example: "ACME"
+        sales_channel:
+          type: string
+          nullable: true
+          description: Sales channel name.
+          example: "Amazon"
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceDetailResource'
+
+    InvoiceDetailResource:
+      type: object
+      description: >
+        A single invoice line item. Each item references either an inventory
+        record (product sale) or a service (fee/charge), or both.
+      properties:
+        inventory_id:
+          type: integer
+          nullable: true
+          example: 101
+        service_id:
+          type: integer
+          example: 55
+        sku:
+          type: string
+          nullable: true
+          description: Product SKU from the linked inventory record.
+          example: "SKU-ABC-123"
+        product_name:
+          type: string
+          nullable: true
+          example: "Blue Widget (Pack of 10)"
+        service_name:
+          type: string
+          example: "Freight Forwarding"
+        service_group:
+          type: string
+          nullable: true
+          example: "Logistics"
+        quantity:
+          type: integer
+          nullable: true
+          example: 10
+        amount:
+          type: number
+          format: float
+          nullable: true
+          example: 150.00
+
+    InvoiceListResponse:
+      type: object
+      description: Paginated wrapper returned by the invoices list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        last_page:
+          type: integer
+          example: 3
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceResource'
+
+    ShipmentResource:
+      type: object
+      description: Full representation of a shipment as returned by the API.
+      properties:
+        id:
+          type: integer
+          example: 11
+        name:
+          type: string
+          nullable: true
+          example: "FBA-2024-Spring"
+        link:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the project task view. Null if no project exists.
+          example: "https://my.neonpanel.com/app/processes/abc-123/tasks/def-456"
+        source_type:
+          type: string
+          description: Indicates the origin of the shipment record.
+          enum: [Manual, Amazon FBA, Amazon AWD]
+          example: "Manual"
+        ref_number:
+          type: string
+          nullable: true
+          example: "REF-SHIP-001"
+        date_shipment_sent:
+          type: string
+          format: date
+          nullable: true
+          description: Date the shipment was sent (maps to `shipped_at`).
+          example: "2024-03-15"
+        date_shipment_arrived:
+          type: string
+          format: date
+          nullable: true
+          description: Date the shipment arrived (maps to `arrived_at`).
+          example: "2024-04-01"
+        origin_market:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 country code of the origin marketplace.
+          example: "US"
+        destination_market:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 country code of the destination marketplace.
+          example: "CA"
+        origin_warehouse:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WarehouseResource'
+        destination_warehouse:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/WarehouseResource'
+        tracking_number:
+          type: string
+          nullable: true
+          example: "1Z999AA10123456784"
+        shipment_method:
+          type: string
+          nullable: true
+          description: Shipment type / method (e.g. Air, Sea, Ground).
+          example: "Air"
+        carrier_name:
+          type: string
+          nullable: true
+          example: "UPS"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipmentItemResource'
+
+    ShipmentItemResource:
+      type: object
+      description: A single shipment line item.
+      properties:
+        origin_inventory:
+          type: object
+          nullable: true
+          description: >
+            Inventory record from the origin marketplace. Inline snapshot —
+            will be replaced with a $ref to InventoryResource once a shared
+            catalogs schema file is available.
+          properties:
+            id:
+              type: integer
+              example: 101
+            name:
+              type: string
+              nullable: true
+              description: Product display name.
+              example: "Blue Widget (Pack of 10)"
+            fnsku:
+              type: string
+              nullable: true
+              example: "X001ABC123"
+            asin:
+              type: string
+              nullable: true
+              example: "B08XYZ1234"
+            sku:
+              type: string
+              nullable: true
+              example: "SKU-ABC-123"
+            image:
+              type: string
+              format: uri
+              nullable: true
+              description: Product preview image URL.
+              example: "https://cdn.example.com/products/blue-widget.jpg"
+            country_code:
+              type: string
+              nullable: true
+              description: ISO 3166-1 alpha-2 country code of the inventory marketplace.
+              example: "US"
+            weight:
+              type: number
+              format: float
+              nullable: true
+              example: 0.5
+            length:
+              type: number
+              format: float
+              nullable: true
+              example: 10.0
+            height:
+              type: number
+              format: float
+              nullable: true
+              example: 5.0
+            depth:
+              type: number
+              format: float
+              nullable: true
+              example: 3.0
+        quantity_shipped:
+          type: integer
+          nullable: true
+          example: 50
+        quantity_received:
+          type: integer
+          nullable: true
+          example: 48
+
+    ShipmentListResponse:
+      type: object
+      description: Paginated wrapper returned by the shipments list endpoint.
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 15
+        last_page:
+          type: integer
+          example: 3
+        filters:
+          type: object
+          description: Echo of the filter params that were applied.
+          additionalProperties: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipmentResource'
 
     ServiceResource:
       type: object

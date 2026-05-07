@@ -134,6 +134,12 @@ export const listServicesInputSchema = companyScopedBaseSchema.extend({
   per_page: z.coerce.number().int().min(1).max(500).optional(),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
+export const listInvoicesInputSchema = companyScopedBaseSchema.extend({
+  search: z.string().optional(),
+  start_date: isoDateSchema.optional(),
+  end_date: isoDateSchema.optional(),
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
 export const listShipmentsInputSchema = companyScopedBaseSchema.extend({
   search: z.string().optional(),
   warehouses: z.array(z.coerce.number().int().min(1)).optional(),
