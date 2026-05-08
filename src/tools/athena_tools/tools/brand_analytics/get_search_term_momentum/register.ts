@@ -46,6 +46,8 @@ function sqlDateExpr(value?: string): string {
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
+const groupBySchema = z.enum(['search_term', 'marketplace', 'company', 'brand', 'product_family', 'category']);
+
 const querySchema = z
   .object({
     filters: z
@@ -65,6 +67,7 @@ const querySchema = z
       .strict(),
     aggregation: z
       .object({
+        group_by: z.array(groupBySchema).optional().default([]),
         time: z
           .object({
             start_date: z.string().optional(),
@@ -86,6 +89,7 @@ const querySchema = z
   .strict();
 
 type QueryInput = z.infer<typeof querySchema>;
+type GroupByField = z.infer<typeof groupBySchema>;
 
 const toolSpecificSchema = z
   .object({
@@ -111,11 +115,34 @@ const inputSchema = z
   })
   .strict();
 
+type DimensionConfig = { expression: string; alias: string };
+
+const dimensionMap: Record<GroupByField, DimensionConfig> = {
+  search_term: { expression: 'aw.search_term', alias: 'search_term' },
+  marketplace: { expression: 'aw.marketplace', alias: 'marketplace' },
+  company: { expression: 'aw.company_id', alias: 'company_id' },
+  brand: { expression: "COALESCE(aw.my_brand, '__UNKNOWN__')", alias: 'my_brand' },
+  product_family: { expression: "COALESCE(aw.product_family, '__UNKNOWN__')", alias: 'product_family' },
+  category: { expression: "COALESCE(aw.category, '__UNKNOWN__')", alias: 'category' },
+};
+
+function buildDimensionClauses(groupBy: GroupByField[]) {
+  const uniqueGroupBy = [...new Set(groupBy)];
+  const dimensions = uniqueGroupBy.map((dimension) => dimensionMap[dimension]);
+
+  return {
+    uniqueGroupBy,
+    groupBySelectClause: dimensions.map((d) => `${d.expression} AS ${d.alias}`).join(',\n    '),
+    finalGroupBySelectClause: dimensions.map((d) => `e.${d.alias}`).join(',\n    '),
+    groupByClause: dimensions.map((d) => d.expression).join(', '),
+    partitionByClause: dimensions.map((d) => d.alias).join(', '),
+  };
+}
+
 // ── Registration ───────────────────────────────────────────────────────────────
 
 export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const sqlPath = path.join(__dirname, 'query.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -199,20 +226,33 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const minClickShare = toolSpecific?.min_click_share ?? 0;
       const minSearchVolume = toolSpecific?.min_search_volume ?? 0;
 
-      const SORTABLE_FIELDS = new Set([
+      const groupBy = query.aggregation?.group_by ?? [];
+      const groupClauses = buildDimensionClauses(groupBy);
+      const isGrouped = groupClauses.uniqueGroupBy.length > 0;
+
+      const DETAIL_SORTABLE_FIELDS = new Set([
         'search_volume', 'my_click_share', 'wow_delta', 'avg_share_l4w',
         'avg_share_l12w', 'displacement_opportunity_score', 'revenue_share',
         'click_share_to_leader', 'leader_conversion_share',
+      ]);
+
+      const GROUPED_SORTABLE_FIELDS = new Set([
+        'search_volume', 'portfolio_click_share', 'my_click_share', 'wow_delta', 'avg_share_l4w',
+        'avg_share_l12w', 'asin_count', 'avg_asin_click_share', 'max_asin_click_share',
+        'total_revenue_share', 'displacement_opportunity_score', 'leader_conversion_share',
+        'click_share_to_leader',
       ]);
 
       const time = query.aggregation?.time;
       const periodsBack = time?.periods_back ?? 4;
       const limitTopN = query.limit ?? 100;
       const selectFields = query.select_fields;
-      const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_volume';
+      const sortableFields = isGrouped ? GROUPED_SORTABLE_FIELDS : DETAIL_SORTABLE_FIELDS;
+      const sortField = sortableFields.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_volume';
       const sortDirection = query.sort?.direction ?? 'desc';
 
       // ── Render & execute SQL ──────────────────────────────────────────────
+      const sqlPath = path.join(__dirname, isGrouped ? 'query_grouped.sql' : 'query.sql');
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
@@ -236,6 +276,10 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
         weak_leader_min_search_volume: Number(weakLeaderMinVolume),
         min_click_share: Number(minClickShare),
         min_search_volume: Number(minSearchVolume),
+        group_by_select_clause: groupClauses.groupBySelectClause,
+        final_group_by_select_clause: groupClauses.finalGroupBySelectClause,
+        group_by_clause: groupClauses.groupByClause,
+        partition_by_clause: groupClauses.partitionByClause,
 
         // Sort (whitelisted column name, safe for interpolation)
         sort_column: sortField,

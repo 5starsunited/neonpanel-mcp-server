@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_search_term_momentum",
-  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When search_terms is omitted, ALL search terms are considered but only the top N by sort order are returned. A company may have thousands of tracked search terms. To explore different keyword groups: (1) change sort field/direction to surface different terms, (2) use search_terms filter with match_type='contains' to drill into a keyword theme (e.g., ['ring'] returns all ring-related terms), or (3) use brand/product_family/category filters to narrow by product line.\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
+  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When search_terms is omitted, ALL search terms are considered but only the top N by sort order are returned. A company may have thousands of tracked search terms. To explore different keyword groups: (1) change sort field/direction to surface different terms, (2) use search_terms filter with match_type='contains' to drill into a keyword theme (e.g., ['ring'] returns all ring-related terms), or (3) use brand/product_family/category filters to narrow by product line.\n\nPortfolio aggregation: By default this tool returns detail rows at search term × ASIN × marketplace grain. To get portfolio-level keyword momentum, set query.aggregation.group_by, for example ['search_term', 'marketplace']. In grouped mode, search_volume is de-duplicated with MAX instead of summed across ASIN rows, and momentum fields are recomputed from weekly portfolio click share.\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -121,6 +121,22 @@
           "aggregation": {
             "type": "object",
             "properties": {
+              "group_by": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "search_term",
+                    "marketplace",
+                    "company",
+                    "brand",
+                    "product_family",
+                    "category"
+                  ]
+                },
+                "default": [],
+                "description": "Optional dimensions for grouped/portfolio output. Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
+              },
               "time": {
                 "type": "object",
                 "properties": {
@@ -153,11 +169,17 @@
                 "enum": [
                   "search_volume",
                   "my_click_share",
+                  "portfolio_click_share",
+                  "portfolio_click_share_uncapped",
                   "wow_delta",
                   "avg_share_l4w",
                   "avg_share_l12w",
                   "displacement_opportunity_score",
                   "revenue_share",
+                  "total_revenue_share",
+                  "asin_count",
+                  "avg_asin_click_share",
+                  "max_asin_click_share",
                   "click_share_to_leader",
                   "leader_conversion_share"
                 ],
@@ -193,16 +215,27 @@
                 "my_asin",
                 "my_brand",
                 "my_click_share",
+                "portfolio_click_share",
+                "portfolio_click_share_uncapped",
                 "prev_week_share",
                 "wow_delta",
                 "avg_share_l4w",
                 "avg_share_l12w",
                 "momentum_signal",
+                "company_id",
+                "company_count",
+                "marketplace_count",
                 "revenue_abcd_class",
                 "pareto_abc_class",
                 "asin_class",
                 "product_family",
                 "revenue_share",
+                "total_revenue_share",
+                "avg_asin_click_share",
+                "max_asin_click_share",
+                "asin_count",
+                "portfolio_asins",
+                "top_asin_by_click_share",
                 "rank_1_asin",
                 "rank_1_itemname",
                 "rank_1_department",
@@ -314,9 +347,21 @@
               "type": "string",
               "description": "Company name associated with this data row."
             },
+            "company_id": {
+              "type": "integer",
+              "description": "Company id when grouped by company."
+            },
+            "company_count": {
+              "type": "integer",
+              "description": "Number of companies represented in a grouped row."
+            },
             "marketplace": {
               "type": "string",
               "description": "Amazon marketplace country code (e.g., 'US', 'DE', 'UK')."
+            },
+            "marketplace_count": {
+              "type": "integer",
+              "description": "Number of marketplaces represented in a grouped row."
             },
             "currency": {
               "type": "string",
@@ -356,7 +401,21 @@
                 "number",
                 "null"
               ],
-              "description": "Your ASIN's click share for this term (0-1 scale). 0.12 = 12%."
+              "description": "Detail mode: your ASIN's click share for this term. Grouped mode: portfolio click share for the grouped row, capped at 1.0."
+            },
+            "portfolio_click_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Grouped mode only: summed portfolio click share across distinct ASIN rows for the grouped week, capped at 1.0."
+            },
+            "portfolio_click_share_uncapped": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Grouped mode only: raw summed portfolio click share before the 1.0 cap. Use this to spot overlapping or duplicated ASIN share rows."
             },
             "prev_week_share": {
               "type": [
@@ -412,6 +471,39 @@
                 "null"
               ],
               "description": "Revenue share of this ASIN within its company portfolio (0-1 scale). Higher = more important product."
+            },
+            "total_revenue_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Grouped mode only: summed revenue share across ASIN rows represented in the group."
+            },
+            "avg_asin_click_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Grouped mode only: average ASIN click share inside the grouped row."
+            },
+            "max_asin_click_share": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Grouped mode only: strongest single-ASIN click share inside the grouped row."
+            },
+            "asin_count": {
+              "type": "integer",
+              "description": "Grouped mode only: number of distinct ASINs represented in the grouped row."
+            },
+            "portfolio_asins": {
+              "type": "string",
+              "description": "Grouped mode only: comma-separated sample of up to 25 ASINs represented in the grouped row."
+            },
+            "top_asin_by_click_share": {
+              "type": "string",
+              "description": "Grouped mode only: ASIN with the highest click share in the grouped row."
             },
             "rank_1_asin": {
               "type": "string",
