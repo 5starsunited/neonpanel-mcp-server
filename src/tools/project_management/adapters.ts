@@ -1,10 +1,10 @@
-export type ProjectType = 'inventory_order' | 'bill';
+export type ProjectType = 'inventory_order' | 'bill' | 'invoice' | 'adjustment' | 'assembly_order';
 
 export interface ProjectAdapter {
   listPath(companyUuid: string): string;
-  getPath(companyUuid: string, projectId: number): string;
-  createPath(companyUuid: string): string;
-  updatePath(companyUuid: string, projectId: number): string;
+  getPath?: (companyUuid: string, projectId: number) => string;
+  createPath?: (companyUuid: string) => string;
+  updatePath?: (companyUuid: string, projectId: number) => string;
 }
 
 export const projectAdapters: Record<ProjectType, ProjectAdapter> = {
@@ -19,5 +19,20 @@ export const projectAdapters: Record<ProjectType, ProjectAdapter> = {
     getPath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/bills/${encodeURIComponent(String(projectId))}`,
     createPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/bills`,
     updatePath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/bills/${encodeURIComponent(String(projectId))}`,
+  },
+  invoice: {
+    listPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/invoices`,
+    getPath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/invoices/${encodeURIComponent(String(projectId))}`,
+    createPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/invoices`,
+    updatePath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/invoices/${encodeURIComponent(String(projectId))}`,
+  },
+  adjustment: {
+    listPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/adjustments`,
+    getPath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/adjustments/${encodeURIComponent(String(projectId))}`,
+    createPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/adjustments`,
+    updatePath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/adjustments/${encodeURIComponent(String(projectId))}`,
+  },
+  assembly_order: {
+    listPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/assembly-orders`,
   },
 };

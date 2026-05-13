@@ -901,6 +901,10 @@
       "ReportItem": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "integer",
+            "description": "ID of Report"
+          },
           "title": {
             "type": "string",
             "description": "Name of Report"
@@ -912,20 +916,82 @@
           "description": {
             "type": "string"
           },
-          "query_filters": {
-            "type": "array",
-            "description": "Filters you can set in Report URL as query parameter",
-            "items": {
-              "type": "string",
-              "example": "StartDate"
-            }
-          },
           "link": {
             "type": "string",
             "format": "uri",
-            "example": "https://example.com/path/to/resource"
+            "description": "Base URL to open the report. To open a specific sheet with filters, append query parameters to this URL (see sheets[].slug and sheets[].parameters[].slug).\n",
+            "example": "https://my.neonpanel.com/app/reports/basic_suite_new/v3-inventory-transactions-bas-user"
           }
         }
+      },
+      "ReportItemFullData": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ReportItem"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "sheets": {
+                "type": "array",
+                "description": "List of available report sheets. Each sheet defines which query parameters can be used.\nBuild the report URL by appending query parameters to `link`: {link}?sheet={sheets[].slug}&{paramSlug}={value}&...\nThe `sheet` query parameter is optional. If `sheet` is not provided, the report will open the first available sheet by default.\nYou can additionally pass the `company` query parameter as a comma-separated list of company identifiers. Each value must be taken from `short_name` returned by GET /api/v1/companies (listCompanies). The order of query parameters does not matter.\nExample: https://my.neonpanel.com/app/reports/basic_suite_new/v3-inventory-transactions-bas-user?company=5SU,KEM&sheet=transaction-list&start-date=2026-02-01&end-date=2026-02-13\n",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slug": {
+                      "type": "string",
+                      "description": "Sheet identifier. Use this value as the `sheet` query parameter when building the report URL. Example: {link}?sheet={slug}\n",
+                      "example": "transaction-list"
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Title of Report's Sheet"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "parameters": {
+                      "type": "array",
+                      "description": "Filters/parameters supported by this sheet. Each item describes one query parameter. Use parameter.slug as the query parameter name.\n",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string",
+                            "description": "A slug name that can be used in Report link alongside sheet"
+                          },
+                          "title": {
+                            "type": "string",
+                            "description": "Title of Parameter/Filter"
+                          },
+                          "type": {
+                            "type": "string",
+                            "description": "UI control type. It also implies how to format the value in the URL: - DateTimePicker: use `YYYY-MM-DD` (e.g. 2026-02-01) or `YYYY-MM-DDTHH:mm:ss` - DateTimeRangePicker: usually represented by two params (e.g. start-date/end-date) if present in parameters list - Dropdown + multiselect=true: value is comma-separated list\n",
+                            "enum": [
+                              "Dropdown",
+                              "TextField",
+                              "TextArea",
+                              "Slider",
+                              "DateTimePicker",
+                              "DateTimeRangePicker"
+                            ]
+                          },
+                          "multiselect": {
+                            "type": "boolean",
+                            "description": "Applies to Dropdown only. - If type=Dropdown and multiselect=true: pass selected values as a single comma-separated string.\n  Example: brand=Nike,Adidas\n- Otherwise: pass a single value.\n"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
       },
       "ReportsListResponse": {
         "type": "object",
@@ -1107,6 +1173,42 @@
         }
       }
     },
+    "/api/v1/permissions": {
+      "get": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "listPermissions",
+        "x-openai-isConsequential": false,
+        "summary": "Retrieve a list of all possible permissions",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of permissions retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "List of permission names"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/permissions/{permission}/companies": {
       "get": {
         "tags": [
@@ -1183,6 +1285,51 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/{reportId}": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "getReportData",
+        "x-openai-isConsequential": false,
+        "summary": "Retrieve report full data with sheets and query parameters",
+        "description": "Returns basic report info and a list of sheets with supported parameters.\nBuild report URL by appending query parameters to `link`: {link}?sheet={sheets[].slug}&{parameter.slug}={value}&...\nThe `sheet` query parameter is optional. If `sheet` is not provided, the report will open the first available sheet by default.\nYou can additionally pass the `company` query parameter as a comma-separated list of company identifiers. Each value must be taken from `short_name` returned by GET /api/v1/companies (listCompanies). The order of query parameters does not matter.\nExample: {link}?company=5SU,KEM&sheet=transaction-list&start-date=2026-01-01\n",
+        "security": [
+          {
+            "OAuth2": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Report ID obtained in listReports operation"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Report retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportItemFullData"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No permissions for requested Report"
+          },
+          "404": {
+            "description": "Report not found"
           }
         }
       }

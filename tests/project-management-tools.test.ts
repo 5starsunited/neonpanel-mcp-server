@@ -4,6 +4,7 @@ import { ToolRegistry } from '../src/tools/types';
 import { registerProjectManagementTools } from '../src/tools/project_management';
 import {
   createProjectInputSchema,
+  listProjectsInputSchema,
   recordPaymentInputSchema,
   updatePaymentRequestInputSchema,
   updateProjectInputSchema,
@@ -21,6 +22,7 @@ test('project management registers bill and payment write tools', () => {
   assert.ok(byName.has('project_management_record_payment'));
   assert.ok(byName.has('project_management_list_invoices'));
   assert.ok(byName.has('project_management_list_shipments'));
+  assert.match(byName.get('project_management_list_projects')?.description ?? '', /assembly_order/);
   assert.equal(byName.get('project_management_update_payment_request')?.isConsequential, true);
   assert.equal(byName.get('project_management_record_payment')?.isConsequential, true);
   assert.equal(byName.get('project_management_list_invoices')?.isConsequential, false);
@@ -59,6 +61,53 @@ test('project management accepts bill project payloads', () => {
   assert.equal(parsed.project_type, 'bill');
   assert.deepEqual(parsed.project.documents, [{ type: 'InventoryOrder', id: 3690 }]);
   assert.equal(parsed.project.details?.[0]?.service_id, 55);
+});
+
+test('project management accepts invoice and adjustment project payloads', () => {
+  const invoice = createProjectInputSchema.parse({
+    project_type: 'invoice',
+    company_id: 230,
+    project: {
+      ref_number: 'REF-INV-001',
+      date: '2026-05-03',
+      market: 'US',
+      currency: 'USD',
+      warehouse_id: 3,
+      customer_id: 7,
+      sales_channel_id: 2,
+      details: [{ inventory_id: 101, service_id: 55, quantity: -1, amount: -25 }],
+    },
+  });
+
+  assert.equal(invoice.project_type, 'invoice');
+  assert.equal(invoice.project.details?.[0]?.quantity, -1);
+
+  const adjustment = updateProjectInputSchema.parse({
+    project_type: 'adjustment',
+    company_id: 230,
+    project_id: 88,
+    project: {
+      reason: 'Damaged',
+      details: [{ inventory_id: 101, service_id: 55, quantity: -10, rate: 25 }],
+    },
+  });
+
+  assert.equal(adjustment.project_type, 'adjustment');
+  assert.equal(adjustment.project.details?.[0]?.rate, 25);
+});
+
+test('project management supports assembly orders only for list projects', () => {
+  const parsed = listProjectsInputSchema.parse({
+    project_type: 'assembly_order',
+    company_id: 230,
+  });
+
+  assert.equal(parsed.project_type, 'assembly_order');
+  assert.throws(() => createProjectInputSchema.parse({
+    project_type: 'assembly_order',
+    company_id: 230,
+    project: {},
+  }));
 });
 
 test('project management advertises bill documents as an array of typed references', () => {
