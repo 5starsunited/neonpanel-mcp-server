@@ -2,19 +2,17 @@
 
 ## Goal
 
-Create a new MCP toolset named `project_management` in the existing NeonPanel MCP server. This toolset will expose project-like NeonPanel records through a consistent set of MCP tools for listing, reading, creating, updating, and eventually deleting projects.
+Create a new MCP toolset named `project_management` in the existing NeonPanel MCP server. This toolset exposes NeonPanel project-like document records through type-specific MCP tools for listing, reading, creating, updating, and eventually deleting records.
 
-The first supported project types are Inventory Orders / Purchase Orders and Bills:
+Supported document types:
 
-- `project_type: "inventory_order"`
-- `project_type: "bill"`
+- Inventory Orders / Purchase Orders
+- Bills
+- Manual invoices
+- Inventory adjustments
+- Assembly orders, list-only
 - NeonPanel routes from `documents.yaml`
 - Base URL: `https://my.neonpanel.com/api/v1`
-
-Future project types can include:
-
-- `invoice`
-- Other NeonPanel project/document records as their endpoints become available
 
 This is not a separate MCP server. The new module registers tools into the same existing `ToolRegistry`, so clients continue using the same MCP endpoint, auth flow, `tools/list`, and `tools/call`.
 
@@ -34,183 +32,56 @@ Recommended responsibilities:
 
 - `index.ts`: registers the MCP tools with the shared `ToolRegistry`.
 - `schemas.ts`: contains Zod input schemas for project-management tools, Inventory Order payloads, Bill payloads, and payment request updates.
-- `adapters.ts`: maps generic `project_type` operations to concrete NeonPanel REST endpoints.
+- `adapters.ts`: maps document-type operations to concrete NeonPanel REST endpoints.
 
 If shared NeonPanel helpers are needed, extract them from `src/tools/neonpanel.ts` into a small shared module such as `src/tools/neonpanel-common.ts`.
 
-## Initial Tools
+## Project Document Tools
 
-### `project_management_list_projects`
+The MCP surface is intentionally separated by NeonPanel document type so AI clients can choose a precise tool with a precise schema.
 
-List project records for a company.
+Inventory Orders / Purchase Orders:
 
-Supported examples:
+- `project_management_list_inventory_orders` -> `GET /api/v1/companies/{companyUuid}/inventory-orders`
+- `project_management_get_inventory_order` -> `GET /api/v1/companies/{companyUuid}/inventory-orders/{orderId}`
+- `project_management_create_inventory_order` -> `POST /api/v1/companies/{companyUuid}/inventory-orders`
+- `project_management_update_inventory_order` -> `PUT /api/v1/companies/{companyUuid}/inventory-orders/{orderId}`
 
-```json
-{
-  "project_type": "inventory_order",
-  "company_id": 230,
-  "search": "PO-2024",
-  "warehouses": [3],
-  "vendors": [7],
-  "date": "2024-03-15"
-}
-```
+Bills:
 
-Maps to:
+- `project_management_list_bills` -> `GET /api/v1/companies/{companyUuid}/bills`
+- `project_management_get_bill` -> `GET /api/v1/companies/{companyUuid}/bills/{billId}`
+- `project_management_create_bill` -> `POST /api/v1/companies/{companyUuid}/bills`
+- `project_management_update_bill` -> `PUT /api/v1/companies/{companyUuid}/bills/{billId}`
 
-```text
-GET /api/v1/companies/{companyUuid}/inventory-orders
-GET /api/v1/companies/{companyUuid}/bills
-```
+Manual invoices:
+
+- `project_management_list_invoices` -> `GET /api/v1/companies/{companyUuid}/invoices`
+- `project_management_get_invoice` -> `GET /api/v1/companies/{companyUuid}/invoices/{invoiceId}`
+- `project_management_create_invoice` -> `POST /api/v1/companies/{companyUuid}/invoices`
+- `project_management_update_invoice` -> `PUT /api/v1/companies/{companyUuid}/invoices/{invoiceId}`
+
+Inventory adjustments:
+
+- `project_management_list_adjustments` -> `GET /api/v1/companies/{companyUuid}/adjustments`
+- `project_management_get_adjustment` -> `GET /api/v1/companies/{companyUuid}/adjustments/{adjustmentId}`
+- `project_management_create_adjustment` -> `POST /api/v1/companies/{companyUuid}/adjustments`
+- `project_management_update_adjustment` -> `PUT /api/v1/companies/{companyUuid}/adjustments/{adjustmentId}`
+
+Assembly orders:
+
+- `project_management_list_assembly_orders` -> `GET /api/v1/companies/{companyUuid}/assembly-orders`
 
 Behavior:
 
 - Accept `company_id` or `companyUuid`.
-- Resolve `company_id` to UUID using the existing company lookup pattern.
-- Pass through supported filters: `search`, `warehouses` for inventory orders, `vendors`, `date`.
-- Return the NeonPanel paginated response.
-- Mark as non-consequential.
-
-### `project_management_get_project`
-
-Read one project in full.
-
-Supported examples:
-
-```json
-{
-  "project_type": "inventory_order",
-  "company_id": 230,
-  "project_id": 42
-}
-```
-
-Maps to:
-
-```text
-GET /api/v1/companies/{companyUuid}/inventory-orders/{orderId}
-GET /api/v1/companies/{companyUuid}/bills/{billId}
-```
-
-Behavior:
-
-- Return full project details, including line items, vendor, and payment requests.
-- Mark as non-consequential.
-
-### `project_management_create_project`
-
-Create a new project record.
-
-Supported examples:
-
-```json
-{
-  "project_type": "inventory_order",
-  "company_id": 230,
-  "project": {
-    "name": "PO-2024-Spring",
-    "ref_number": "REF-0042",
-    "date_order_placed": "2024-03-15",
-    "date_manufacturing_completed": "2024-05-01",
-    "market": "US",
-    "currency": "USD",
-    "vendor_id": 7,
-    "warehouse_id": 3,
-    "payment_term_id": 2,
-    "details": [
-      {
-        "inventory_id": 101,
-        "quantity": 50,
-        "price": 12.99
-      }
-    ]
-  }
-}
-```
-
-```json
-{
-  "project_type": "bill",
-  "company_id": 230,
-  "project": {
-    "name": "Bill-2024-001",
-    "ref_number": "REF-BILL-001",
-    "date": "2024-03-15",
-    "market": "US",
-    "currency": "USD",
-    "vendor_id": 7,
-    "payment_term_id": 2,
-    "details": [
-      {
-        "service": "Freight Forwarding",
-        "quantity": 3,
-        "rate": 250
-      }
-    ]
-  }
-}
-```
-
-Maps to:
-
-```text
-POST /api/v1/companies/{companyUuid}/inventory-orders
-POST /api/v1/companies/{companyUuid}/bills
-```
-
-Behavior:
-
-- Send `project` as the request body.
-- Return the newly created project resource.
-- Mark as consequential.
-
-### `project_management_update_project`
-
-Sparse-update an existing project record.
-
-Supported examples:
-
-```json
-{
-  "project_type": "inventory_order",
-  "company_id": 230,
-  "project_id": 42,
-  "project": {
-    "date_manufacturing_completed": "2026-06-15"
-  }
-}
-```
-
-```json
-{
-  "project_type": "bill",
-  "company_id": 230,
-  "project_id": 17,
-  "project": {
-    "date": "2026-05-03"
-  }
-}
-```
-
-Maps to:
-
-```text
-PUT /api/v1/companies/{companyUuid}/inventory-orders/{orderId}
-PUT /api/v1/companies/{companyUuid}/bills/{billId}
-```
-
-Behavior:
-
-- Send only fields the caller intends to update.
-- Return the updated project resource.
-- Mark as consequential.
-
-Important safety notes:
-
-- `details` replaces all existing line items when provided.
+- Resolve `company_id` to UUID using the shared company lookup helper.
+- List tools pass through supported filters such as `search`, `warehouses`, `vendors`, `start_date`, and `end_date` where relevant.
+- Create and update tools accept type-specific fields directly at the top level, without a generic `project_type` or `project` wrapper.
+- Create and update tools are consequential.
+- `details` replaces all existing line items when provided on update.
 - `payment_term_id` can regenerate payment request installments when provided.
-- Do not use this tool for payment request management once direct payment request endpoints are available.
+- Bill `documents` must be an array of `{type,id}` references; mixed document types are split into multiple NeonPanel requests by the MCP tool.
 
 ## Payment Request Management Tools
 
@@ -469,7 +340,7 @@ const projectAdapters = {
 };
 ```
 
-Later additions can add `invoice` and other project/document types without changing the public tool names.
+Later additions should add type-specific public tool names when the NeonPanel document type has a distinct endpoint and payload shape.
 
 ## Validation
 
@@ -477,9 +348,8 @@ Use Zod schemas for runtime validation and tool schema emission.
 
 Common fields:
 
-- `project_type`: enum, currently `inventory_order` or `bill`.
 - `company_id` or `companyUuid`.
-- `project_id`: positive integer for get/update.
+- Type-specific document ID for get/update, such as `inventory_order_id`, `bill_id`, `invoice_id`, or `adjustment_id`.
 - `payment_id`: positive integer for direct payment request update.
 
 Inventory Order payload fields:
@@ -538,10 +408,23 @@ Add a function:
 ```ts
 export function registerProjectManagementTools(registry: ToolRegistry) {
   registry
-    .register(/* project_management_list_projects */)
-    .register(/* project_management_get_project */)
-    .register(/* project_management_create_project */)
-    .register(/* project_management_update_project */)
+    .register(/* project_management_list_inventory_orders */)
+    .register(/* project_management_get_inventory_order */)
+    .register(/* project_management_create_inventory_order */)
+    .register(/* project_management_update_inventory_order */)
+    .register(/* project_management_list_bills */)
+    .register(/* project_management_get_bill */)
+    .register(/* project_management_create_bill */)
+    .register(/* project_management_update_bill */)
+    .register(/* project_management_list_invoices */)
+    .register(/* project_management_get_invoice */)
+    .register(/* project_management_create_invoice */)
+    .register(/* project_management_update_invoice */)
+    .register(/* project_management_list_adjustments */)
+    .register(/* project_management_get_adjustment */)
+    .register(/* project_management_create_adjustment */)
+    .register(/* project_management_update_adjustment */)
+    .register(/* project_management_list_assembly_orders */)
     .register(/* project_management_list_payment_requests */)
     .register(/* project_management_update_payment_request */)
     .register(/* project_management_list_vendors */)
@@ -562,24 +445,23 @@ Clients will continue using the same MCP server and will see the new tools in `t
 Add focused tests for:
 
 - Tool registration exposes all initial project-management tools.
-- `project_management_list_projects` maps filters to query params.
-- `project_management_get_project` maps `project_id` to `{orderId}`.
-- `project_management_create_project` sends the expected POST body.
-- `project_management_update_project` sends the expected sparse PUT body.
+- Type-specific list tools map filters to query params.
+- Type-specific get tools map document IDs to concrete NeonPanel endpoints.
+- Type-specific create tools send the expected POST body.
+- Type-specific update tools send the expected sparse PUT body.
 - `project_management_list_payment_requests` maps `start_date` and `end_date` filters correctly.
 - `project_management_update_payment_request` sends only payment fields.
 - `project_management_record_payment` requires `paid_amount` and `payment_date` and sends optional memo/reference fields.
-- Unsupported `project_type` fails with a clear validation error.
 - Delete is not exposed for Inventory Orders or Bills until DELETE endpoints exist.
 
 Manual smoke-test order:
 
 1. Register tools and build the project.
 2. Inspect `tools/list` to confirm schemas and consequential flags.
-3. Run `project_management_list_projects` against a known company.
-4. Run `project_management_get_project` for a known Inventory Order.
+3. Run `project_management_list_inventory_orders` against a known company.
+4. Run `project_management_get_inventory_order` for a known Inventory Order.
 5. Run `project_management_list_payment_requests` for a known company/date range.
-6. Only then test `project_management_update_project`, `project_management_update_payment_request`, or `project_management_record_payment` on a safe record.
+6. Only then test type-specific update tools, `project_management_update_payment_request`, or `project_management_record_payment` on a safe record.
 
 ## Rollout Sequence
 

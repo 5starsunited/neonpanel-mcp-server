@@ -4,19 +4,31 @@ import type { ToolRegistry } from '../types';
 import { resolveCompanyUuid } from '../neonpanel-common';
 import { projectAdapters } from './adapters';
 import {
-  createProjectInputSchema,
-  getProjectInputSchema,
+  createAdjustmentInputSchema,
+  createBillInputSchema,
+  createInventoryOrderInputSchema,
+  createInvoiceInputSchema,
+  getAdjustmentInputSchema,
+  getBillInputSchema,
+  getInventoryOrderInputSchema,
+  getInvoiceInputSchema,
+  listAdjustmentsInputSchema,
+  listAssemblyOrdersInputSchema,
+  listBillsInputSchema,
   listInvoicesInputSchema,
+  listInventoryOrdersInputSchema,
   listPaymentRequestsInputSchema,
   listPaymentTermsInputSchema,
-  listProjectsInputSchema,
   listServicesInputSchema,
   listShipmentsInputSchema,
   listVendorsInputSchema,
   passthroughOutputSchema,
   recordPaymentInputSchema,
+  updateAdjustmentInputSchema,
+  updateBillInputSchema,
+  updateInventoryOrderInputSchema,
+  updateInvoiceInputSchema,
   updatePaymentRequestInputSchema,
-  updateProjectInputSchema,
 } from './schemas';
 
 function getProjectAdapter(projectType: ProjectType | undefined) {
@@ -25,14 +37,14 @@ function getProjectAdapter(projectType: ProjectType | undefined) {
 
 function requireProjectPath(pathFactory: ((companyUuid: string, projectId: number) => string) | undefined, projectType: ProjectType | undefined, action: string) {
   if (!pathFactory) {
-    throw new Error(`project_type ${projectType ?? 'inventory_order'} does not support ${action}`);
+    throw new Error(`project document type ${projectType ?? 'inventory_order'} does not support ${action}`);
   }
   return pathFactory;
 }
 
 function requireProjectCollectionPath(pathFactory: ((companyUuid: string) => string) | undefined, projectType: ProjectType | undefined, action: string) {
   if (!pathFactory) {
-    throw new Error(`project_type ${projectType ?? 'inventory_order'} does not support ${action}`);
+    throw new Error(`project document type ${projectType ?? 'inventory_order'} does not support ${action}`);
   }
   return pathFactory;
 }
@@ -71,7 +83,7 @@ const companyIdentifierJsonSchema = {
 
 const inventoryOrderProjectJsonSchema = {
   type: 'object',
-  description: 'Inventory Order / Purchase Order payload. Use when project_type is inventory_order or omitted.',
+  description: 'Inventory Order / Purchase Order payload.',
   properties: {
     name: { type: ['string', 'null'], description: 'Free-text display name for the order.' },
     ref_number: { type: 'string', description: 'Human-readable PO reference.' },
@@ -102,7 +114,7 @@ const inventoryOrderProjectJsonSchema = {
 
 const billProjectJsonSchema = {
   type: 'object',
-  description: 'Bill payload. Use when project_type is bill.',
+  description: 'Bill payload.',
   properties: {
     name: { type: ['string', 'null'], description: 'Free-text display name for the bill.' },
     ref_number: { type: 'string', description: 'Human-readable bill reference.' },
@@ -144,7 +156,7 @@ const billProjectJsonSchema = {
 
 const invoiceProjectJsonSchema = {
   type: 'object',
-  description: 'Manual invoice payload. Use when project_type is invoice. Only manual invoices can be updated via the API.',
+  description: 'Manual invoice payload. Only manual invoices can be updated via the API.',
   properties: {
     name: { type: ['string', 'null'], description: 'Free-text display name for the invoice.' },
     ref_number: { type: 'string', description: 'Human-readable invoice reference. Accepted on create only by NeonPanel.' },
@@ -175,7 +187,7 @@ const invoiceProjectJsonSchema = {
 
 const adjustmentProjectJsonSchema = {
   type: 'object',
-  description: 'Inventory adjustment payload. Use when project_type is adjustment.',
+  description: 'Inventory adjustment payload.',
   properties: {
     name: { type: ['string', 'null'], description: 'Free-text display name for the adjustment.' },
     ref_number: { type: 'string', description: 'Human-readable adjustment reference. Accepted on create only by NeonPanel.' },
@@ -203,339 +215,549 @@ const adjustmentProjectJsonSchema = {
   additionalProperties: false,
 };
 
-const projectInputJsonSchemaProperties = {
-  ...companyIdentifierJsonSchema,
-  project_type: {
-    type: 'string',
-    enum: ['inventory_order', 'bill', 'invoice', 'adjustment'],
-    default: 'inventory_order',
-    description: 'Project/document type. assembly_order is list-only in the current NeonPanel API and is not accepted for create/update.',
-  },
-  project: {
-    oneOf: [inventoryOrderProjectJsonSchema, billProjectJsonSchema, invoiceProjectJsonSchema, adjustmentProjectJsonSchema],
-    description: 'Project payload. Use the shape matching project_type. assembly_order has no create/update payload because it is list-only.',
-  },
-};
+function projectInputJsonSchema(projectJsonSchema: { properties: Record<string, unknown> }, idProperty?: [string, string]) {
+  const idProperties = idProperty
+    ? {
+        [idProperty[0]]: {
+          type: 'integer',
+          minimum: 1,
+          description: idProperty[1],
+        },
+      }
+    : {};
 
-const createProjectInputJsonSchema = {
-  type: 'object',
-  properties: projectInputJsonSchemaProperties,
-  required: ['project'],
-  additionalProperties: false,
-};
-
-const updateProjectInputJsonSchema = {
-  type: 'object',
-  properties: {
-    ...projectInputJsonSchemaProperties,
-    project_id: {
-      type: 'integer',
-      minimum: 1,
-      description: 'Document ID matching project_type: inventory order, bill, invoice, or adjustment.',
+  return {
+    type: 'object',
+    properties: {
+      ...companyIdentifierJsonSchema,
+      ...idProperties,
+      ...projectJsonSchema.properties,
     },
-  },
-  required: ['project_id', 'project'],
-  additionalProperties: false,
+    required: idProperty ? [idProperty[0]] : [],
+    additionalProperties: false,
+  };
+}
+
+const createInventoryOrderInputJsonSchema = projectInputJsonSchema(inventoryOrderProjectJsonSchema);
+const updateInventoryOrderInputJsonSchema = projectInputJsonSchema(inventoryOrderProjectJsonSchema, ['inventory_order_id', 'Inventory Order / Purchase Order ID.']);
+const createBillInputJsonSchema = projectInputJsonSchema(billProjectJsonSchema);
+const updateBillInputJsonSchema = projectInputJsonSchema(billProjectJsonSchema, ['bill_id', 'Bill ID.']);
+const createInvoiceInputJsonSchema = projectInputJsonSchema(invoiceProjectJsonSchema);
+const updateInvoiceInputJsonSchema = projectInputJsonSchema(invoiceProjectJsonSchema, ['invoice_id', 'Manual invoice ID.']);
+const createAdjustmentInputJsonSchema = projectInputJsonSchema(adjustmentProjectJsonSchema);
+const updateAdjustmentInputJsonSchema = projectInputJsonSchema(adjustmentProjectJsonSchema, ['adjustment_id', 'Inventory adjustment ID.']);
+
+type CompanyScopedArgs = { company_id?: number; companyUuid?: string };
+type ProjectListArgs = CompanyScopedArgs & {
+  search?: string;
+  warehouses?: number[];
+  vendors?: number[];
+  start_date?: string;
+  end_date?: string;
 };
+
+function projectBodyFromArgs(args: Record<string, unknown>, idProperty?: string) {
+  const body = { ...args };
+  delete body.company_id;
+  delete body.companyUuid;
+  if (idProperty) delete body[idProperty];
+  return body;
+}
+
+function projectListQuery(args: ProjectListArgs) {
+  return {
+    search: args.search,
+    warehouses: args.warehouses,
+    vendors: args.vendors,
+    start_date: args.start_date,
+    end_date: args.end_date,
+  };
+}
+
+async function listProjectRecords(projectType: ProjectType, args: ProjectListArgs, token: string) {
+  const companyUuid = await resolveCompanyUuid(args, token);
+  const adapter = getProjectAdapter(projectType);
+  return neonPanelRequest({
+    token,
+    path: adapter.listPath(companyUuid),
+    query: projectListQuery(args),
+  });
+}
+
+async function getProjectRecord(projectType: ProjectType, args: CompanyScopedArgs, projectId: number, token: string) {
+  const companyUuid = await resolveCompanyUuid(args, token);
+  const adapter = getProjectAdapter(projectType);
+  const getPath = requireProjectPath(adapter.getPath, projectType, 'get');
+  return neonPanelRequest({
+    token,
+    path: getPath(companyUuid, projectId),
+  });
+}
+
+async function createProjectRecord(projectType: ProjectType, args: CompanyScopedArgs, body: Record<string, unknown>, token: string) {
+  const companyUuid = await resolveCompanyUuid(args, token);
+  const adapter = getProjectAdapter(projectType);
+  const createPath = requireProjectCollectionPath(adapter.createPath, projectType, 'create');
+  return neonPanelRequest({
+    token,
+    path: createPath(companyUuid),
+    method: 'POST',
+    body,
+  });
+}
+
+async function updateProjectRecord(projectType: ProjectType, args: CompanyScopedArgs, projectId: number, body: Record<string, unknown>, token: string) {
+  const companyUuid = await resolveCompanyUuid(args, token);
+  const adapter = getProjectAdapter(projectType);
+  const updatePath = requireProjectPath(adapter.updatePath, projectType, 'update');
+  const getPath = requireProjectPath(adapter.getPath, projectType, 'get');
+
+  if (projectType === 'bill') {
+    const documentGroups = groupBillDocumentsByType((body as BillProjectPayload).documents);
+    if (documentGroups.length > 1) {
+      const { documents: _documents, ...baseProject } = body as BillProjectPayload & Record<string, unknown>;
+
+      if (Object.keys(baseProject).length > 0) {
+        await neonPanelRequest({
+          token,
+          path: updatePath(companyUuid, projectId),
+          method: 'PUT',
+          body: baseProject,
+        });
+      }
+
+      for (const documents of documentGroups) {
+        await neonPanelRequest({
+          token,
+          path: updatePath(companyUuid, projectId),
+          method: 'PUT',
+          body: { documents },
+        });
+      }
+
+      return neonPanelRequest({
+        token,
+        path: getPath(companyUuid, projectId),
+      });
+    }
+  }
+
+  return neonPanelRequest({
+    token,
+    path: updatePath(companyUuid, projectId),
+    method: 'PUT',
+    body,
+  });
+}
 
 export function registerProjectManagementTools(registry: ToolRegistry) {
   registry
     .register({
-      name: 'project_management_list_projects',
-      description: 'List NeonPanel project/document records for a company. Supports project_type="inventory_order" / Purchase Orders, "bill" / Bills, "invoice" / manual invoices, "adjustment" / inventory adjustments, and "assembly_order" / assembly orders (list-only). Optional filters: search, warehouses where supported, vendors where supported, and date range (start_date, end_date). Use company_id when available; companyUuid is also accepted.',
+      name: 'project_management_list_inventory_orders',
+      description: 'List NeonPanel Inventory Orders / Purchase Orders for a company (NeonPanel: GET /api/v1/companies/{uuid}/inventory-orders). Optional filters: search, warehouses, vendors, and date range (start_date, end_date). Use company_id when available; companyUuid is also accepted.',
       isConsequential: false,
-      inputSchema: listProjectsInputSchema,
+      inputSchema: listInventoryOrdersInputSchema,
       outputSchema: passthroughOutputSchema,
       examples: [
         {
           name: 'List Inventory Orders',
           arguments: {
-            project_type: 'inventory_order',
             company_id: 230,
             search: 'PO-2024',
           },
         },
-        {
-          name: 'List Bills',
-          arguments: {
-            project_type: 'bill',
-            company_id: 230,
-            vendors: [7],
-          },
-        },
-        {
-          name: 'List Manual Invoices',
-          arguments: {
-            project_type: 'invoice',
-            company_id: 230,
-            start_date: '2026-05-01',
-            end_date: '2026-05-31',
-          },
-        },
-        {
-          name: 'List Adjustments',
-          arguments: {
-            project_type: 'adjustment',
-            company_id: 230,
-            search: 'Damaged',
-          },
-        },
-        {
-          name: 'List Assembly Orders',
-          arguments: {
-            project_type: 'assembly_order',
-            company_id: 230,
-          },
-        },
       ],
       execute: async (args, context) => {
-        const parsed = listProjectsInputSchema.parse(args);
-        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
-        const adapter = getProjectAdapter(parsed.project_type);
-        return neonPanelRequest({
-          token: context.userToken,
-          path: adapter.listPath(companyUuid),
-          query: {
-            search: parsed.search,
-            warehouses: parsed.warehouses,
-            vendors: parsed.vendors,
-            start_date: parsed.start_date,
-            end_date: parsed.end_date,
-          },
-        });
+        const parsed = listInventoryOrdersInputSchema.parse(args);
+        return listProjectRecords('inventory_order', parsed, context.userToken);
       },
     })
     .register({
-      name: 'project_management_get_project',
-      description: 'Get one NeonPanel project/document record by ID. Supports project_type="inventory_order" / Purchase Orders, "bill" / Bills, "invoice" / manual invoices, and "adjustment" / inventory adjustments. Assembly orders are currently list-only in the NeonPanel Documents API. Returns full project details including line items and related context when present.',
+      name: 'project_management_get_inventory_order',
+      description: 'Get one NeonPanel Inventory Order / Purchase Order by ID, including line items and related context when present.',
       isConsequential: false,
-      inputSchema: getProjectInputSchema,
+      inputSchema: getInventoryOrderInputSchema,
       outputSchema: passthroughOutputSchema,
       examples: [
         {
           name: 'Get Inventory Order',
           arguments: {
-            project_type: 'inventory_order',
             company_id: 230,
-            project_id: 42,
-          },
-        },
-        {
-          name: 'Get Bill',
-          arguments: {
-            project_type: 'bill',
-            company_id: 230,
-            project_id: 17,
-          },
-        },
-        {
-          name: 'Get Invoice',
-          arguments: {
-            project_type: 'invoice',
-            company_id: 230,
-            project_id: 17,
+            inventory_order_id: 42,
           },
         },
       ],
       execute: async (args, context) => {
-        const parsed = getProjectInputSchema.parse(args);
-        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
-        const adapter = getProjectAdapter(parsed.project_type);
-        const getPath = requireProjectPath(adapter.getPath, parsed.project_type, 'get');
-        return neonPanelRequest({
-          token: context.userToken,
-          path: getPath(companyUuid, parsed.project_id),
-        });
+        const parsed = getInventoryOrderInputSchema.parse(args);
+        return getProjectRecord('inventory_order', parsed, parsed.inventory_order_id, context.userToken);
       },
     })
     .register({
-      name: 'project_management_create_project',
-      description: 'Create a NeonPanel project/document record. Supports project_type="inventory_order" / Purchase Orders, "bill" / Bills, "invoice" / manual invoices, and "adjustment" / inventory adjustments. Assembly orders are currently list-only. Inventory order details use inventory_id, quantity, price. Bill details use service_id, quantity, rate; bills may link source documents with {type,id} for InventoryOrder, Shipment, or AssemblyOrder. Invoice details use inventory_id, service_id, quantity, amount. Adjustment details use inventory_id, service_id, quantity, rate. Payment request mutation is handled by direct payment request tools.',
+      name: 'project_management_create_inventory_order',
+      description: 'Create a NeonPanel Inventory Order / Purchase Order. Details use inventory_id, quantity, and price. payment_term_id may generate payment requests server-side.',
       isConsequential: true,
-      inputSchema: createProjectInputSchema,
+      inputSchema: createInventoryOrderInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
-        name: 'project_management_create_project',
-        description: 'Create a NeonPanel project/document record. Supports project_type="inventory_order" / Purchase Orders, "bill" / Bills, "invoice" / manual invoices, and "adjustment" / inventory adjustments. Assembly orders are currently list-only. Inventory order details use inventory_id, quantity, price. Bill details use service_id, quantity, rate; bills may link source documents with {type,id} for InventoryOrder, Shipment, or AssemblyOrder. Invoice details use inventory_id, service_id, quantity, amount. Adjustment details use inventory_id, service_id, quantity, rate. Payment request mutation is handled by direct payment request tools.',
+        name: 'project_management_create_inventory_order',
+        description: 'Create a NeonPanel Inventory Order / Purchase Order. Details use inventory_id, quantity, and price. payment_term_id may generate payment requests server-side.',
         isConsequential: true,
-        inputSchema: createProjectInputJsonSchema,
+        inputSchema: createInventoryOrderInputJsonSchema,
         outputSchema: passthroughOutputSchema,
       },
       examples: [
         {
           name: 'Create Inventory Order',
           arguments: {
-            project_type: 'inventory_order',
             company_id: 230,
-            project: {
-              ref_number: 'REF-0042',
-              date_order_placed: '2026-05-03',
-              market: 'US',
-              currency: 'USD',
-              vendor_id: 7,
-              warehouse_id: 3,
-              details: [{ inventory_id: 101, quantity: 50, price: 12.99 }],
-            },
-          },
-        },
-        {
-          name: 'Create Bill',
-          arguments: {
-            project_type: 'bill',
-            company_id: 230,
-            project: {
-              ref_number: 'REF-BILL-001',
-              date: '2026-05-03',
-              market: 'US',
-              currency: 'USD',
-              vendor_id: 7,
-              payment_term_id: 2,
-              documents: [{ type: 'InventoryOrder', id: 3690 }],
-              details: [{ service_id: 55, quantity: 3, rate: 250 }],
-            },
-          },
-        },
-        {
-          name: 'Create Manual Invoice',
-          arguments: {
-            project_type: 'invoice',
-            company_id: 230,
-            project: {
-              ref_number: 'REF-INV-001',
-              date: '2026-05-03',
-              market: 'US',
-              currency: 'USD',
-              warehouse_id: 3,
-              customer_id: 7,
-              sales_channel_id: 2,
-              details: [{ inventory_id: 101, service_id: 55, quantity: 5, amount: 125 }],
-            },
-          },
-        },
-        {
-          name: 'Create Adjustment',
-          arguments: {
-            project_type: 'adjustment',
-            company_id: 230,
-            project: {
-              ref_number: 'REF-ADJ-001',
-              date: '2026-05-03',
-              market: 'US',
-              currency: 'USD',
-              reason: 'Damaged',
-              warehouse_id: 3,
-              details: [{ inventory_id: 101, service_id: 55, quantity: 10, rate: 25 }],
-            },
+            ref_number: 'REF-0042',
+            date_order_placed: '2026-05-03',
+            market: 'US',
+            currency: 'USD',
+            vendor_id: 7,
+            warehouse_id: 3,
+            details: [{ inventory_id: 101, quantity: 50, price: 12.99 }],
           },
         },
       ],
       execute: async (args, context) => {
-        const parsed = createProjectInputSchema.parse(args);
-        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
-        const adapter = getProjectAdapter(parsed.project_type);
-        const createPath = requireProjectCollectionPath(adapter.createPath, parsed.project_type, 'create');
-        return neonPanelRequest({
-          token: context.userToken,
-          path: createPath(companyUuid),
-          method: 'POST',
-          body: parsed.project,
-        });
+        const parsed = createInventoryOrderInputSchema.parse(args);
+        return createProjectRecord('inventory_order', parsed, projectBodyFromArgs(parsed), context.userToken);
       },
     })
     .register({
-      name: 'project_management_update_project',
-      description: 'Sparse-update a NeonPanel project/document record. Supports project_type="inventory_order" / Purchase Orders, "bill" / Bills, "invoice" / manual invoices, and "adjustment" / inventory adjustments. Assembly orders are currently list-only. Only send project fields that should change. For bills, documents must be an array of {type,id} objects. Supported bill document types are InventoryOrder, Shipment, and AssemblyOrder. Mixed-type bill documents are automatically split into separate NeonPanel requests because the upstream API ignores mixed types in one request. Warning: details[] replaces existing line items when provided; payment_term_id may regenerate payment schedule server-side. Invoice updates only work for manual invoices. Use project_management_update_payment_request for payment request mutation.',
+      name: 'project_management_update_inventory_order',
+      description: 'Sparse-update a NeonPanel Inventory Order / Purchase Order. Only send fields that should change. Providing details replaces all existing line items.',
       isConsequential: true,
-      inputSchema: updateProjectInputSchema,
+      inputSchema: updateInventoryOrderInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
-        name: 'project_management_update_project',
-        description: 'Sparse-update a NeonPanel project/document record. Supports project_type="inventory_order" / Purchase Orders, "bill" / Bills, "invoice" / manual invoices, and "adjustment" / inventory adjustments. Assembly orders are currently list-only. Only send project fields that should change. For bills, documents must be an array of {type,id} objects. Supported bill document types are InventoryOrder, Shipment, and AssemblyOrder. Mixed-type bill documents are automatically split into separate NeonPanel requests because the upstream API ignores mixed types in one request. Warning: details[] replaces existing line items when provided; payment_term_id may regenerate payment schedule server-side. Invoice updates only work for manual invoices. Use project_management_update_payment_request for payment request mutation.',
+        name: 'project_management_update_inventory_order',
+        description: 'Sparse-update a NeonPanel Inventory Order / Purchase Order. Only send fields that should change. Providing details replaces all existing line items.',
         isConsequential: true,
-        inputSchema: updateProjectInputJsonSchema,
+        inputSchema: updateInventoryOrderInputJsonSchema,
         outputSchema: passthroughOutputSchema,
       },
       examples: [
         {
-          name: 'Update Inventory Order Memo-Free Fields',
+          name: 'Update Inventory Order Completion Date',
           arguments: {
-            project_type: 'inventory_order',
             company_id: 230,
-            project_id: 42,
-            project: {
-              date_manufacturing_completed: '2026-06-15',
-            },
-          },
-        },
-        {
-          name: 'Update Bill',
-          arguments: {
-            project_type: 'bill',
-            company_id: 230,
-            project_id: 17,
-            project: {
-              documents: [
-                { type: 'InventoryOrder', id: 3690 },
-                { type: 'Shipment', id: 812 },
-              ],
-            },
-          },
-        },
-        {
-          name: 'Update Adjustment Reason',
-          arguments: {
-            project_type: 'adjustment',
-            company_id: 230,
-            project_id: 17,
-            project: {
-              reason: 'Administrative Errors',
-            },
+            inventory_order_id: 42,
+            date_manufacturing_completed: '2026-06-15',
           },
         },
       ],
       execute: async (args, context) => {
-        const parsed = updateProjectInputSchema.parse(args);
-        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
-        const adapter = getProjectAdapter(parsed.project_type);
-        const updatePath = requireProjectPath(adapter.updatePath, parsed.project_type, 'update');
-        const getPath = requireProjectPath(adapter.getPath, parsed.project_type, 'get');
-
-        if (parsed.project_type === 'bill') {
-          const documentGroups = groupBillDocumentsByType((parsed.project as BillProjectPayload).documents);
-          if (documentGroups.length > 1) {
-            const { documents: _documents, ...baseProject } = parsed.project as BillProjectPayload & Record<string, unknown>;
-
-            if (Object.keys(baseProject).length > 0) {
-              await neonPanelRequest({
-                token: context.userToken,
-                path: updatePath(companyUuid, parsed.project_id),
-                method: 'PUT',
-                body: baseProject,
-              });
-            }
-
-            for (const documents of documentGroups) {
-              await neonPanelRequest({
-                token: context.userToken,
-                path: updatePath(companyUuid, parsed.project_id),
-                method: 'PUT',
-                body: { documents },
-              });
-            }
-
-            return neonPanelRequest({
-              token: context.userToken,
-              path: getPath(companyUuid, parsed.project_id),
-            });
-          }
-        }
-
-        return neonPanelRequest({
-          token: context.userToken,
-          path: updatePath(companyUuid, parsed.project_id),
-          method: 'PUT',
-          body: parsed.project,
-        });
+        const parsed = updateInventoryOrderInputSchema.parse(args);
+        return updateProjectRecord('inventory_order', parsed, parsed.inventory_order_id, projectBodyFromArgs(parsed, 'inventory_order_id'), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_list_bills',
+      description: 'List NeonPanel Bills for a company (NeonPanel: GET /api/v1/companies/{uuid}/bills). Optional filters: search, vendors, and date range (start_date, end_date). Use company_id when available; companyUuid is also accepted.',
+      isConsequential: false,
+      inputSchema: listBillsInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'List Bills',
+          arguments: {
+            company_id: 230,
+            vendors: [7],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = listBillsInputSchema.parse(args);
+        return listProjectRecords('bill', parsed, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_get_bill',
+      description: 'Get one NeonPanel Bill by ID, including line items, source documents, and payment context when present.',
+      isConsequential: false,
+      inputSchema: getBillInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Get Bill',
+          arguments: {
+            company_id: 230,
+            bill_id: 17,
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = getBillInputSchema.parse(args);
+        return getProjectRecord('bill', parsed, parsed.bill_id, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_create_bill',
+      description: 'Create a NeonPanel Bill. Details use service_id, quantity, and rate. Bills may link source documents with {type,id} for InventoryOrder, Shipment, or AssemblyOrder.',
+      isConsequential: true,
+      inputSchema: createBillInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_create_bill',
+        description: 'Create a NeonPanel Bill. Details use service_id, quantity, and rate. Bills may link source documents with {type,id} for InventoryOrder, Shipment, or AssemblyOrder.',
+        isConsequential: true,
+        inputSchema: createBillInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Create Bill',
+          arguments: {
+            company_id: 230,
+            ref_number: 'REF-BILL-001',
+            date: '2026-05-03',
+            market: 'US',
+            currency: 'USD',
+            vendor_id: 7,
+            payment_term_id: 2,
+            documents: [{ type: 'InventoryOrder', id: 3690 }],
+            details: [{ service_id: 55, quantity: 3, rate: 250 }],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = createBillInputSchema.parse(args);
+        return createProjectRecord('bill', parsed, projectBodyFromArgs(parsed), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_update_bill',
+      description: 'Sparse-update a NeonPanel Bill. Only send fields that should change. documents must be an array of {type,id} objects. Mixed document types are automatically split into separate NeonPanel requests because the upstream API ignores mixed types in one request. Providing details replaces all existing line items; payment_term_id may regenerate payment schedule server-side.',
+      isConsequential: true,
+      inputSchema: updateBillInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_update_bill',
+        description: 'Sparse-update a NeonPanel Bill. Only send fields that should change. documents must be an array of {type,id} objects. Mixed document types are automatically split into separate NeonPanel requests because the upstream API ignores mixed types in one request. Providing details replaces all existing line items; payment_term_id may regenerate payment schedule server-side.',
+        isConsequential: true,
+        inputSchema: updateBillInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Update Bill Source Documents',
+          arguments: {
+            company_id: 230,
+            bill_id: 17,
+            documents: [
+              { type: 'InventoryOrder', id: 3690 },
+              { type: 'Shipment', id: 812 },
+            ],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = updateBillInputSchema.parse(args);
+        return updateProjectRecord('bill', parsed, parsed.bill_id, projectBodyFromArgs(parsed, 'bill_id'), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_get_invoice',
+      description: 'Get one NeonPanel manual invoice by ID, including line items and related context when present.',
+      isConsequential: false,
+      inputSchema: getInvoiceInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Get Invoice',
+          arguments: {
+            company_id: 230,
+            invoice_id: 17,
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = getInvoiceInputSchema.parse(args);
+        return getProjectRecord('invoice', parsed, parsed.invoice_id, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_create_invoice',
+      description: 'Create a NeonPanel manual invoice. Details use inventory_id, service_id, quantity, and amount.',
+      isConsequential: true,
+      inputSchema: createInvoiceInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_create_invoice',
+        description: 'Create a NeonPanel manual invoice. Details use inventory_id, service_id, quantity, and amount.',
+        isConsequential: true,
+        inputSchema: createInvoiceInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Create Manual Invoice',
+          arguments: {
+            company_id: 230,
+            ref_number: 'REF-INV-001',
+            date: '2026-05-03',
+            market: 'US',
+            currency: 'USD',
+            warehouse_id: 3,
+            customer_id: 7,
+            sales_channel_id: 2,
+            details: [{ inventory_id: 101, service_id: 55, quantity: 5, amount: 125 }],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = createInvoiceInputSchema.parse(args);
+        return createProjectRecord('invoice', parsed, projectBodyFromArgs(parsed), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_update_invoice',
+      description: 'Sparse-update a NeonPanel manual invoice. Only manual invoices can be updated via the API. Providing details replaces all existing line items.',
+      isConsequential: true,
+      inputSchema: updateInvoiceInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_update_invoice',
+        description: 'Sparse-update a NeonPanel manual invoice. Only manual invoices can be updated via the API. Providing details replaces all existing line items.',
+        isConsequential: true,
+        inputSchema: updateInvoiceInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Update Invoice Date',
+          arguments: {
+            company_id: 230,
+            invoice_id: 17,
+            date: '2026-05-03',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = updateInvoiceInputSchema.parse(args);
+        return updateProjectRecord('invoice', parsed, parsed.invoice_id, projectBodyFromArgs(parsed, 'invoice_id'), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_list_adjustments',
+      description: 'List NeonPanel inventory adjustments for a company (NeonPanel: GET /api/v1/companies/{uuid}/adjustments). Optional filters: search, warehouses, and date range (start_date, end_date). Use company_id when available; companyUuid is also accepted.',
+      isConsequential: false,
+      inputSchema: listAdjustmentsInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'List Adjustments',
+          arguments: {
+            company_id: 230,
+            search: 'Damaged',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = listAdjustmentsInputSchema.parse(args);
+        return listProjectRecords('adjustment', parsed, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_get_adjustment',
+      description: 'Get one NeonPanel inventory adjustment by ID, including line items and related context when present.',
+      isConsequential: false,
+      inputSchema: getAdjustmentInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Get Adjustment',
+          arguments: {
+            company_id: 230,
+            adjustment_id: 88,
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = getAdjustmentInputSchema.parse(args);
+        return getProjectRecord('adjustment', parsed, parsed.adjustment_id, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_create_adjustment',
+      description: 'Create a NeonPanel inventory adjustment. Details use inventory_id, service_id, quantity, and rate. Positive quantity means stock removed; negative quantity means stock added.',
+      isConsequential: true,
+      inputSchema: createAdjustmentInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_create_adjustment',
+        description: 'Create a NeonPanel inventory adjustment. Details use inventory_id, service_id, quantity, and rate. Positive quantity means stock removed; negative quantity means stock added.',
+        isConsequential: true,
+        inputSchema: createAdjustmentInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Create Adjustment',
+          arguments: {
+            company_id: 230,
+            ref_number: 'REF-ADJ-001',
+            date: '2026-05-03',
+            market: 'US',
+            currency: 'USD',
+            reason: 'Damaged',
+            warehouse_id: 3,
+            details: [{ inventory_id: 101, service_id: 55, quantity: 10, rate: 25 }],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = createAdjustmentInputSchema.parse(args);
+        return createProjectRecord('adjustment', parsed, projectBodyFromArgs(parsed), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_update_adjustment',
+      description: 'Sparse-update a NeonPanel inventory adjustment. Only send fields that should change. Providing details replaces all existing line items.',
+      isConsequential: true,
+      inputSchema: updateAdjustmentInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_update_adjustment',
+        description: 'Sparse-update a NeonPanel inventory adjustment. Only send fields that should change. Providing details replaces all existing line items.',
+        isConsequential: true,
+        inputSchema: updateAdjustmentInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Update Adjustment Reason',
+          arguments: {
+            company_id: 230,
+            adjustment_id: 88,
+            reason: 'Administrative Errors',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = updateAdjustmentInputSchema.parse(args);
+        return updateProjectRecord('adjustment', parsed, parsed.adjustment_id, projectBodyFromArgs(parsed, 'adjustment_id'), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_list_assembly_orders',
+      description: 'List NeonPanel assembly orders for a company (NeonPanel: GET /api/v1/companies/{uuid}/assembly-orders). Assembly orders are currently list-only in the NeonPanel Documents API. Optional filters: search, warehouses, and date range (start_date, end_date).',
+      isConsequential: false,
+      inputSchema: listAssemblyOrdersInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'List Assembly Orders',
+          arguments: {
+            company_id: 230,
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = listAssemblyOrdersInputSchema.parse(args);
+        return listProjectRecords('assembly_order', parsed, context.userToken);
       },
     })
     .register({
