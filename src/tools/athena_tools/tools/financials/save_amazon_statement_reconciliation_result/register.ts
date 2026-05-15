@@ -126,6 +126,10 @@ const inputSchema = z
   .object({
     company_id: z.coerce.number().int().min(1),
     year: z.coerce.number().int().min(2020).max(2030),
+    reconciliation_source: z
+      .enum(['amazon_statement', 'financial_transactions'])
+      .default('amazon_statement')
+      .optional(),
     author: authorSchema.optional(),
     reason: z.string().min(3),
     dry_run: z.boolean().default(true).optional(),
@@ -240,6 +244,13 @@ export function registerFinancialsSaveAmazonStatementReconciliationResultTool(
       const dryRun = parsed.dry_run ?? true;
       const writeMode = parsed.write_mode ?? 'append';
       const debugSql = parsed.debug_sql === true;
+      const reconciliationSource = parsed.reconciliation_source ?? 'amazon_statement';
+
+      if (reconciliationSource === 'financial_transactions') {
+        warnings.push(
+          'reconciliation_source=financial_transactions: compare the uploaded payment/summary report against financials_analyze_financial_transactions output before saving.',
+        );
+      }
 
       // ── Author / user_id ───────────────────────────────────────────
       const author = parsed.author ?? { type: 'user' as const };
@@ -353,6 +364,7 @@ export function registerFinancialsSaveAmazonStatementReconciliationResultTool(
           items,
           meta: {
             warnings,
+            reconciliation_source: reconciliationSource,
             ...(debugSql ? { debug: { rendered_sql: renderedQuery } } : {}),
           },
         };
@@ -368,7 +380,7 @@ export function registerFinancialsSaveAmazonStatementReconciliationResultTool(
           written_summary: 0,
           written_details: 0,
           items,
-          meta: { warnings },
+          meta: { warnings, reconciliation_source: reconciliationSource },
         };
       }
 
@@ -497,6 +509,7 @@ export function registerFinancialsSaveAmazonStatementReconciliationResultTool(
         })),
         meta: {
           warnings,
+          reconciliation_source: reconciliationSource,
           ...(debugSql
             ? {
                 debug: {

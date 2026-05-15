@@ -1,6 +1,6 @@
 {
   "name": "financials_save_amazon_statement_reconciliation_result",
-  "description": "Persist reconciliation results comparing an uploaded Amazon payments report (PDF) against classified settlement data. Writes a summary row and detail rows to Iceberg tables. Consequential (writes data).\n\nUse cases:\n- Persist the outcome of a PDF-vs-settlement comparison\n- Record Match / Discrepancy / Unknown status per line item for audit\n- Store explanatory memos for discrepancies\n\nReconciliation workflow:\n1. User uploads a PDF payments report → LLM extracts dates, totals, and line items\n2. LLM calls financials_classify_amazon_statement_transactions to pull classified settlement data for the same period\n3. LLM compares the two and determines Match / Discrepancy / Unknown per line\n4. LLM calls THIS tool to persist the comparison\n5. Use financials_list_amazon_statement_reconciliation_results to retrieve and review saved results\n\nProTip: Use financials_list_amazon_statements to find settlement IDs and date ranges before calling financials_classify_amazon_statement_transactions.\n\nWhat gets written:\n- Summary row: overall totals (income, expenses, tax, transfers) + overall status\n- Detail rows: per-category breakdown (category, item_description, debit/credit, per-row status, optional memo)\n\nStatus values: 'Match' (amounts agree within tolerance), 'Discrepancy' (amounts differ), 'Unknown' (could not map to a classification).\n\nSafety / audit:\n- dry_run=true (default): validates and returns a preview without persisting — always dry-run first\n- write_mode='replace': deletes prior reconciliation for the same company_id + year before inserting\n- Every write records author, reason, and timestamp for auditability\n\nAuthor (important):\n- If author.type='ai', author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nPartitioning: Both tables are partitioned by (company_id, year). The year is the report period year.\n\nKnowledge base: https://help.neonpanel.com",
+  "description": "Persist reconciliation results comparing an uploaded Amazon payments report / summary report against an internal source. Writes a summary row and detail rows to Iceberg tables. Consequential (writes data).\n\nReconciliation sources:\n- amazon_statement (default): compare the payment/summary report against classified Amazon statement settlement data via financials_classify_amazon_statement_transactions.\n- financial_transactions: compare the payment/summary report against monthly financial transactions via financials_analyze_financial_transactions.\n\nUse cases:\n- Persist the outcome of a PDF/report-vs-internal-source comparison\n- Record Match / Discrepancy / Unknown status per line item for audit\n- Store explanatory memos for discrepancies\n\nDefault reconciliation workflow:\n1. User uploads a PDF payments report / summary report → LLM extracts dates, totals, and line items\n2. LLM calls financials_classify_amazon_statement_transactions to pull classified settlement data for the same period\n3. LLM compares the two and determines Match / Discrepancy / Unknown per line\n4. LLM calls THIS tool with reconciliation_source='amazon_statement' (or omit it; this is the default) to persist the comparison\n5. Use financials_list_amazon_statement_reconciliation_results to retrieve and review saved results\n\nFinancial transactions reconciliation workflow:\n1. User uploads a payment/summary report → LLM extracts company_id, report month/year, totals, and line items\n2. LLM calls financials_analyze_financial_transactions for the same company_id and report_month\n3. LLM compares report lines against summary_class/summary_subclass totals from financial transactions\n4. LLM calls THIS tool with reconciliation_source='financial_transactions' to persist the comparison\n\nProTip: For statement reconciliation, use financials_list_amazon_statements to find settlement IDs and date ranges before calling financials_classify_amazon_statement_transactions. For financial transactions reconciliation, use report_month values like '2026-04'.\n\nWhat gets written:\n- Summary row: overall totals (income, expenses, tax, transfers) + overall status\n- Detail rows: per-category breakdown (category, item_description, debit/credit, per-row status, optional memo)\n\nStatus values: 'Match' (amounts agree within tolerance), 'Discrepancy' (amounts differ), 'Unknown' (could not map to a classification).\n\nSafety / audit:\n- dry_run=true (default): validates and returns a preview without persisting — always dry-run first\n- write_mode='replace': deletes prior reconciliation for the same company_id + year before inserting\n- Every write records author, reason, and timestamp for auditability\n\nAuthor (important):\n- If author.type='ai', author.name MUST be provided. Ask the user what name to record for audit (e.g., their name or team).\n\nPartitioning: Both tables are partitioned by (company_id, year). The year is the report period year.\n\nKnowledge base: https://help.neonpanel.com",
   "isConsequential": true,
   "inputSchema": {
     "type": "object",
@@ -15,6 +15,12 @@
         "minimum": 2020,
         "maximum": 2030,
         "description": "Report year (e.g., 2025). Used for partitioning. Required."
+      },
+      "reconciliation_source": {
+        "type": "string",
+        "enum": ["amazon_statement", "financial_transactions"],
+        "default": "amazon_statement",
+        "description": "Internal source used for the comparison. Default 'amazon_statement' means payment/summary report vs classified Amazon statement settlement data. Use 'financial_transactions' when the uploaded report was compared against financials_analyze_financial_transactions output."
       },
       "author": {
         "type": "object",
@@ -147,7 +153,8 @@
       "meta": {
         "type": "object",
         "properties": {
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "reconciliation_source": { "type": "string", "enum": ["amazon_statement", "financial_transactions"] }
         },
         "additionalProperties": true
       }
@@ -162,6 +169,7 @@
       "request": {
         "company_id": 211,
         "year": 2025,
+        "reconciliation_source": "amazon_statement",
         "author": { "type": "ai", "name": "Kio" },
         "reason": "Monthly reconciliation of December 2025 Amazon payments report",
         "dry_run": true,
@@ -177,6 +185,30 @@
           { "category": "Income", "item_description": "Product Sales", "debit_amount": 0, "credit_amount": 125000.50, "status": "Match" },
           { "category": "Amazon Fees", "item_description": "Referral Fees", "debit_amount": 12500.00, "credit_amount": 0, "status": "Match" },
           { "category": "Amazon Fees", "item_description": "FBA Fees", "debit_amount": 6250.25, "credit_amount": 0, "status": "Discrepancy", "memo": "PDF shows 6200.00, settlement shows 6250.25 — possible late fee adjustment" }
+        ]
+      }
+    },
+    {
+      "title": "Dry-run financial transactions reconciliation",
+      "description": "Persist a comparison after using financials_analyze_financial_transactions for the matching report month.",
+      "request": {
+        "company_id": 103,
+        "year": 2026,
+        "reconciliation_source": "financial_transactions",
+        "author": { "type": "ai", "name": "Kio" },
+        "reason": "April 2026 summary report reconciliation against financial transactions",
+        "dry_run": true,
+        "summary": {
+          "legal_name": "Example Corp AB",
+          "total_income": 125000.50,
+          "total_expenses": -18750.25,
+          "total_tax": -6250.10,
+          "total_transfers": 100000.15,
+          "status": "Match"
+        },
+        "details": [
+          { "category": "Income", "item_description": "FBA product sales", "debit_amount": 0, "credit_amount": 125000.50, "status": "Match" },
+          { "category": "Expenses", "item_description": "FBA transaction fees", "debit_amount": 6250.25, "credit_amount": 0, "status": "Match" }
         ]
       }
     },

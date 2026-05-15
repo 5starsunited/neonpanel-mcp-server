@@ -1,0 +1,157 @@
+{
+  "name": "financials_analyze_financial_transactions",
+  "description": "Analyzes Amazon monthly financial transactions from amazon_monthly_transactions_raw into the same summary_class / summary_subclass label set used by Amazon monthly payment summary reports.\n\nUse this tool when the user wants to reconcile an uploaded payment/summary report against financial_transactions instead of Amazon statement settlement data.\n\nWorkflow:\n1. Extract company_id and report_month from the uploaded summary/payment report\n2. Call THIS tool with filters.company_id and filters.report_months, e.g. ['2026-04']\n3. Compare the report's Income / Expenses / Tax / Transfers lines against summary_class + summary_subclass totals\n4. Persist the comparison with financials_save_amazon_statement_reconciliation_result using reconciliation_source='financial_transactions'\n\nOutput: One row per summary class/subclass, including zero rows for expected categories that have no source lines. debits are negative source amounts, credits are positive source amounts, net_amount is debits + credits, and line_count is the number of source lines contributing to the row.\n\nCommon report_month format: YYYY-MM (for example, '2026-04'). If report_months is omitted, the tool scans all months for the company, so provide report_months for reconciliation work.\n\nKnowledge base: https://help.neonpanel.com",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "filters": {
+        "type": "object",
+        "description": "Compatibility alias for query.filters. Prefer query.filters.",
+        "additionalProperties": true
+      },
+      "sort": {
+        "type": "object",
+        "description": "Compatibility alias for query.sort. Prefer query.sort.",
+        "additionalProperties": true
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "description": "Compatibility alias for query.limit. Prefer query.limit."
+      },
+      "query": {
+        "type": "object",
+        "description": "Query envelope for financial transactions reconciliation analysis.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for the query. company_id is required; report_months is strongly recommended for reconciliation.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "report_months": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}$"
+                },
+                "description": "Monthly financial transaction partitions to include, formatted YYYY-MM. Use one value for a monthly report, e.g. ['2026-04']."
+              },
+              "summary_classes": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional filter by summary class: Income, Expenses, Tax, Transfers. Case-insensitive exact match."
+              },
+              "summary_subclasses": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional substring filter by summary subclass, e.g. 'FBA transaction fees' or 'Product sales'. Case-insensitive."
+              }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ordering of results.",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "class_order",
+                  "subclass_order",
+                  "summary_class",
+                  "summary_subclass",
+                  "debits",
+                  "credits",
+                  "net_amount",
+                  "line_count"
+                ],
+                "default": "class_order",
+                "description": "Column to sort by. Default preserves the payment summary report order."
+              },
+              "direction": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "default": "asc",
+                "description": "Sort direction. Default: asc."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 200,
+            "description": "Maximum rows to return (default 200, max 500)."
+          }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "class_order": { "type": "integer", "description": "Display order of the top-level summary class." },
+            "subclass_order": { "type": "integer", "description": "Display order within the summary class." },
+            "summary_class": { "type": "string", "description": "Summary class: Income, Expenses, Tax, or Transfers." },
+            "summary_subclass": { "type": "string", "description": "Summary report line label / subclass." },
+            "debits": { "type": "number", "description": "Sum of negative source amounts for this subclass." },
+            "credits": { "type": "number", "description": "Sum of positive source amounts for this subclass." },
+            "net_amount": { "type": "number", "description": "Net amount for this subclass (debits + credits)." },
+            "line_count": { "type": "integer", "description": "Number of source rows contributing to this subclass." }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"],
+    "additionalProperties": true
+  },
+  "examples": [
+    {
+      "title": "Analyze April 2026 financial transactions",
+      "description": "Summarize a single report month for reconciliation against an uploaded monthly summary report.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 103,
+            "report_months": ["2026-04"]
+          },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "Only fee lines",
+      "description": "Return only expense subclasses containing fee in the label.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 103,
+            "report_months": ["2026-04"],
+            "summary_classes": ["Expenses"],
+            "summary_subclasses": ["fee"]
+          },
+          "sort": { "field": "net_amount", "direction": "asc" },
+          "limit": 50
+        }
+      }
+    }
+  ]
+}
