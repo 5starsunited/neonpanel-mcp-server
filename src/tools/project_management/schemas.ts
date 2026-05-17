@@ -3,7 +3,7 @@ import { companyIdentifierSchema, hasCompanyIdentifier } from '../neonpanel-comm
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
 
-export const projectTypeSchema = z.enum(['inventory_order', 'bill', 'invoice', 'adjustment', 'assembly_order']);
+export const projectTypeSchema = z.enum(['inventory_order', 'bill', 'invoice', 'adjustment', 'shipment', 'assembly_order']);
 
 const companyScopedBaseSchema = z.object({
   ...companyIdentifierSchema,
@@ -52,6 +52,10 @@ export const getInvoiceInputSchema = companyScopedBaseSchema.extend({
 
 export const getAdjustmentInputSchema = companyScopedBaseSchema.extend({
   adjustment_id: z.coerce.number().int().min(1),
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const getShipmentInputSchema = companyScopedBaseSchema.extend({
+  shipment_id: z.coerce.number().int().min(1),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const inventoryOrderDetailInputSchema = z.object({
@@ -133,6 +137,26 @@ export const adjustmentPayloadSchema = z.object({
   details: z.array(adjustmentDetailInputSchema).nullable().optional(),
 });
 
+export const shipmentItemInputSchema = z.object({
+  origin_inventory_id: z.coerce.number().int().min(1),
+  quantity_shipped: z.coerce.number().int().min(1),
+  quantity_received: z.coerce.number().int().min(1),
+});
+
+export const shipmentPayloadSchema = z.object({
+  name: z.string().nullable().optional(),
+  ref_number: z.string().optional(),
+  date_shipment_sent: isoDateSchema.nullable().optional(),
+  date_shipment_arrived: isoDateSchema.nullable().optional(),
+  origin_market: z.string().length(2).nullable().optional(),
+  destination_market: z.string().length(2).nullable().optional(),
+  origin_warehouse_id: z.coerce.number().int().min(1).nullable().optional(),
+  destination_warehouse_id: z.coerce.number().int().min(1).nullable().optional(),
+  tracking_number: z.string().nullable().optional(),
+  shipment_method: z.enum(['LTL', 'FTL', 'SPD']).nullable().optional(),
+  items: z.array(shipmentItemInputSchema).nullable().optional(),
+});
+
 export const createInventoryOrderInputSchema = companyScopedBaseSchema.merge(inventoryOrderPayloadSchema)
   .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
@@ -143,6 +167,9 @@ export const createInvoiceInputSchema = companyScopedBaseSchema.merge(invoicePay
   .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const createAdjustmentInputSchema = companyScopedBaseSchema.merge(adjustmentPayloadSchema)
+  .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const createShipmentInputSchema = companyScopedBaseSchema.merge(shipmentPayloadSchema)
   .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const updateInventoryOrderInputSchema = companyScopedBaseSchema.extend({
@@ -160,6 +187,10 @@ export const updateInvoiceInputSchema = companyScopedBaseSchema.extend({
 export const updateAdjustmentInputSchema = companyScopedBaseSchema.extend({
   adjustment_id: z.coerce.number().int().min(1),
 }).merge(adjustmentPayloadSchema).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const updateShipmentInputSchema = companyScopedBaseSchema.extend({
+  shipment_id: z.coerce.number().int().min(1),
+}).merge(shipmentPayloadSchema).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const listPaymentRequestsInputSchema = companyScopedBaseSchema.extend({
   start_date: isoDateSchema.optional(),

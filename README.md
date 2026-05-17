@@ -57,6 +57,20 @@ Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validatio
 
 **Production:** https://mcp.neonpanel.com
 
+### NeonPanel API Schemas
+
+NeonPanel exposes multiple OpenAPI documents. The general GPT API schema is available from `https://my.neonpanel.com/api/v1/scheme/3.1.0`, while project/document routes such as Inventory Orders, Bills, Shipments, Invoices, Adjustments, Payment Requests, Vendors, Services, and Payment Terms are documented separately at:
+
+```bash
+curl -fsS 'https://my.neonpanel.com/api/v1/scheme/documents' -o /tmp/neonpanel-documents.yaml
+```
+
+Use the dedicated documents schema when checking project-management tools or refreshing [documents.yaml](documents.yaml):
+
+```bash
+grep -n 'shipments\|Shipment\|/companies/{companyUuid}/shipments' /tmp/neonpanel-documents.yaml | head -80
+```
+
 ## 📊 Athena (FBA Planning)
 
 The tool `amazon_supply_chain.fba_list_replenish_asap` runs an Athena query against the Glue Data Catalog.

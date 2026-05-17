@@ -8,10 +8,12 @@ import {
   createBillInputSchema,
   createInventoryOrderInputSchema,
   createInvoiceInputSchema,
+  createShipmentInputSchema,
   getAdjustmentInputSchema,
   getBillInputSchema,
   getInventoryOrderInputSchema,
   getInvoiceInputSchema,
+  getShipmentInputSchema,
   listAdjustmentsInputSchema,
   listAssemblyOrdersInputSchema,
   listBillsInputSchema,
@@ -29,6 +31,7 @@ import {
   updateInventoryOrderInputSchema,
   updateInvoiceInputSchema,
   updatePaymentRequestInputSchema,
+  updateShipmentInputSchema,
 } from './schemas';
 
 function getProjectAdapter(projectType: ProjectType | undefined) {
@@ -215,6 +218,38 @@ const adjustmentProjectJsonSchema = {
   additionalProperties: false,
 };
 
+const shipmentProjectJsonSchema = {
+  type: 'object',
+  description: 'Manual shipment payload. Only manual shipments without a linked external document can be updated via the API.',
+  properties: {
+    name: { type: ['string', 'null'], description: 'Free-text display name for the shipment.' },
+    ref_number: { type: 'string', description: 'Human-readable shipment reference. Accepted on create only by NeonPanel.' },
+    date_shipment_sent: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Date the shipment was dispatched (YYYY-MM-DD).' },
+    date_shipment_arrived: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Date the shipment arrived at its destination (YYYY-MM-DD).' },
+    origin_market: { type: ['string', 'null'], minLength: 2, maxLength: 2, description: 'ISO 3166-1 alpha-2 origin marketplace/country code.' },
+    destination_market: { type: ['string', 'null'], minLength: 2, maxLength: 2, description: 'ISO 3166-1 alpha-2 destination marketplace/country code.' },
+    origin_warehouse_id: { type: ['integer', 'null'], minimum: 1, description: 'Origin warehouse ID.' },
+    destination_warehouse_id: { type: ['integer', 'null'], minimum: 1, description: 'Destination warehouse ID.' },
+    tracking_number: { type: ['string', 'null'], description: 'Carrier tracking number.' },
+    shipment_method: { type: ['string', 'null'], enum: ['LTL', 'FTL', 'SPD', null], description: 'Shipping method.' },
+    items: {
+      type: ['array', 'null'],
+      description: 'Shipment line items. On update, providing items replaces all existing line items.',
+      items: {
+        type: 'object',
+        properties: {
+          origin_inventory_id: { type: 'integer', minimum: 1, description: 'Inventory record ID at the origin warehouse.' },
+          quantity_shipped: { type: 'integer', minimum: 1, description: 'Number of units dispatched.' },
+          quantity_received: { type: 'integer', minimum: 1, description: 'Number of units received.' },
+        },
+        required: ['origin_inventory_id', 'quantity_shipped', 'quantity_received'],
+        additionalProperties: false,
+      },
+    },
+  },
+  additionalProperties: false,
+};
+
 function projectInputJsonSchema(projectJsonSchema: { properties: Record<string, unknown> }, idProperty?: [string, string]) {
   const idProperties = idProperty
     ? {
@@ -246,6 +281,8 @@ const createInvoiceInputJsonSchema = projectInputJsonSchema(invoiceProjectJsonSc
 const updateInvoiceInputJsonSchema = projectInputJsonSchema(invoiceProjectJsonSchema, ['invoice_id', 'Manual invoice ID.']);
 const createAdjustmentInputJsonSchema = projectInputJsonSchema(adjustmentProjectJsonSchema);
 const updateAdjustmentInputJsonSchema = projectInputJsonSchema(adjustmentProjectJsonSchema, ['adjustment_id', 'Inventory adjustment ID.']);
+const createShipmentInputJsonSchema = projectInputJsonSchema(shipmentProjectJsonSchema);
+const updateShipmentInputJsonSchema = projectInputJsonSchema(shipmentProjectJsonSchema, ['shipment_id', 'Manual shipment ID.']);
 
 type CompanyScopedArgs = { company_id?: number; companyUuid?: string };
 type ProjectListArgs = CompanyScopedArgs & {
@@ -761,6 +798,110 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
       },
     })
     .register({
+      name: 'project_management_list_shipments',
+      description: 'List NeonPanel shipments for a company (NeonPanel: GET /api/v1/companies/{uuid}/shipments). Optional filters: search, warehouses, and date range (start_date filters arrived_at; end_date filters shipped_at).',
+      isConsequential: false,
+      inputSchema: listShipmentsInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'List May Shipments',
+          arguments: {
+            company_id: 230,
+            start_date: '2026-05-01',
+            end_date: '2026-05-31',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = listShipmentsInputSchema.parse(args);
+        return listProjectRecords('shipment', parsed, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_get_shipment',
+      description: 'Get one NeonPanel shipment by ID, including line items, origin/destination warehouses and marketplaces, and project task link when present.',
+      isConsequential: false,
+      inputSchema: getShipmentInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Get Shipment',
+          arguments: {
+            company_id: 230,
+            shipment_id: 11,
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = getShipmentInputSchema.parse(args);
+        return getProjectRecord('shipment', parsed, parsed.shipment_id, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_create_shipment',
+      description: 'Create a NeonPanel manual shipment. Items use origin_inventory_id, quantity_shipped, and quantity_received. A project task is created or retrieved server-side.',
+      isConsequential: true,
+      inputSchema: createShipmentInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_create_shipment',
+        description: 'Create a NeonPanel manual shipment. Items use origin_inventory_id, quantity_shipped, and quantity_received. A project task is created or retrieved server-side.',
+        isConsequential: true,
+        inputSchema: createShipmentInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Create Shipment',
+          arguments: {
+            company_id: 230,
+            ref_number: 'REF-SHP-001',
+            date_shipment_sent: '2026-05-03',
+            date_shipment_arrived: '2026-05-10',
+            origin_market: 'US',
+            destination_market: 'CA',
+            origin_warehouse_id: 2,
+            destination_warehouse_id: 5,
+            shipment_method: 'SPD',
+            items: [{ origin_inventory_id: 101, quantity_shipped: 50, quantity_received: 48 }],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = createShipmentInputSchema.parse(args);
+        return createProjectRecord('shipment', parsed, projectBodyFromArgs(parsed), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_update_shipment',
+      description: 'Sparse-update a NeonPanel manual shipment. Only manual shipments without a linked external document can be updated. Providing items replaces all existing line items.',
+      isConsequential: true,
+      inputSchema: updateShipmentInputSchema,
+      outputSchema: passthroughOutputSchema,
+      specJson: {
+        name: 'project_management_update_shipment',
+        description: 'Sparse-update a NeonPanel manual shipment. Only manual shipments without a linked external document can be updated. Providing items replaces all existing line items.',
+        isConsequential: true,
+        inputSchema: updateShipmentInputJsonSchema,
+        outputSchema: passthroughOutputSchema,
+      },
+      examples: [
+        {
+          name: 'Update Shipment Tracking',
+          arguments: {
+            company_id: 230,
+            shipment_id: 11,
+            tracking_number: '1Z999AA10123456784',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = updateShipmentInputSchema.parse(args);
+        return updateProjectRecord('shipment', parsed, parsed.shipment_id, projectBodyFromArgs(parsed, 'shipment_id'), context.userToken);
+      },
+    })
+    .register({
       name: 'project_management_list_payment_requests',
       description: 'List payment request installments for a company across document types such as Inventory Orders and Bills (NeonPanel: GET /api/v1/companies/{uuid}/payment-requests). Supports due-date range filters start_date and end_date. Returns payment request fields with parent document context.',
       isConsequential: false,
@@ -909,37 +1050,6 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
           path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/invoices`,
           query: {
             search: parsed.search,
-            start_date: parsed.start_date,
-            end_date: parsed.end_date,
-          },
-        });
-      },
-    })
-    .register({
-      name: 'project_management_list_shipments',
-      description: 'List shipments for a company (NeonPanel: GET /api/v1/companies/{uuid}/shipments). Supports optional search, warehouses, and date range filters start_date and end_date.',
-      isConsequential: false,
-      inputSchema: listShipmentsInputSchema,
-      outputSchema: passthroughOutputSchema,
-      examples: [
-        {
-          name: 'List May Shipments',
-          arguments: {
-            company_id: 230,
-            start_date: '2026-05-01',
-            end_date: '2026-05-31',
-          },
-        },
-      ],
-      execute: async (args, context) => {
-        const parsed = listShipmentsInputSchema.parse(args);
-        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
-        return neonPanelRequest({
-          token: context.userToken,
-          path: `/api/v1/companies/${encodeURIComponent(companyUuid)}/shipments`,
-          query: {
-            search: parsed.search,
-            warehouses: parsed.warehouses,
             start_date: parsed.start_date,
             end_date: parsed.end_date,
           },
