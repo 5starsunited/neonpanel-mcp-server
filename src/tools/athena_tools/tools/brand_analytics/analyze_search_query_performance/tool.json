@@ -273,6 +273,26 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "intent",
+                    "company",
+                    "marketplace",
+                    "brand",
+                    "parent_asin",
+                    "asin",
+                    "product_family",
+                    "search_term",
+                    "week",
+                    "month"
+                  ]
+                },
+                "description": "Up to 3 dimensions to group by. When provided, the response returns aggregated rows in `aggregations` (with weighted KPIs) instead of per-row `items`."
               }
             },
             "additionalProperties": false
@@ -749,6 +769,18 @@
           },
           "additionalProperties": true
         }
+      },
+      "aggregations": {
+        "type": "array",
+        "description": "Present when aggregation.group_by is provided. Each row is one (dim1, dim2, ...) bucket with weighted KPIs and sample-size counts. When this is non-empty, `items` is an empty array.",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "additionalProperties": true
       }
     },
     "required": [

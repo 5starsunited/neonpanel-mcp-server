@@ -8,7 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { intentTermsFilterClauseSql } from '../_intent_common';
+import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -82,6 +82,23 @@ const querySchema = z
             periods_back: z.coerce.number().int().min(1).max(52).optional(),
           })
           .optional(),
+        group_by: z
+          .array(
+            z.enum([
+              'intent',
+              'company',
+              'marketplace',
+              'brand',
+              'parent_asin',
+              'asin',
+              'product_family',
+              'search_term',
+              'week',
+              'month',
+            ]),
+          )
+          .max(3)
+          .optional(),
       })
       .optional(),
     sort: z
@@ -107,6 +124,7 @@ const inputSchema = z
 export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
+  const sqlGroupedPath = path.join(__dirname, 'query_grouped.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -198,6 +216,77 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
       const limitTopN = query.limit ?? 50;
       const selectFields = query.select_fields;
       const rygCompanyId = query.ryg_company_id ?? allowedCompanyIds[0];
+
+      const groupByDims = query.aggregation?.group_by ?? [];
+      const isGrouped = groupByDims.length > 0;
+
+      // ─── Grouped aggregation path ──────────────────────────────────────────
+      if (isGrouped) {
+        const dimMap: Record<string, { select: string; group: string }> = {
+          intent:          { select: 'w.primary_intent_id AS intent_id, w.primary_intent_label AS intent_label', group: 'w.primary_intent_id, w.primary_intent_label' },
+          company:         { select: 'w.company_id AS company_id, MAX(w.company) AS company',                    group: 'w.company_id' },
+          marketplace:     { select: 'w.marketplace_country_code AS marketplace',                                group: 'w.marketplace_country_code' },
+          brand:           { select: 'w.brand AS brand',                                                          group: 'w.brand' },
+          parent_asin:     { select: 'w.parent_asin AS parent_asin',                                              group: 'w.parent_asin' },
+          asin:            { select: 'w.asin AS asin',                                                            group: 'w.asin' },
+          product_family:  { select: 'w.product_family AS product_family',                                        group: 'w.product_family' },
+          search_term:     { select: 'w.searchquerydata_searchquery AS search_term',                              group: 'w.searchquerydata_searchquery' },
+          week:            { select: "date_trunc('week', w.week_start) AS week",                                  group: "date_trunc('week', w.week_start)" },
+          month:           { select: "date_trunc('month', w.week_start) AS month",                                group: "date_trunc('month', w.week_start)" },
+        };
+        const selects: string[] = [];
+        const groups: string[] = [];
+        for (const dim of groupByDims) {
+          const m = dimMap[dim];
+          if (!m) {
+            throw new Error(`Unsupported group_by dimension: ${dim}`);
+          }
+          selects.push(m.select);
+          groups.push(m.group);
+        }
+
+        const groupedTemplate = await loadTextFile(sqlGroupedPath);
+        const renderedGrouped = renderSqlTemplate(groupedTemplate, {
+          catalog,
+          limit_top_n: Number(limitTopN),
+          start_date_sql: sqlDateExpr(time?.start_date),
+          end_date_sql: sqlDateExpr(time?.end_date),
+          periods_back: Number(periodsBack),
+          company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
+          marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+          search_terms_array: sqlVarcharArrayExpr(searchTerms),
+          term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+          intent_terms_filter_sql: intentTermsFilterClauseSql(
+            catalog,
+            allowedCompanyIds,
+            intentIds,
+            'r.searchquerydata_searchquery',
+          ),
+          parent_asins_array: sqlVarcharArrayExpr(parentAsins),
+          asins_array: sqlVarcharArrayExpr(asins),
+          product_families_array: sqlVarcharArrayExpr(productFamilies),
+          row_types_array: sqlVarcharArrayExpr(rowTypes),
+          revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
+          pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+          group_by_select_clause: selects.join(',\n        '),
+          group_by_clause: groups.join(', '),
+        });
+
+        const athenaGrouped = await runAthenaQuery({
+          query: renderedGrouped,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: limitTopN,
+        });
+
+        const aggregations = athenaGrouped.rows ?? [];
+        return {
+          items: [],
+          aggregations,
+          meta: { group_by: groupByDims, row_count: aggregations.length },
+        };
+      }
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
