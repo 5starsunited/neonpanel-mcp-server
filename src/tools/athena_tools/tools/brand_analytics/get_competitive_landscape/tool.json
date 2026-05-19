@@ -145,7 +145,10 @@
                 "weak_leader_analysis",
                 "share_gaps",
                 "seller_central_query_detail_url",
-                "data_enrichment_hint"
+                "data_enrichment_hint",
+                "intent_ids",
+                "primary_intent_id",
+                "primary_intent_label"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum."
@@ -397,6 +400,19 @@
             "data_enrichment_hint": {
               "type": "string",
               "description": "Instructions for the user on how to get additional competitive data from Seller Central that Amazon does not provide via API."
+            },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All distinct intent_id slugs mapped to this search_term across the queried companies."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Highest-confidence intent_id slug for this search_term."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable label of the primary intent."
             }
           },
           "additionalProperties": true

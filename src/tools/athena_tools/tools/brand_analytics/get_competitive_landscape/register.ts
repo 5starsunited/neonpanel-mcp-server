@@ -8,7 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { intentTermsFilterClauseSql } from '../_intent_common';
+import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -191,6 +191,7 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
+        term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
         periodicity_sql: sqlStringLiteral(periodicity),
         periods_back: Number(periodsBack),
         start_date_sql: sqlDateExpr(time?.start_date),

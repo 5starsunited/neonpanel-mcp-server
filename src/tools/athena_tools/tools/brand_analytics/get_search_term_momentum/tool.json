@@ -260,7 +260,10 @@
                 "is_weak_leader",
                 "leader_conversion_share",
                 "displacement_opportunity_score",
-                "click_share_to_leader"
+                "click_share_to_leader",
+                "intent_ids",
+                "primary_intent_id",
+                "primary_intent_label"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. If omitted, returns all columns. IMPORTANT: Use exact field names from the enum."
@@ -619,6 +622,19 @@
                 "null"
               ],
               "description": "Gap between your click share and the leader's. Negative = you trail. Null if you are the leader or not in top 3."
+            },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All distinct intent_id slugs mapped to this search_term for the row's company."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Highest-confidence intent_id slug for this search_term."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable label of the primary intent."
             }
           },
           "additionalProperties": true
