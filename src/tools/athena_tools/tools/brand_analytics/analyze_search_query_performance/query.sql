@@ -162,6 +162,7 @@ filtered AS (
     WHERE
         contains(p.company_ids_str, r.company_id)
         AND (cardinality(p.search_terms) = 0 OR any_match(p.search_terms, t -> lower(t) = lower(r.searchquerydata_searchquery)))
+        AND ({{intent_terms_filter_sql}})
         AND (
             cardinality(p.marketplaces) = 0
             OR any_match(

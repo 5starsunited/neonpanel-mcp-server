@@ -8,6 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
+import { intentTermsFilterClauseSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -50,6 +51,7 @@ const querySchema = z
       .object({
         company_ids: z.array(z.coerce.number().int().min(1)).min(1),
         search_terms: z.array(z.string()).min(1).max(100).optional(),
+        intent_ids: z.array(z.string().min(1).max(64)).optional(),
         competitor_asins: z.array(z.string()).optional(),
         my_asins: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
@@ -172,6 +174,7 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
 
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
+      const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const competitorAsins = (query.filters.competitor_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const myAsins = (query.filters.my_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const categories = (query.filters.category ?? []).map((c) => c.trim()).filter(Boolean);
@@ -194,6 +197,12 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
         end_date_sql: sqlDateExpr(time?.end_date),
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         search_terms_array: sqlVarcharArrayExpr(searchTerms),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          allowedCompanyIds,
+          intentIds,
+          'r.searchterm',
+        ),
         competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),
         my_asins_array: sqlVarcharArrayExpr(myAsins),
         marketplaces_array: sqlVarcharArrayExpr(marketplaces),

@@ -8,6 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
+import { intentTermsFilterClauseSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -50,6 +51,7 @@ const querySchema = z
       .object({
         company_ids: z.array(z.coerce.number().int().min(1)).min(1),
         search_terms: z.array(z.string()).optional(),
+        intent_ids: z.array(z.string().min(1).max(64)).optional(),
         parent_asins: z.array(z.string()).optional(),
         asins: z.array(z.string()).optional(),
         product_family: z.array(z.string()).optional(),
@@ -171,6 +173,7 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
 
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
+      const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const parentAsins = (query.filters.parent_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
       const productFamilies = (query.filters.product_family ?? []).map((f) => f.trim()).filter(Boolean);
@@ -207,6 +210,12 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
         marketplaces_array: sqlVarcharArrayExpr(marketplaces),
         search_terms_array: sqlVarcharArrayExpr(searchTerms),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          allowedCompanyIds,
+          intentIds,
+          'r.searchquerydata_searchquery',
+        ),
         parent_asins_array: sqlVarcharArrayExpr(parentAsins),
         asins_array: sqlVarcharArrayExpr(asins),
         product_families_array: sqlVarcharArrayExpr(productFamilies),

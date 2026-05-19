@@ -15,6 +15,7 @@ FROM "{{catalog}}"."brand_analytics_iceberg"."sqp_query_details_uploads"
 WHERE {{company_filter_sql}}
   AND {{marketplace_filter_sql}}
   AND {{keyword_filter_sql}}
+  AND ({{intent_terms_filter_sql}})
   AND {{uploaded_by_filter_sql}}
   AND {{period_overlap_filter_sql}}
 ORDER BY uploaded_at DESC

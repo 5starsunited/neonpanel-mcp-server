@@ -29,6 +29,11 @@
                 },
                 "description": "Optional: filter by search queries."
               },
+              "intent_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "description": "Optional: filter to search queries mapped to any of these intent_ids (via brand_analytics_iceberg.search_term_to_intent). Combined with `search_terms` as AND (intersection). Get available intent_ids from brand_analytics_list_user_intent_clusters."
+              },
               "parent_asins": {
                 "type": "array",
                 "items": {

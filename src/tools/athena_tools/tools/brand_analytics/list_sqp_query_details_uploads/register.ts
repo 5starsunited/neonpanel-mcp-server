@@ -6,12 +6,14 @@ import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { intentTermsFilterClauseSql } from '../_intent_common';
 
 const inputSchema = z
   .object({
     company_ids: z.array(z.coerce.number().int().min(1)).min(1),
     marketplaces: z.array(z.string().min(1).max(10)).optional(),
     keywords: z.array(z.string().min(1).max(200)).optional(),
+    intent_ids: z.array(z.string().min(1).max(64)).optional(),
     uploaded_by: z.array(z.string().min(1).max(200)).optional(),
     period_overlap_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     period_overlap_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -77,6 +79,12 @@ export function registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry: T
         company_filter_sql: companyFilterSql,
         marketplace_filter_sql: arrayInClause(parsed.marketplaces, 'marketplace'),
         keyword_filter_sql: arrayInClause(parsed.keywords, 'keyword', true),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          parsed.company_ids,
+          parsed.intent_ids,
+          'keyword',
+        ),
         uploaded_by_filter_sql: arrayInClause(parsed.uploaded_by, 'uploaded_by'),
         period_overlap_filter_sql: periodOverlapClause(
           parsed.period_overlap_start,

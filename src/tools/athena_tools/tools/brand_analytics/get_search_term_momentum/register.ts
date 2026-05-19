@@ -8,6 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
+import { intentTermsFilterClauseSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -54,6 +55,7 @@ const querySchema = z
       .object({
         company_ids: z.array(z.coerce.number().int().min(1)).min(1),
         search_terms: z.array(z.string()).optional(),
+        intent_ids: z.array(z.string().min(1).max(64)).optional(),
         asins: z.array(z.string()).optional(),
         competitor_asins: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
@@ -210,6 +212,7 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const database = 'brand_analytics_iceberg';
 
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
+      const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
       const competitorAsins = (query.filters.competitor_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
@@ -262,6 +265,12 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
         periods_back: Number(periodsBack),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
         search_terms_array: sqlVarcharArrayExpr(searchTerms),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          allowedCompanyIds,
+          intentIds,
+          's.search_term',
+        ),
         match_type_sql: sqlStringLiteral(matchType),
         asins_array: sqlVarcharArrayExpr(asins),
         competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),

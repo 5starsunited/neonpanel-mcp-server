@@ -6,6 +6,7 @@ import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { intentTermsFilterClauseSql } from '../_intent_common';
 
 const inputSchema = z
   .object({
@@ -16,6 +17,7 @@ const inputSchema = z
     product_family: z.array(z.string().min(1).max(200)).optional(),
     keywords: z.array(z.string().min(1).max(200)).optional(),
     intent: z.array(z.enum(['defend', 'attack', 'evaluate', 'branded'])).optional(),
+    intent_ids: z.array(z.string().min(1).max(64)).optional(),
     include_inactive: z.boolean().default(false).optional(),
     limit: z.coerce.number().int().min(1).max(1000).default(500).optional(),
   })
@@ -76,6 +78,12 @@ export function registerBrandAnalyticsListTrackedSearchTermsTool(registry: ToolR
         product_family_filter_sql: arrayInClause(parsed.product_family, 'product_family'),
         keyword_filter_sql: arrayInClause(parsed.keywords, 'keyword', true),
         intent_filter_sql: arrayInClause(parsed.intent, 'intent'),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          parsed.company_ids,
+          parsed.intent_ids,
+          'keyword',
+        ),
         active_filter_sql: parsed.include_inactive ? 'TRUE' : 'is_active = TRUE',
         limit_top_n: limitTopN,
       });

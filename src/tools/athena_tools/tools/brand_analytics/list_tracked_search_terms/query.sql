@@ -32,6 +32,7 @@ WITH ranked AS (
     AND ({{product_family_filter_sql}})
     AND ({{keyword_filter_sql}})
     AND ({{intent_filter_sql}})
+    AND ({{intent_terms_filter_sql}})
 )
 SELECT
   company_id,

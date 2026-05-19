@@ -8,6 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
+import { intentTermsFilterClauseSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -52,6 +53,7 @@ const querySchema = z
       .object({
         company_ids: z.array(z.coerce.number().int().min(1)).min(1),
         keywords: z.array(z.string()).optional(),
+        intent_ids: z.array(z.string().min(1).max(64)).optional(),
         asin: z.array(z.string()).optional(),
         brand: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
@@ -186,6 +188,7 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const database = 'sp_api_iceberg';
 
       const keywords = (query.filters.keywords ?? []).map((k) => k.trim()).filter(Boolean);
+      const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
       const brands = (query.filters.brand ?? []).map((b) => b.trim()).filter(Boolean);
@@ -224,6 +227,12 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
         periods_back: Number(periodsBack),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
         keywords_array: sqlVarcharArrayExpr(keywords),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          allowedCompanyIds,
+          intentIds,
+          'r.searchquerydata_searchquery',
+        ),
         match_type_sql: sqlStringLiteral(matchType),
         marketplaces_array: sqlVarcharArrayExpr(marketplaces),
         asins_array: sqlVarcharArrayExpr(asins),

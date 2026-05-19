@@ -41,6 +41,11 @@
         "items": { "type": "string", "enum": ["defend", "attack", "evaluate", "branded"] },
         "description": "Optional: filter by intent tag."
       },
+      "intent_ids": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": "Optional: filter to tracked keywords mapped to any of these user-intent-cluster ids (search_term_to_intent table). AND-combined with `keywords`. Distinct from `intent` (which is a static defend/attack/evaluate/branded tag). Get available intent_ids from brand_analytics_list_user_intent_clusters."
+      },
       "include_inactive": {
         "type": "boolean",
         "default": false,

@@ -67,6 +67,8 @@ base_filtered AS (
       )
     )
 
+    AND ({{intent_terms_filter_sql}})
+
     -- Optional marketplace
     AND (cardinality(p.marketplaces) = 0
          OR any_match(p.marketplaces,

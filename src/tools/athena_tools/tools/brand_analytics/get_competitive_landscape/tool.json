@@ -31,6 +31,11 @@
                 "maxItems": 100,
                 "description": "Keywords to research for competitor performance."
               },
+              "intent_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "description": "Optional: filter to search terms mapped to any of these intent_ids. AND-combined with `search_terms`. Get available intent_ids from brand_analytics_list_user_intent_clusters."
+              },
               "competitor_asins": {
                 "type": "array",
                 "items": {
