@@ -1,0 +1,49 @@
+{
+  "name": "brand_analytics_cluster_search_terms",
+  "description": "Prepares a batch of raw search terms for semantic intent clustering and opens an audit trail.\n\nWorkflow position: STEP 3 of the intent-clustering flow.\n  - Pipeline: brand_analytics_analyze_search_query_performance (STEP 1) → brand_analytics_list_user_intent_clusters with `search_terms` (STEP 2, coverage diff) → THIS TOOL on the uncovered terms (STEP 3) → agent LLM does the clustering (STEP 4) → brand_analytics_create_user_intent_cluster per proposed intent (STEP 5) → brand_analytics_list_user_intent_clusters to verify (STEP 6).\n  - This tool does NOT call an LLM. It returns clustering_instructions + response_schema for the calling MCP agent (Claude / ChatGPT) to follow. The agent then persists each proposed intent via brand_analytics_create_user_intent_cluster, passing back the clustering_run_id from this tool so the audit row can be finalized.\n\nInternals:\n  1. Authorize the company, generate a clustering_run_id (BIGINT), insert a pending row into brand_analytics_iceberg.intent_cluster_audit, return prepared payload + clustering_instructions.\n  2. Caller's LLM clusters the terms following clustering_instructions + response_schema.\n  3. Caller invokes brand_analytics_create_user_intent_cluster for each proposed intent with clustering_run_id and (on the first call only) llm_audit_payload describing the model + token usage.\n\nReturns the input echoed back as `prepared_terms` (de-duplicated, lower-cased, whitespace-trimmed) plus a target_cluster_count, a fixed `clustering_instructions` blob, and a `next_steps` hint.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "search_terms": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "minItems": 50,
+        "maxItems": 1000,
+        "description": "Raw Amazon search terms to cluster. 50..1000 items."
+      },
+      "product_category": {
+        "type": ["string", "null"],
+        "maxLength": 200,
+        "description": "Optional product-category hint (e.g. 'foot care', 'compression apparel') to help the agent name intents."
+      },
+      "target_cluster_count": {
+        "type": "integer",
+        "minimum": 3,
+        "maximum": 20,
+        "default": 9,
+        "description": "Approximate number of intent clusters the agent should produce."
+      }
+    },
+    "required": ["company_id", "search_terms"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "clustering_run_id": { "type": "integer" },
+      "company_id": { "type": "integer" },
+      "prepared_terms": { "type": "array", "items": { "type": "string" } },
+      "input_search_terms_count": { "type": "integer" },
+      "target_cluster_count": { "type": "integer" },
+      "product_category": { "type": ["string", "null"] },
+      "clustering_instructions": { "type": "string" },
+      "response_schema": { "type": "object", "additionalProperties": true },
+      "message": { "type": "string" },
+      "next_steps": { "type": "array", "items": { "type": "string" } },
+      "error": { "type": "string" }
+    },
+    "required": ["clustering_run_id"]
+  }
+}
