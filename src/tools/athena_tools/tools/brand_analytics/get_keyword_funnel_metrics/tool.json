@@ -131,6 +131,15 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "enum": ["intent", "company", "marketplace", "keyword", "week", "month"]
+                },
+                "description": "Optional. When non-empty, returns weighted aggregations bucketed by these dimensions (max 3) instead of per-row items. Brand shares = SUM(brand)/SUM(total); funnel rates use SUM/SUM weighting; search_query_score is volume-weighted."
               }
             },
             "additionalProperties": false
@@ -502,9 +511,26 @@
           "additionalProperties": true
         }
       },
+      "aggregations": {
+        "type": "array",
+        "description": "Populated when query.aggregation.group_by is non-empty. Each row contains the chosen group_by dimension columns plus weighted KPIs (brand shares, market/brand funnel rates, weighted_search_query_score) and sample-size counts (row_count, keyword_count, company_count, marketplace_count, week_count).",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
       "meta": {
         "type": "object",
         "properties": {
+          "group_by": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Echoes the requested group_by dimensions when grouped aggregation was used."
+          },
+          "row_count": {
+            "type": "integer",
+            "description": "Number of aggregation rows returned."
+          },
           "total_keywords_analyzed": {
             "type": "integer"
           },

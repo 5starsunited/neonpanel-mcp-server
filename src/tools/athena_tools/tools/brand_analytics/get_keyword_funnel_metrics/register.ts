@@ -72,6 +72,10 @@ const querySchema = z
             periods_back: z.coerce.number().int().min(1).max(52).default(4).optional(),
           })
           .optional(),
+        group_by: z
+          .array(z.enum(['intent', 'company', 'marketplace', 'keyword', 'week', 'month']))
+          .max(3)
+          .optional(),
       })
       .optional(),
     sort: z
@@ -121,6 +125,7 @@ const inputSchema = z
 export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
+  const sqlGroupedPath = path.join(__dirname, 'query_grouped.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -216,6 +221,72 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       const selectFields = query.select_fields;
       const sortField = SORTABLE_FIELDS.has(query.sort?.field ?? '') ? query.sort!.field! : 'search_query_volume';
       const sortDirection = query.sort?.direction ?? 'desc';
+
+      // ── Grouped aggregation path ──────────────────────────────────────────
+      const groupByDims = query.aggregation?.group_by ?? [];
+      const isGrouped = groupByDims.length > 0;
+      if (isGrouped) {
+        const dimMap: Record<string, { select: string; group: string }> = {
+          intent:      { select: 'w.primary_intent_id AS intent_id, w.primary_intent_label AS intent_label', group: 'w.primary_intent_id, w.primary_intent_label' },
+          company:     { select: 'w.company_id AS company_id',                  group: 'w.company_id' },
+          marketplace: { select: 'w.marketplace_country_code AS marketplace',   group: 'w.marketplace_country_code' },
+          keyword:     { select: 'w.keyword AS keyword',                        group: 'w.keyword' },
+          week:        { select: "date_trunc('week', w.week_start) AS week",   group: "date_trunc('week', w.week_start)" },
+          month:       { select: "date_trunc('month', w.week_start) AS month", group: "date_trunc('month', w.week_start)" },
+        };
+        const selects: string[] = [];
+        const groups: string[] = [];
+        for (const dim of groupByDims) {
+          const m = dimMap[dim];
+          if (!m) throw new Error(`Unsupported group_by dimension: ${dim}`);
+          selects.push(m.select);
+          groups.push(m.group);
+        }
+
+        const groupedTemplate = await loadTextFile(sqlGroupedPath);
+        const renderedGrouped = renderSqlTemplate(groupedTemplate, {
+          catalog,
+          term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+          limit_top_n: Number(limitTopN),
+          start_date_sql: sqlDateExpr(time?.start_date),
+          end_date_sql: sqlDateExpr(time?.end_date),
+          periods_back: Number(periodsBack),
+          company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
+          keywords_array: sqlVarcharArrayExpr(keywords),
+          intent_terms_filter_sql: intentTermsFilterClauseSql(
+            catalog,
+            allowedCompanyIds,
+            intentIds,
+            'r.searchquerydata_searchquery',
+          ),
+          match_type_sql: sqlStringLiteral(matchType),
+          marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+          asins_array: sqlVarcharArrayExpr(asins),
+          brands_array: sqlVarcharArrayExpr(brands),
+          product_families_array: sqlVarcharArrayExpr(productFamilies),
+          revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
+          pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+          min_search_frequency_rank: Number(minSfr),
+          min_impressions: Number(minImpressions),
+          group_by_select_clause: selects.join(',\n        '),
+          group_by_clause: groups.join(', '),
+        });
+
+        const athenaGrouped = await runAthenaQuery({
+          query: renderedGrouped,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: limitTopN,
+        });
+
+        const aggregations = athenaGrouped.rows ?? [];
+        return {
+          items: [],
+          aggregations,
+          meta: { group_by: groupByDims, row_count: aggregations.length },
+        };
+      }
 
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
