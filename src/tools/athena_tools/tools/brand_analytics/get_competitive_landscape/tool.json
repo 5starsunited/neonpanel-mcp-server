@@ -101,6 +101,21 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "intent",
+                    "marketplace",
+                    "category",
+                    "search_term"
+                  ]
+                },
+                "default": [],
+                "description": "Optional dimensions for portfolio rollup (max 3). When non-empty, the tool returns weighted competitive aggregates per bucket in the `aggregations` array instead of per-term `items`. Weighting uses 1/(1+search_frequency_rank) so popular keywords dominate."
               }
             },
             "additionalProperties": false
@@ -452,6 +467,14 @@
           }
         }
       },
+      "aggregations": {
+        "type": "array",
+        "description": "Present when `query.aggregation.group_by` is non-empty. Each entry is a portfolio rollup bucket with weighted competitive metrics.",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
       "meta": {
         "type": "object",
         "properties": {
@@ -464,6 +487,15 @@
             "items": {
               "type": "string"
             }
+          },
+          "group_by": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Echoes the requested grouping dimensions (only present in grouped mode)."
+          },
+          "row_count": {
+            "type": "integer",
+            "description": "Number of aggregation buckets returned (only present in grouped mode)."
           }
         },
         "additionalProperties": true

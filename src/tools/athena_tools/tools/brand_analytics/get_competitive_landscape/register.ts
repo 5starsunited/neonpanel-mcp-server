@@ -68,6 +68,10 @@ const querySchema = z
             periods_back: z.coerce.number().int().min(1).max(26).default(4).optional(),
           })
           .optional(),
+        group_by: z
+          .array(z.enum(['intent', 'marketplace', 'category', 'search_term']))
+          .max(3)
+          .optional(),
       })
       .optional(),
     sort: z
@@ -107,6 +111,7 @@ const inputSchema = z
 export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const sqlPath = path.join(__dirname, 'query.sql');
+  const sqlGroupedPath = path.join(__dirname, 'query_grouped.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -187,6 +192,66 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
       const weakLeaderMax = toolSpecific?.weak_leader_detection?.max_leader_conversion_share ?? 0.15;
       const weakLeaderMinRank = toolSpecific?.weak_leader_detection?.min_search_volume_rank ?? 50000;
       const weakLeaderRequireMine = toolSpecific?.weak_leader_detection?.require_my_presence ?? false;
+
+      // ── Grouped aggregation path ──────────────────────────────────────────
+      const groupByDims = query.aggregation?.group_by ?? [];
+      const isGrouped = groupByDims.length > 0;
+      if (isGrouped) {
+        const dimMap: Record<string, { select: string; group: string }> = {
+          intent:      { select: 'e.primary_intent_id AS intent_id',          group: 'e.primary_intent_id' },
+          marketplace: { select: 'e.marketplace AS marketplace',              group: 'e.marketplace' },
+          category:    { select: 'e.category AS category',                    group: 'e.category' },
+          search_term: { select: 'e.searchterm AS search_term',               group: 'e.searchterm' },
+        };
+        const selects: string[] = [];
+        const groups: string[] = [];
+        for (const dim of groupByDims) {
+          const m = dimMap[dim];
+          if (!m) throw new Error(`Unsupported group_by dimension: ${dim}`);
+          selects.push(m.select);
+          groups.push(m.group);
+        }
+
+        const groupedTemplate = await loadTextFile(sqlGroupedPath);
+        const renderedGrouped = renderSqlTemplate(groupedTemplate, {
+          catalog,
+          term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+          periodicity_sql: sqlStringLiteral(periodicity),
+          periods_back: Number(periodsBack),
+          start_date_sql: sqlDateExpr(time?.start_date),
+          end_date_sql: sqlDateExpr(time?.end_date),
+          company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
+          search_terms_array: sqlVarcharArrayExpr(searchTerms),
+          intent_terms_filter_sql: intentTermsFilterClauseSql(
+            catalog,
+            allowedCompanyIds,
+            intentIds,
+            'r.searchterm',
+          ),
+          competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),
+          my_asins_array: sqlVarcharArrayExpr(myAsins),
+          marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+          categories_array: sqlVarcharArrayExpr(categories),
+          limit_top_n: Number(query.limit ?? 100),
+          group_by_select_clause: selects.join(',\n    '),
+          group_by_clause: groups.join(', '),
+        });
+
+        const athenaGrouped = await runAthenaQuery({
+          query: renderedGrouped,
+          database,
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: query.limit ?? 100,
+        });
+
+        const aggregations = athenaGrouped.rows ?? [];
+        return {
+          items: [],
+          aggregations,
+          meta: { group_by: groupByDims, row_count: aggregations.length },
+        };
+      }
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
