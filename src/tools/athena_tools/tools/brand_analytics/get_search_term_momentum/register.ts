@@ -47,7 +47,7 @@ function sqlDateExpr(value?: string): string {
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
-const groupBySchema = z.enum(['search_term', 'marketplace', 'company', 'brand', 'product_family', 'category']);
+const groupBySchema = z.enum(['intent', 'search_term', 'marketplace', 'company', 'brand', 'product_family', 'category', 'asin']);
 
 const querySchema = z
   .object({
@@ -120,12 +120,14 @@ const inputSchema = z
 type DimensionConfig = { expression: string; alias: string };
 
 const dimensionMap: Record<GroupByField, DimensionConfig> = {
+  intent: { expression: "COALESCE(aw.primary_intent_id, '__UNCLASSIFIED__')", alias: 'primary_intent_id' },
   search_term: { expression: 'aw.search_term', alias: 'search_term' },
   marketplace: { expression: 'aw.marketplace', alias: 'marketplace' },
   company: { expression: 'aw.company_id', alias: 'company_id' },
   brand: { expression: "COALESCE(aw.my_brand, '__UNKNOWN__')", alias: 'my_brand' },
   product_family: { expression: "COALESCE(aw.product_family, '__UNKNOWN__')", alias: 'product_family' },
   category: { expression: "COALESCE(aw.category, '__UNKNOWN__')", alias: 'category' },
+  asin: { expression: 'aw.asin', alias: 'asin' },
 };
 
 function buildDimensionClauses(groupBy: GroupByField[]) {

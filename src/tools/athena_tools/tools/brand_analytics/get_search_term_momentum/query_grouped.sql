@@ -162,8 +162,13 @@ asin_weekly AS (
     MAX(e.rank_3_itemname) AS rank_3_itemname,
     MAX(e.rank_3_department) AS rank_3_department,
     MAX(e.rank_3_clickshare) AS rank_3_clickshare,
-    MAX(e.rank_3_conversionshare) AS rank_3_conversionshare
+    MAX(e.rank_3_conversionshare) AS rank_3_conversionshare,
+    MAX(ti.primary_intent_id)    AS primary_intent_id,
+    MAX(ti.primary_intent_label) AS primary_intent_label
   FROM expanded e
+  LEFT JOIN term_intents ti
+    ON ti.company_id = e.company_id
+   AND ti.term_norm  = lower(e.search_term)
   GROUP BY
     e.company_id,
     e.marketplace_country_code,
@@ -179,6 +184,7 @@ weekly_grouped AS (
     date_add('day', 6, aw.week_start) AS period_end,
     MAX(aw.currency) AS currency,
     MAX(aw.company_name) AS company_name,
+    MAX(aw.primary_intent_label) AS primary_intent_label,
     COUNT(DISTINCT aw.company_id) AS company_count,
     COUNT(DISTINCT aw.marketplace) AS marketplace_count,
     MAX(aw.search_volume) AS search_volume,
@@ -293,6 +299,7 @@ enriched AS (
 final_rows AS (
   SELECT
     {{final_group_by_select_clause}},
+    e.primary_intent_label,
     e.period_start,
     e.period_end,
     e.currency,

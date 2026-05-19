@@ -128,19 +128,22 @@
             "properties": {
               "group_by": {
                 "type": "array",
+                "maxItems": 3,
                 "items": {
                   "type": "string",
                   "enum": [
+                    "intent",
                     "search_term",
                     "marketplace",
                     "company",
                     "brand",
                     "product_family",
-                    "category"
+                    "category",
+                    "asin"
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for grouped/portfolio output. Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
+                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
               },
               "time": {
                 "type": "object",
