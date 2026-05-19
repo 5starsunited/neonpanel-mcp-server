@@ -29,6 +29,11 @@
                 },
                 "description": "Optional: filter by search queries."
               },
+              "intent_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "description": "Optional: filter to search queries mapped to any of these intent_ids (via brand_analytics_iceberg.search_term_to_intent). Combined with `search_terms` as AND (intersection). Get available intent_ids from brand_analytics_list_user_intent_clusters."
+              },
               "parent_asins": {
                 "type": "array",
                 "items": {
@@ -268,6 +273,26 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "intent",
+                    "company",
+                    "marketplace",
+                    "brand",
+                    "parent_asin",
+                    "asin",
+                    "product_family",
+                    "search_term",
+                    "week",
+                    "month"
+                  ]
+                },
+                "description": "Up to 3 dimensions to group by. When provided, the response returns aggregated rows in `aggregations` (with weighted KPIs) instead of per-row `items`."
               }
             },
             "additionalProperties": false
@@ -366,6 +391,9 @@
                 "diagnostic_scenario_signal",
                 "priority_tier",
                 "priority_tier_description",
+                "intent_ids",
+                "primary_intent_id",
+                "primary_intent_label",
                 "impressiondata_totalqueryimpressioncount",
                 "impressiondata_asinimpressioncount",
                 "impressiondata_asinimpressionshare",
@@ -713,10 +741,46 @@
             "priority_tier_description": {
               "type": "string",
               "description": "Human-readable tier label with strategic guidance."
+            },
+            "intent_ids": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "All user-intent cluster IDs that this search term maps to (N:M). NULL if the term is not mapped to any intent. See brand_analytics_list_user_intent_clusters."
+            },
+            "primary_intent_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Deterministic primary intent attribution for this search term (highest confidence; ties broken by intent_id ascending). Used for grouping/aggregation."
+            },
+            "primary_intent_label": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Human-readable name of the primary intent cluster (from brand_analytics_iceberg.user_intents.intent_name)."
             }
           },
           "additionalProperties": true
         }
+      },
+      "aggregations": {
+        "type": "array",
+        "description": "Present when aggregation.group_by is provided. Each row is one (dim1, dim2, ...) bucket with weighted KPIs and sample-size counts. When this is non-empty, `items` is an empty array.",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "additionalProperties": true
       }
     },
     "required": [

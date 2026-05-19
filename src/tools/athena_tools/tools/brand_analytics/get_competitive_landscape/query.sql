@@ -29,6 +29,8 @@ WITH params AS (
     {{weak_leader_require_my_presence}} AS weak_leader_require_my_presence
 ),
 
+{{term_intents_cte_sql}},
+
 raw AS (
   SELECT
     CAST(date AS DATE) AS report_date,
@@ -79,6 +81,7 @@ filtered AS (
     )
     AND (cardinality(p.categories) = 0 OR any_match(p.categories, c -> lower(c) = lower(r.departmentname)))
     AND (cardinality(p.search_terms) = 0 OR any_match(p.search_terms, t -> lower(t) = lower(r.searchterm)))
+    AND ({{intent_terms_filter_sql}})
     AND (
       (cardinality(p.my_asins) = 0 AND cardinality(p.competitor_asins) = 0)
       OR any_match(p.my_asins, a -> lower(a) = lower(r.clickedasin))
@@ -289,9 +292,21 @@ SELECT
         estimated_clicks_if_leader BIGINT
       )
     ) AS JSON
-  )) AS share_gaps
+  )) AS share_gaps,
+  ti.intent_ids,
+  ti.primary_intent_id,
+  ti.primary_intent_label
 FROM per_term p
 CROSS JOIN params
+LEFT JOIN (
+  SELECT
+    term_norm,
+    array_distinct(flatten(array_agg(intent_ids))) AS intent_ids,
+    arbitrary(primary_intent_id)                   AS primary_intent_id,
+    arbitrary(primary_intent_label)                AS primary_intent_label
+  FROM term_intents
+  GROUP BY term_norm
+) ti ON ti.term_norm = lower(p.search_term)
 WHERE
   (cardinality(params.competitor_asins) = 0 OR p.has_competitor = 1)
 ORDER BY p.search_frequency_rank ASC

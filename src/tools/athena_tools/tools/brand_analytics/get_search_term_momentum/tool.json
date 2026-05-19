@@ -30,6 +30,11 @@
                 "maxItems": 100,
                 "description": "Optional: filter by specific search terms. When omitted, ALL search terms are included (subject to 'limit'). Use with match_type='contains' to explore keyword themes (e.g., ['ring'] returns all ring-related terms). Combine multiple terms: ['ring', 'bracelet']."
               },
+              "intent_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "description": "Optional: filter to search terms mapped to any of these intent_ids. AND-combined with `search_terms`. Get available intent_ids from brand_analytics_list_user_intent_clusters."
+              },
               "asins": {
                 "type": "array",
                 "items": {
@@ -123,19 +128,22 @@
             "properties": {
               "group_by": {
                 "type": "array",
+                "maxItems": 3,
                 "items": {
                   "type": "string",
                   "enum": [
+                    "intent",
                     "search_term",
                     "marketplace",
                     "company",
                     "brand",
                     "product_family",
-                    "category"
+                    "category",
+                    "asin"
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for grouped/portfolio output. Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
+                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
               },
               "time": {
                 "type": "object",
@@ -255,7 +263,10 @@
                 "is_weak_leader",
                 "leader_conversion_share",
                 "displacement_opportunity_score",
-                "click_share_to_leader"
+                "click_share_to_leader",
+                "intent_ids",
+                "primary_intent_id",
+                "primary_intent_label"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. If omitted, returns all columns. IMPORTANT: Use exact field names from the enum."
@@ -614,6 +625,19 @@
                 "null"
               ],
               "description": "Gap between your click share and the leader's. Negative = you trail. Null if you are the leader or not in top 3."
+            },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All distinct intent_id slugs mapped to this search_term for the row's company."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Highest-confidence intent_id slug for this search_term."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable label of the primary intent."
             }
           },
           "additionalProperties": true

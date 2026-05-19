@@ -1,0 +1,84 @@
+{
+  "name": "brand_analytics_list_user_intent_clusters",
+  "description": "Lists semantic intent clusters defined for a company, with rolled-up search-term counts and average confidence from search_term_to_intent.\n\nReturns the latest version of each (company_id, intent_id) — newer rows shadow older ones in the dedup CTE. Filter by status (active | archived | merged | all). Paginate with limit/offset.\n\nWorkflow position: STEP 2 (coverage check) and STEP 5 (verification) of the intent-clustering flow.\n  - Pipeline: brand_analytics_analyze_search_query_performance → THIS TOOL (coverage diff) → brand_analytics_cluster_search_terms (uncovered only) → brand_analytics_create_user_intent_cluster (per proposed intent) → THIS TOOL (verify).\n  - Pass optional `search_terms` to get a {covered, uncovered} diff in one round-trip; only the `uncovered` list should be sent to brand_analytics_cluster_search_terms.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "status": {
+        "type": "string",
+        "enum": ["active", "archived", "merged", "all"],
+        "default": "active"
+      },
+      "intent_ids": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": "Optional: filter to specific intent_id slugs."
+      },
+      "search_terms": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "minItems": 1,
+        "maxItems": 2000,
+        "description": "Optional. When provided, the response includes a `coverage` block listing which terms are already mapped to intents (and which are not). Use the uncovered list as input to brand_analytics_cluster_search_terms."
+      },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
+      "offset": { "type": "integer", "minimum": 0, "default": 0 }
+    },
+    "required": ["company_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "intents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "company_id": { "type": "integer" },
+            "intent_id": { "type": "string" },
+            "intent_name": { "type": "string" },
+            "customer_need": { "type": "string" },
+            "status": { "type": "string" },
+            "source": { "type": ["string", "null"] },
+            "clustering_run_id": { "type": ["integer", "null"] },
+            "search_term_count": { "type": "integer" },
+            "avg_confidence": { "type": ["number", "null"] },
+            "created_at": { "type": "string" },
+            "created_by": { "type": ["string", "null"] }
+          }
+        }
+      },
+      "total_count": { "type": "integer" },
+      "limit": { "type": "integer" },
+      "offset": { "type": "integer" },
+      "coverage": {
+        "type": ["object", "null"],
+        "description": "Only present when `search_terms` is supplied in the request.",
+        "properties": {
+          "input_count": { "type": "integer" },
+          "covered_count": { "type": "integer" },
+          "uncovered_count": { "type": "integer" },
+          "covered": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "term": { "type": "string" },
+                "intent_ids": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["term", "intent_ids"]
+            }
+          },
+          "uncovered": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "next_steps": { "type": "array", "items": { "type": "string" } },
+      "error": { "type": "string" }
+    },
+    "required": ["intents", "total_count", "limit", "offset"]
+  }
+}

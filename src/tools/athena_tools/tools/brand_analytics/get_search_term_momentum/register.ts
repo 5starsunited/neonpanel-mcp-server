@@ -8,6 +8,7 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
+import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -46,7 +47,7 @@ function sqlDateExpr(value?: string): string {
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
-const groupBySchema = z.enum(['search_term', 'marketplace', 'company', 'brand', 'product_family', 'category']);
+const groupBySchema = z.enum(['intent', 'search_term', 'marketplace', 'company', 'brand', 'product_family', 'category', 'asin']);
 
 const querySchema = z
   .object({
@@ -54,6 +55,7 @@ const querySchema = z
       .object({
         company_ids: z.array(z.coerce.number().int().min(1)).min(1),
         search_terms: z.array(z.string()).optional(),
+        intent_ids: z.array(z.string().min(1).max(64)).optional(),
         asins: z.array(z.string()).optional(),
         competitor_asins: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
@@ -118,12 +120,14 @@ const inputSchema = z
 type DimensionConfig = { expression: string; alias: string };
 
 const dimensionMap: Record<GroupByField, DimensionConfig> = {
+  intent: { expression: "COALESCE(aw.primary_intent_id, '__UNCLASSIFIED__')", alias: 'primary_intent_id' },
   search_term: { expression: 'aw.search_term', alias: 'search_term' },
   marketplace: { expression: 'aw.marketplace', alias: 'marketplace' },
   company: { expression: 'aw.company_id', alias: 'company_id' },
   brand: { expression: "COALESCE(aw.my_brand, '__UNKNOWN__')", alias: 'my_brand' },
   product_family: { expression: "COALESCE(aw.product_family, '__UNKNOWN__')", alias: 'product_family' },
   category: { expression: "COALESCE(aw.category, '__UNKNOWN__')", alias: 'category' },
+  asin: { expression: 'aw.asin', alias: 'asin' },
 };
 
 function buildDimensionClauses(groupBy: GroupByField[]) {
@@ -210,6 +214,7 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const database = 'brand_analytics_iceberg';
 
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
+      const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
       const competitorAsins = (query.filters.competitor_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
@@ -256,12 +261,19 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
+        term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlDateExpr(time?.start_date),
         end_date_sql: sqlDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
         company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
         search_terms_array: sqlVarcharArrayExpr(searchTerms),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          allowedCompanyIds,
+          intentIds,
+          's.search_term',
+        ),
         match_type_sql: sqlStringLiteral(matchType),
         asins_array: sqlVarcharArrayExpr(asins),
         competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),

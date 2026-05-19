@@ -12,6 +12,7 @@ WITH params AS (
     {{focus_literal}}             AS focus,
     {{entity_ids_array_sql}}      AS entity_ids,
     {{keywords_array_sql}}        AS keywords_override,
+    {{intent_ids_array_sql}}      AS intent_ids,
     {{use_tracked_search_terms_sql}} AS use_tracked_search_terms,
     {{use_competitor_registry_sql}}  AS use_competitor_registry
 ),
@@ -88,10 +89,46 @@ keyword_override AS (
   WHERE cardinality(p.keywords_override) > 0
 ),
 
-keyword_scope AS (
+-- ─── Intent-cluster scoping (optional) ──────────────────────────────────────
+-- When intent_ids is provided, restrict scope to search terms mapped to any of
+-- those user-intent clusters. Combined with the base scope (override/tracked)
+-- as AND (intersection): if both supplied, results must satisfy both filters.
+intent_keywords AS (
+  SELECT DISTINCT LOWER(TRIM(sti.search_term)) AS kw_norm
+  FROM "{{catalog}}"."brand_analytics_iceberg"."search_term_to_intent" sti, params p
+  WHERE sti.company_id = p.company_id
+    AND cardinality(p.intent_ids) > 0
+    AND contains(p.intent_ids, sti.intent_id)
+),
+
+base_scope AS (
   SELECT kw_norm FROM keyword_override
   UNION
   SELECT kw_norm FROM tracked_keywords
+),
+
+keyword_scope AS (
+  -- Case A: no intent_ids → original base scope (override ∪ tracked)
+  SELECT b.kw_norm
+  FROM base_scope b, params p
+  WHERE cardinality(p.intent_ids) = 0
+
+  UNION
+
+  -- Case B: intent_ids AND base_scope both non-empty → INTERSECT
+  SELECT b.kw_norm
+  FROM base_scope b
+  INNER JOIN intent_keywords i ON b.kw_norm = i.kw_norm
+  CROSS JOIN params p
+  WHERE cardinality(p.intent_ids) > 0
+
+  UNION
+
+  -- Case C: intent_ids non-empty but base_scope empty → use intent terms
+  SELECT i.kw_norm
+  FROM intent_keywords i, params p
+  WHERE cardinality(p.intent_ids) > 0
+    AND NOT EXISTS (SELECT 1 FROM base_scope)
 ),
 
 -- ─── Competitor ASIN registry (optional) ────────────────────────────────────

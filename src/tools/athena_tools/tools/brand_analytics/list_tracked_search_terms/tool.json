@@ -41,6 +41,11 @@
         "items": { "type": "string", "enum": ["defend", "attack", "evaluate", "branded"] },
         "description": "Optional: filter by intent tag."
       },
+      "intent_ids": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": "Optional: filter to tracked keywords mapped to any of these user-intent-cluster ids (search_term_to_intent table). AND-combined with `keywords`. Distinct from `intent` (which is a static defend/attack/evaluate/branded tag). Get available intent_ids from brand_analytics_list_user_intent_clusters."
+      },
       "include_inactive": {
         "type": "boolean",
         "default": false,
@@ -75,7 +80,20 @@
             "added_by": { "type": ["string", "null"] },
             "added_at": { "type": "string" },
             "is_active": { "type": "boolean" },
-            "notes": { "type": ["string", "null"] }
+            "notes": { "type": ["string", "null"] },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All user-intent cluster IDs this keyword maps to (N:M)."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Deterministic primary intent attribution (highest confidence, intent_id ASC tie-break)."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable name of the primary intent cluster (user_intents.intent_name)."
+            }
           }
         }
       }

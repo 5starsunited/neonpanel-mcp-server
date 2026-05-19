@@ -38,6 +38,8 @@ WITH params AS (
     CAST({{min_search_volume}} AS DOUBLE)                 AS min_search_volume
 ),
 
+{{term_intents_cte_sql}},
+
 -- ─── 1. Base filter: dimension filters + partition pruning ─────────────────
 -- We do NOT filter on dates here so the "latest" CTE can find the true max week.
 -- A rough year guard limits the scan to recent partitions only.
@@ -66,6 +68,8 @@ base_filtered AS (
         END
       )
     )
+
+    AND ({{intent_terms_filter_sql}})
 
     -- Optional marketplace
     AND (cardinality(p.marketplaces) = 0
@@ -272,10 +276,18 @@ enriched AS (
       WHEN c.my_click_share IS NOT NULL AND c.rank_1_clickshare IS NOT NULL
         THEN c.rank_1_clickshare - c.my_click_share
       ELSE NULL
-    END AS click_share_to_leader
+    END AS click_share_to_leader,
+
+    -- Intent enrichment (per (company_id, search_term))
+    ti.intent_ids,
+    ti.primary_intent_id,
+    ti.primary_intent_label
 
   FROM current_rows c
   CROSS JOIN params p
+  LEFT JOIN term_intents ti
+    ON ti.company_id = c.company_id
+   AND ti.term_norm  = lower(c.search_term)
 )
 
 SELECT

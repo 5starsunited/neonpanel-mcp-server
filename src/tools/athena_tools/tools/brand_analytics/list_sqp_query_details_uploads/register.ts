@@ -6,12 +6,14 @@ import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
 
 const inputSchema = z
   .object({
     company_ids: z.array(z.coerce.number().int().min(1)).min(1),
     marketplaces: z.array(z.string().min(1).max(10)).optional(),
     keywords: z.array(z.string().min(1).max(200)).optional(),
+    intent_ids: z.array(z.string().min(1).max(64)).optional(),
     uploaded_by: z.array(z.string().min(1).max(200)).optional(),
     period_overlap_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     period_overlap_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -37,7 +39,7 @@ function periodOverlapClause(start: string | undefined, end: string | undefined)
   if (!start && !end) return 'TRUE';
   const s = start ?? '1970-01-01';
   const e = end ?? '9999-12-31';
-  return `period_start <= DATE ${sqlString(e)} AND period_end >= DATE ${sqlString(s)}`;
+  return `t.period_start <= DATE ${sqlString(e)} AND t.period_end >= DATE ${sqlString(s)}`;
 }
 
 export function registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry: ToolRegistry) {
@@ -69,15 +71,22 @@ export function registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry: T
       const limitTopN = parsed.limit ?? 200;
 
       const companyIdsSql = parsed.company_ids.map((n) => String(n)).join(', ');
-      const companyFilterSql = `company_id IN (${companyIdsSql})`;
+      const companyFilterSql = `t.company_id IN (${companyIdsSql})`;
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
         catalog,
+        term_intents_cte_sql: termIntentsCteSql(catalog, parsed.company_ids),
         company_filter_sql: companyFilterSql,
-        marketplace_filter_sql: arrayInClause(parsed.marketplaces, 'marketplace'),
-        keyword_filter_sql: arrayInClause(parsed.keywords, 'keyword', true),
-        uploaded_by_filter_sql: arrayInClause(parsed.uploaded_by, 'uploaded_by'),
+        marketplace_filter_sql: arrayInClause(parsed.marketplaces, 't.marketplace'),
+        keyword_filter_sql: arrayInClause(parsed.keywords, 't.keyword', true),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          catalog,
+          parsed.company_ids,
+          parsed.intent_ids,
+          't.keyword',
+        ),
+        uploaded_by_filter_sql: arrayInClause(parsed.uploaded_by, 't.uploaded_by'),
         period_overlap_filter_sql: periodOverlapClause(
           parsed.period_overlap_start,
           parsed.period_overlap_end,

@@ -35,6 +35,8 @@ WITH params AS (
     CAST({{min_impressions}} AS INTEGER)           AS min_impressions
 ),
 
+{{term_intents_cte_sql}},
+
 -- ─── 1. Pull raw SQP rows, apply keyword + standard filters ────────────────
 raw AS (
   SELECT r.*
@@ -58,6 +60,8 @@ raw AS (
         END
       )
     )
+
+    AND ({{intent_terms_filter_sql}})
 
     -- Optional marketplace
     AND (
@@ -228,12 +232,26 @@ latest_period AS (
 ),
 
 final AS (
-  SELECT f.*
+  SELECT
+    f.*,
+    ti.intent_ids,
+    ti.primary_intent_id,
+    ti.primary_intent_label
   FROM with_funnel f
   INNER JOIN latest_period lp
     ON  f.keyword     = lp.keyword
     AND f.marketplace = lp.marketplace
     AND f.period_start = lp.max_period_start
+  -- Intent enrichment: flatten across companies (keyword_agg is not split by company).
+  LEFT JOIN (
+    SELECT
+      term_norm,
+      array_distinct(flatten(array_agg(intent_ids))) AS intent_ids,
+      arbitrary(primary_intent_id)                   AS primary_intent_id,
+      arbitrary(primary_intent_label)                AS primary_intent_label
+    FROM term_intents
+    GROUP BY term_norm
+  ) ti ON ti.term_norm = lower(f.keyword)
   CROSS JOIN params p
   WHERE
     -- Optional min_search_query_score filter

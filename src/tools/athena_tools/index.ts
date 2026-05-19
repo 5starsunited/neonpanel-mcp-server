@@ -35,6 +35,9 @@ import { registerBrandAnalyticsWriteAnalyticsWatchlistTool } from './tools/brand
 import { registerBrandAnalyticsRunWatchlistTool } from './tools/brand_analytics/run_watchlist/register';
 import { registerBrandAnalyticsGrowthMachineDiagnosisTool } from './tools/brand_analytics/growth_machine_diagnosis/register';
 import { registerBrandAnalyticsGetConversionLeakAnalysisTool } from './tools/brand_analytics/get_conversion_leak_analysis/register';
+import { registerBrandAnalyticsClusterSearchTermsTool } from './tools/brand_analytics/cluster_search_terms/register';
+import { registerBrandAnalyticsCreateUserIntentClusterTool } from './tools/brand_analytics/create_user_intent_cluster/register';
+import { registerBrandAnalyticsListUserIntentClustersTool } from './tools/brand_analytics/list_user_intent_clusters/register';
 import { registerCogsAnalyzeFifoCogsTool } from './tools/cogs/analyze_fifo_cogs/register';
 import { registerCogsListLostBatchesTool } from './tools/cogs/list_lost_batches/register';
 import { registerCogsExportUnitCostsTool } from './tools/cogs/export_unit_costs/register';
@@ -105,6 +108,9 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerBrandAnalyticsRunWatchlistTool(registry);
   registerBrandAnalyticsGrowthMachineDiagnosisTool(registry);
   registerBrandAnalyticsGetConversionLeakAnalysisTool(registry);
+  registerBrandAnalyticsClusterSearchTermsTool(registry);
+  registerBrandAnalyticsCreateUserIntentClusterTool(registry);
+  registerBrandAnalyticsListUserIntentClustersTool(registry);
   registerCogsAnalyzeFifoCogsTool(registry);
   registerCogsListFifoTransactionsTool(registry);
   registerCogsListLostBatchesTool(registry);

@@ -12,6 +12,11 @@
       },
       "marketplaces": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 10 } },
       "keywords": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
+      "intent_ids": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": "Optional: filter to uploads whose keyword maps to any of these intent_ids. AND-combined with `keywords`. Get available intent_ids from brand_analytics_list_user_intent_clusters."
+      },
       "uploaded_by": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
       "period_overlap_start": { "type": "string", "format": "date" },
       "period_overlap_end": { "type": "string", "format": "date" },

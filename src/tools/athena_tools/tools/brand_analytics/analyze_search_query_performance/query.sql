@@ -85,6 +85,36 @@ brand_names_cte AS (
       AND name IS NOT NULL AND length(trim(name)) > 0
 ),
 
+-- ─── Per-term intent enrichment (Phase A) ────────────────────────────────────
+-- Aggregates search_term → all mapped intent_ids (full N:M), plus a deterministic
+-- primary intent attribution (highest confidence, intent_id ASC tie-break) used
+-- for downstream grouping. Restricted to allowed companies for security.
+term_intents AS (
+    SELECT
+        sti.company_id,
+        sti.term_norm,
+        array_agg(DISTINCT sti.intent_id) AS intent_ids,
+        arbitrary(CASE WHEN sti.rn_primary = 1 THEN sti.intent_id END) AS primary_intent_id,
+        arbitrary(CASE WHEN sti.rn_primary = 1 THEN ui.intent_name END) AS primary_intent_label
+    FROM (
+        SELECT
+            company_id,
+            lower(search_term) AS term_norm,
+            intent_id,
+            confidence,
+            ROW_NUMBER() OVER (
+                PARTITION BY company_id, lower(search_term)
+                ORDER BY confidence DESC NULLS LAST, intent_id ASC
+            ) AS rn_primary
+        FROM "{{catalog}}"."brand_analytics_iceberg"."search_term_to_intent"
+        WHERE contains(transform({{company_ids_array}}, x -> CAST(x AS VARCHAR)), CAST(company_id AS VARCHAR))
+    ) sti
+    LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."user_intents" ui
+        ON ui.intent_id = sti.intent_id
+       AND ui.company_id = sti.company_id
+    GROUP BY sti.company_id, sti.term_norm
+),
+
 raw AS (
     SELECT
         company,
@@ -156,12 +186,20 @@ raw AS (
 ),
 
 filtered AS (
-    SELECT r.*
+    SELECT
+        r.*,
+        ti.intent_ids,
+        ti.primary_intent_id,
+        ti.primary_intent_label
     FROM raw r
     CROSS JOIN params p
+    LEFT JOIN term_intents ti
+        ON ti.company_id = r.company_id
+       AND ti.term_norm = lower(r.searchquerydata_searchquery)
     WHERE
         contains(p.company_ids_str, r.company_id)
         AND (cardinality(p.search_terms) = 0 OR any_match(p.search_terms, t -> lower(t) = lower(r.searchquerydata_searchquery)))
+        AND ({{intent_terms_filter_sql}})
         AND (
             cardinality(p.marketplaces) = 0
             OR any_match(

@@ -33,6 +33,7 @@ const inputSchema = z
       .optional(),
     entity_ids: z.array(z.string().min(1).max(200)).default([]).optional(),
     keywords: z.array(z.string().min(1).max(200)).default([]).optional(),
+    intent_ids: z.array(z.string().min(1).max(64)).default([]).optional(),
     use_tracked_search_terms: z.boolean().default(true).optional(),
     use_competitor_registry: z.boolean().default(true).optional(),
     focus: z
@@ -151,6 +152,7 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
         focus_literal: sqlString(focus),
         entity_ids_array_sql: buildStringArraySql(entityIds),
         keywords_array_sql: buildStringArraySql(keywords),
+        intent_ids_array_sql: buildStringArraySql((parsed.intent_ids ?? []).map((s) => s.trim()).filter(Boolean)),
         use_tracked_search_terms_sql: useTracked ? 'TRUE' : 'FALSE',
         use_competitor_registry_sql: useCompetitors ? 'TRUE' : 'FALSE',
         limit_top_n: limitTopN,

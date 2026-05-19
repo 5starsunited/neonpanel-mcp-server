@@ -31,6 +31,11 @@
                 "maxItems": 100,
                 "description": "Keywords to research for competitor performance."
               },
+              "intent_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "description": "Optional: filter to search terms mapped to any of these intent_ids. AND-combined with `search_terms`. Get available intent_ids from brand_analytics_list_user_intent_clusters."
+              },
               "competitor_asins": {
                 "type": "array",
                 "items": {
@@ -96,6 +101,21 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "intent",
+                    "marketplace",
+                    "category",
+                    "search_term"
+                  ]
+                },
+                "default": [],
+                "description": "Optional dimensions for portfolio rollup (max 3). When non-empty, the tool returns weighted competitive aggregates per bucket in the `aggregations` array instead of per-term `items`. Weighting uses 1/(1+search_frequency_rank) so popular keywords dominate."
               }
             },
             "additionalProperties": false
@@ -140,7 +160,10 @@
                 "weak_leader_analysis",
                 "share_gaps",
                 "seller_central_query_detail_url",
-                "data_enrichment_hint"
+                "data_enrichment_hint",
+                "intent_ids",
+                "primary_intent_id",
+                "primary_intent_label"
               ]
             },
             "description": "Optional output field selection. When provided, only these fields are returned per row — reduces response size. IMPORTANT: Use exact field names from the enum."
@@ -392,6 +415,19 @@
             "data_enrichment_hint": {
               "type": "string",
               "description": "Instructions for the user on how to get additional competitive data from Seller Central that Amazon does not provide via API."
+            },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All distinct intent_id slugs mapped to this search_term across the queried companies."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Highest-confidence intent_id slug for this search_term."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable label of the primary intent."
             }
           },
           "additionalProperties": true
@@ -431,6 +467,14 @@
           }
         }
       },
+      "aggregations": {
+        "type": "array",
+        "description": "Present when `query.aggregation.group_by` is non-empty. Each entry is a portfolio rollup bucket with weighted competitive metrics.",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
       "meta": {
         "type": "object",
         "properties": {
@@ -443,6 +487,15 @@
             "items": {
               "type": "string"
             }
+          },
+          "group_by": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Echoes the requested grouping dimensions (only present in grouped mode)."
+          },
+          "row_count": {
+            "type": "integer",
+            "description": "Number of aggregation buckets returned (only present in grouped mode)."
           }
         },
         "additionalProperties": true

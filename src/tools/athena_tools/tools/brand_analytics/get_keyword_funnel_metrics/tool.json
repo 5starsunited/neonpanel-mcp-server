@@ -30,6 +30,11 @@
                 "maxItems": 50,
                 "description": "Optional: search terms to analyze. When omitted, ALL keywords are included (subject to 'limit'). Use with match_type='contains' to explore keyword themes (e.g., ['ring'] returns all ring-related terms). Combine multiple: ['ring', 'bracelet']."
               },
+              "intent_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+                "description": "Optional: filter to keywords mapped to any of these intent_ids. AND-combined with `keywords`. Get available intent_ids from brand_analytics_list_user_intent_clusters."
+              },
               "asin": {
                 "type": "array",
                 "items": {
@@ -126,6 +131,15 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "group_by": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "enum": ["intent", "company", "marketplace", "keyword", "week", "month"]
+                },
+                "description": "Optional. When non-empty, returns weighted aggregations bucketed by these dimensions (max 3) instead of per-row items. Brand shares = SUM(brand)/SUM(total); funnel rates use SUM/SUM weighting; search_query_score is volume-weighted."
               }
             },
             "additionalProperties": false
@@ -202,7 +216,10 @@
                 "brand_impression_to_click_rate",
                 "brand_click_to_cart_rate",
                 "brand_cart_to_purchase_rate",
-                "brand_impression_to_purchase_rate"
+                "brand_impression_to_purchase_rate",
+                "intent_ids",
+                "primary_intent_id",
+                "primary_intent_label"
               ]
             },
             "description": "Optional output field selection. If omitted, returns all available metrics. IMPORTANT: Use exact field names from the enum."
@@ -476,14 +493,44 @@
                 "null"
               ],
               "description": "Your brand's end-to-end conversion"
+            },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All distinct intent_id slugs mapped to this keyword across the queried companies."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Highest-confidence intent_id slug for this keyword."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable label of the primary intent."
             }
           },
+          "additionalProperties": true
+        }
+      },
+      "aggregations": {
+        "type": "array",
+        "description": "Populated when query.aggregation.group_by is non-empty. Each row contains the chosen group_by dimension columns plus weighted KPIs (brand shares, market/brand funnel rates, weighted_search_query_score) and sample-size counts (row_count, keyword_count, company_count, marketplace_count, week_count).",
+        "items": {
+          "type": "object",
           "additionalProperties": true
         }
       },
       "meta": {
         "type": "object",
         "properties": {
+          "group_by": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Echoes the requested group_by dimensions when grouped aggregation was used."
+          },
+          "row_count": {
+            "type": "integer",
+            "description": "Number of aggregation rows returned."
+          },
           "total_keywords_analyzed": {
             "type": "integer"
           },
