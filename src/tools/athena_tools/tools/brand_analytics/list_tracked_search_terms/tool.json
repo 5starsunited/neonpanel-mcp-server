@@ -80,7 +80,20 @@
             "added_by": { "type": ["string", "null"] },
             "added_at": { "type": "string" },
             "is_active": { "type": "boolean" },
-            "notes": { "type": ["string", "null"] }
+            "notes": { "type": ["string", "null"] },
+            "intent_ids": {
+              "type": ["array", "null"],
+              "items": { "type": "string" },
+              "description": "All user-intent cluster IDs this keyword maps to (N:M)."
+            },
+            "primary_intent_id": {
+              "type": ["string", "null"],
+              "description": "Deterministic primary intent attribution (highest confidence, intent_id ASC tie-break)."
+            },
+            "primary_intent_label": {
+              "type": ["string", "null"],
+              "description": "Human-readable name of the primary intent cluster (user_intents.intent_name)."
+            }
           }
         }
       }

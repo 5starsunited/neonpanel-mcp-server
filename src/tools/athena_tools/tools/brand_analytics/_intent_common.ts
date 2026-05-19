@@ -82,6 +82,64 @@ export function intentTermsFilterClauseSql(
   return `lower(${searchTermColumnSql}) IN (SELECT t FROM ${sub} AS x)`;
 }
 
+/**
+ * Returns the body of a `term_intents` CTE (without the leading `term_intents AS`).
+ * For each (company_id, lower(search_term)) maps:
+ *   - intent_ids          : ARRAY<VARCHAR> of all mapped intent_ids
+ *   - primary_intent_id   : highest-confidence intent_id (ties broken by intent_id ASC)
+ *   - primary_intent_label: matching label from user_intents.intent_name
+ *
+ * Restricted to the supplied companies. Caller is responsible for joining onto
+ * `(company_id, lower(<search_term_col>))` and emitting the three columns.
+ *
+ * Returns a full CTE definition: `term_intents AS ( ... )` — paste into a WITH clause.
+ */
+export function termIntentsCteSql(
+  catalog: string,
+  companyIds: number | readonly number[],
+): string {
+  const ids = Array.isArray(companyIds) ? companyIds : [companyIds as number];
+  const safe = (ids as number[])
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .map((n) => String(Math.trunc(n)));
+  // When no company ids are supplied we still emit a valid (empty) CTE so the
+  // surrounding query parses. Caller's permission check should already prevent
+  // this branch from producing a real Athena run.
+  const companyClause =
+    safe.length === 0
+      ? '1 = 0'
+      : safe.length === 1
+        ? `company_id = ${safe[0]}`
+        : `company_id IN (${safe.join(', ')})`;
+  return (
+    `term_intents AS (\n` +
+    `  SELECT\n` +
+    `    sti.company_id,\n` +
+    `    sti.term_norm,\n` +
+    `    array_agg(DISTINCT sti.intent_id) AS intent_ids,\n` +
+    `    arbitrary(CASE WHEN sti.rn_primary = 1 THEN sti.intent_id END) AS primary_intent_id,\n` +
+    `    arbitrary(CASE WHEN sti.rn_primary = 1 THEN ui.intent_name END) AS primary_intent_label\n` +
+    `  FROM (\n` +
+    `    SELECT\n` +
+    `      company_id,\n` +
+    `      lower(search_term) AS term_norm,\n` +
+    `      intent_id,\n` +
+    `      confidence,\n` +
+    `      ROW_NUMBER() OVER (\n` +
+    `        PARTITION BY company_id, lower(search_term)\n` +
+    `        ORDER BY confidence DESC NULLS LAST, intent_id ASC\n` +
+    `      ) AS rn_primary\n` +
+    `    FROM "${catalog}"."brand_analytics_iceberg"."search_term_to_intent"\n` +
+    `    WHERE ${companyClause}\n` +
+    `  ) sti\n` +
+    `  LEFT JOIN "${catalog}"."brand_analytics_iceberg"."user_intents" ui\n` +
+    `    ON ui.intent_id = sti.intent_id\n` +
+    `   AND ui.company_id = sti.company_id\n` +
+    `  GROUP BY sti.company_id, sti.term_norm\n` +
+    `)`
+  );
+}
+
 /** SQL string literal with single-quote escaping. */
 export function sqlString(v: string): string {
   return `'${v.replace(/'/g, "''")}'`;
