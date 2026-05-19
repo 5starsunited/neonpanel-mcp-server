@@ -194,7 +194,7 @@ filtered AS (
     FROM raw r
     CROSS JOIN params p
     LEFT JOIN term_intents ti
-        ON ti.company_id = r.company_id
+        ON CAST(ti.company_id AS VARCHAR) = r.company_id
        AND ti.term_norm = lower(r.searchquerydata_searchquery)
     WHERE
         contains(p.company_ids_str, r.company_id)
