@@ -22,6 +22,10 @@ const inputSchema = z
       .enum(['auto', 'use_existing', 'restrict_existing', 'suggest_to_agent'])
       .default('auto')
       .optional(),
+    top_k_candidates: z.coerce.number().int().min(1).max(10).default(3).optional(),
+    max_review_items: z.coerce.number().int().min(1).max(2000).default(500).optional(),
+    t_assign: z.coerce.number().min(0).max(1).default(0.85).optional(),
+    t_review_low: z.coerce.number().min(0).max(1).default(0.4).optional(),
   })
   .strict();
 
@@ -122,6 +126,10 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
       const companyId = parsed.company_id;
       const mode = parsed.mode ?? 'auto';
       const targetClusters = parsed.target_cluster_count ?? 9;
+      const topK = parsed.top_k_candidates ?? 3;
+      const maxReview = parsed.max_review_items ?? 500;
+      const T_assign = parsed.t_assign ?? 0.85;
+      const T_review_low = parsed.t_review_low ?? 0.4;
       const productCategory = parsed.product_category ?? null;
       const userId = context.subject ?? 'unknown';
       const catalog = config.athena.catalog;
@@ -247,6 +255,68 @@ ORDER BY intent_id, rn
                 ? 'NOTE: mode=restrict_existing — do not create new intents. Only map input terms to existing intents.'
                 : 'If a term does not fit any existing intent, create a new intent as needed (unless mode=restrict_existing).',
             ].join('\n');
+
+      // If suggest_to_agent mode, compute lightweight candidate suggestions per term.
+      let suggestions: Array<{
+        term: string;
+        candidates: Array<{ intent_id: string; intent_name: string; score: number }>;
+      }> = [];
+      if (mode === 'suggest_to_agent' && existingIntents.length > 0) {
+        function tokens(s: string): Set<string> {
+          return new Set(
+            s
+              .toLowerCase()
+              .split(/[^a-z0-9]+/)
+              .filter(Boolean),
+          );
+        }
+
+        const intentSamples: Map<string, string[]> = new Map();
+        for (const ei of existingIntents) intentSamples.set(ei.intent_id, ei.sample_terms || []);
+
+        function jaccard(a: Set<string>, b: Set<string>): number {
+          const ia = new Set(Array.from(a).filter((x) => b.has(x)));
+          const union = new Set([...Array.from(a), ...Array.from(b)]);
+          if (union.size === 0) return 0;
+          return ia.size / union.size;
+        }
+
+        const scoredPerTerm: Array<{ term: string; best: Array<{ intent_id: string; intent_name: string; score: number }>; maxScore: number }> = [];
+        for (const term of preparedTerms) {
+          const tTokens = tokens(term);
+          const candidates: Array<{ intent_id: string; intent_name: string; score: number }> = [];
+          for (const ei of existingIntents) {
+            const samples = intentSamples.get(ei.intent_id) ?? [];
+            let bestScore = 0;
+            for (const s of samples) {
+              if (!s) continue;
+              const sTerm = String(s).toLowerCase();
+              if (sTerm === term) {
+                bestScore = Math.max(bestScore, 1);
+                continue;
+              }
+              if (sTerm && (term.includes(sTerm) || sTerm.includes(term))) {
+                bestScore = Math.max(bestScore, 0.95);
+                continue;
+              }
+              const sTok = tokens(sTerm);
+              bestScore = Math.max(bestScore, jaccard(tTokens, sTok));
+            }
+            if (bestScore > 0) candidates.push({ intent_id: ei.intent_id, intent_name: ei.intent_name, score: Math.round(bestScore * 100) / 100 });
+          }
+          candidates.sort((a, b) => b.score - a.score);
+          const best = candidates.slice(0, topK);
+          const maxScore = best.length > 0 ? best[0].score : 0;
+          scoredPerTerm.push({ term, best, maxScore });
+        }
+
+        const reviewCandidates = scoredPerTerm
+          .filter((s) => s.maxScore >= T_review_low && s.maxScore < T_assign)
+          .sort((a, b) => b.maxScore - a.maxScore)
+          .slice(0, maxReview);
+
+        suggestions = reviewCandidates.map((r) => ({ term: r.term, candidates: r.best }));
+      }
 
       return {
         clustering_run_id: runId,
