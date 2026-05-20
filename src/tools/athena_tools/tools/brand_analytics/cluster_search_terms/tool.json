@@ -18,6 +18,12 @@
         "maxLength": 200,
         "description": "Optional product-category hint (e.g. 'foot care', 'compression apparel') to help the agent name intents."
       },
+      "mode": {
+        "type": "string",
+        "enum": ["auto", "use_existing", "restrict_existing", "suggest_to_agent"],
+        "default": "auto",
+        "description": "Optional. 'auto' (default) = LLM-only clustering. 'use_existing' = prefer mapping to existing intents, allow new ones. 'restrict_existing' = only map to existing intents. 'suggest_to_agent' = produce ranked suggestions for human review."
+      },
       "target_cluster_count": {
         "type": "integer",
         "minimum": 3,
@@ -42,6 +48,18 @@
       "response_schema": { "type": "object", "additionalProperties": true },
       "message": { "type": "string" },
       "next_steps": { "type": "array", "items": { "type": "string" } },
+      "existing_intents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "intent_id": { "type": "string" },
+            "intent_name": { "type": "string" },
+            "customer_need": { "type": ["string", "null"] },
+            "sample_terms": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
       "error": { "type": "string" }
     },
     "required": ["clustering_run_id"]

@@ -18,6 +18,10 @@ const inputSchema = z
     search_terms: z.array(z.string().min(1).max(300)).min(50).max(1000),
     product_category: z.string().max(200).nullable().optional(),
     target_cluster_count: z.coerce.number().int().min(3).max(20).default(9).optional(),
+    mode: z
+      .enum(['auto', 'use_existing', 'restrict_existing', 'suggest_to_agent'])
+      .default('auto')
+      .optional(),
   })
   .strict();
 
@@ -116,6 +120,7 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
       const companyId = parsed.company_id;
+      const mode = parsed.mode ?? 'auto';
       const targetClusters = parsed.target_cluster_count ?? 9;
       const productCategory = parsed.product_category ?? null;
       const userId = context.subject ?? 'unknown';
@@ -155,6 +160,94 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
         maxRows: 0,
       });
 
+      // If requested, fetch existing intents and example terms to include in instructions
+      let existingIntents: Array<{
+        intent_id: string;
+        intent_name: string;
+        customer_need: string | null;
+        sample_terms: string[];
+      }> = [];
+      if (mode !== 'auto') {
+        const intentsSql = `
+WITH latest_intent AS (
+  SELECT
+    intent_id,
+    intent_name,
+    customer_need,
+    ROW_NUMBER() OVER (PARTITION BY intent_id ORDER BY created_at DESC, id DESC) AS rn
+  FROM "${catalog}"."brand_analytics_iceberg"."user_intents"
+  WHERE company_id = ${companyId}
+)
+SELECT intent_id, intent_name, customer_need
+FROM latest_intent
+WHERE rn = 1
+  AND intent_id IS NOT NULL
+`;
+        const intentResult = await runAthenaQuery({
+          query: intentsSql,
+          database: 'brand_analytics_iceberg',
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: 1000,
+        });
+        const intentRows = intentResult.rows ?? [];
+        // fetch sample terms per intent (top 5 by confidence)
+        const mappingSql = `
+WITH ranked AS (
+  SELECT intent_id, search_term AS term, confidence,
+    ROW_NUMBER() OVER (PARTITION BY intent_id ORDER BY confidence DESC) rn
+  FROM "${catalog}"."brand_analytics_iceberg"."search_term_to_intent"
+  WHERE company_id = ${companyId}
+)
+SELECT intent_id, term
+FROM ranked
+WHERE rn <= 5
+ORDER BY intent_id, rn
+`;
+        const mappingResult = await runAthenaQuery({
+          query: mappingSql,
+          database: 'brand_analytics_iceberg',
+          workGroup: config.athena.workgroup,
+          outputLocation: config.athena.outputLocation,
+          maxRows: 5000,
+        });
+        const mappingRows = mappingResult.rows ?? [];
+        const samplesByIntent = new Map<string, string[]>();
+        for (const r of mappingRows) {
+          const id = String(r.intent_id ?? '');
+          const term = String(r.term ?? '').toLowerCase();
+          if (!id) continue;
+          const arr = samplesByIntent.get(id) ?? [];
+          if (term && !arr.includes(term)) arr.push(term);
+          samplesByIntent.set(id, arr);
+        }
+        for (const r of intentRows) {
+          const id = String(r.intent_id ?? '');
+          if (!id) continue;
+          existingIntents.push({
+            intent_id: id,
+            intent_name: String(r.intent_name ?? ''),
+            customer_need: r.customer_need ?? null,
+            sample_terms: samplesByIntent.get(id) ?? [],
+          });
+        }
+      }
+
+      const instructionsExtra =
+        existingIntents.length === 0
+          ? ''
+          : [
+              '',
+              'Existing intents for this company (prefer assigning terms to these when appropriate):',
+              ...existingIntents.map((ei) =>
+                `- ${ei.intent_id} : ${ei.intent_name} — examples: ${ei.sample_terms.slice(0,5).join(', ')}`,
+              ),
+              '',
+              mode === 'restrict_existing'
+                ? 'NOTE: mode=restrict_existing — do not create new intents. Only map input terms to existing intents.'
+                : 'If a term does not fit any existing intent, create a new intent as needed (unless mode=restrict_existing).',
+            ].join('\n');
+
       return {
         clustering_run_id: runId,
         company_id: companyId,
@@ -162,9 +255,10 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
         input_search_terms_count: preparedTerms.length,
         target_cluster_count: targetClusters,
         product_category: productCategory,
-        clustering_instructions: buildInstructions(targetClusters, productCategory),
+        clustering_instructions: `${buildInstructions(targetClusters, productCategory)}${instructionsExtra}`,
         response_schema: RESPONSE_SCHEMA,
         message: `Pending audit row created (clustering_run_id=${runId}). Cluster the ${preparedTerms.length} terms then call brand_analytics_create_user_intent_cluster per intent.`,
+        existing_intents: existingIntents,
         next_steps: [
           `Run your LLM with the returned clustering_instructions + response_schema to produce ~${targetClusters} intent proposals from prepared_terms.`,
           `For each proposed intent, call brand_analytics_create_user_intent_cluster with company_id=${companyId} and clustering_run_id=${runId}. Include llm_audit_payload on the FIRST call only (model + token counts).`,
