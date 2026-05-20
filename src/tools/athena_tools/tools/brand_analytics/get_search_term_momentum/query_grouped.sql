@@ -36,6 +36,17 @@ WITH params AS (
     CAST({{min_search_volume}} AS DOUBLE)                 AS min_search_volume
 ),
 
+term_intents AS (
+  -- Placeholder CTE: without search_term_to_intent mapping, we return NULLs
+  -- to maintain schema compatibility while grouped query executes
+  SELECT
+    CAST(NULL AS BIGINT) AS company_id,
+    CAST(NULL AS VARCHAR) AS term_norm,
+    CAST(NULL AS VARCHAR) AS primary_intent_id,
+    CAST(NULL AS VARCHAR) AS primary_intent_label
+  WHERE FALSE
+),
+
 base_filtered AS (
   SELECT s.*
   FROM "{{catalog}}"."brand_analytics_iceberg"."search_term_smart_snapshot" s
@@ -179,17 +190,16 @@ asin_weekly AS (
 
 weekly_grouped AS (
   SELECT
+    MAX(aw.primary_intent_label) AS primary_intent_label,
     {{group_by_select_clause}},
     aw.week_start AS period_start,
     date_add('day', 6, aw.week_start) AS period_end,
     MAX(aw.currency) AS currency,
     MAX(aw.company_name) AS company_name,
-    MAX(aw.primary_intent_label) AS primary_intent_label,
     COUNT(DISTINCT aw.company_id) AS company_count,
     COUNT(DISTINCT aw.marketplace) AS marketplace_count,
     MAX(aw.search_volume) AS search_volume,
     LEAST(1.0, SUM(COALESCE(aw.my_click_share, 0.0))) AS portfolio_click_share,
-    SUM(COALESCE(aw.my_click_share, 0.0)) AS portfolio_click_share_uncapped,
     LEAST(1.0, SUM(COALESCE(aw.my_click_share, 0.0))) AS my_click_share,
     AVG(aw.my_click_share) AS avg_asin_click_share,
     MAX(aw.my_click_share) AS max_asin_click_share,
@@ -299,10 +309,10 @@ enriched AS (
 final_rows AS (
   SELECT
     {{final_group_by_select_clause}},
-    e.primary_intent_label,
     e.period_start,
     e.period_end,
     e.currency,
+    e.primary_intent_label,
     e.company_name,
     e.company_count,
     e.marketplace_count,
