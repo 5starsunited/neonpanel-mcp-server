@@ -200,6 +200,7 @@ weekly_grouped AS (
     COUNT(DISTINCT aw.marketplace) AS marketplace_count,
     MAX(aw.search_volume) AS search_volume,
     LEAST(1.0, SUM(COALESCE(aw.my_click_share, 0.0))) AS portfolio_click_share,
+    SUM(COALESCE(aw.my_click_share, 0.0)) AS portfolio_click_share_uncapped,
     LEAST(1.0, SUM(COALESCE(aw.my_click_share, 0.0))) AS my_click_share,
     AVG(aw.my_click_share) AS avg_asin_click_share,
     MAX(aw.my_click_share) AS max_asin_click_share,
