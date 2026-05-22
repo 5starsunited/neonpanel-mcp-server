@@ -115,7 +115,7 @@
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for portfolio rollup (max 3). When non-empty, the tool returns weighted competitive aggregates per bucket in the `aggregations` array instead of per-term `items`. Weighting uses 1/(1+search_frequency_rank) so popular keywords dominate.\n\nOutput columns by dimension:\n- 'intent' → intent_id\n- 'marketplace' → marketplace\n- 'category' → category\n- 'search_term' → search_term"
+                "description": "Optional dimensions for portfolio rollup (max 3). When non-empty, the tool returns weighted competitive aggregates per bucket in the `aggregations` array instead of per-term `items`. Weighting uses 1/(1+search_frequency_rank) so popular keywords dominate.\n\nOutput columns by dimension:\n- 'intent' → intent_id, intent_label\n- 'marketplace' → marketplace\n- 'category' → category\n- 'search_term' → search_term"
               }
             },
             "additionalProperties": false

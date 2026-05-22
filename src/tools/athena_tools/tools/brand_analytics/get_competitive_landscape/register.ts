@@ -198,7 +198,7 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
       const isGrouped = groupByDims.length > 0;
       if (isGrouped) {
         const dimMap: Record<string, { select: string; group: string }> = {
-          intent:      { select: 'e.primary_intent_id AS intent_id',          group: 'e.primary_intent_id' },
+          intent:      { select: 'e.primary_intent_id AS intent_id, e.primary_intent_label AS intent_label', group: 'e.primary_intent_id, e.primary_intent_label' },
           marketplace: { select: 'e.marketplace AS marketplace',              group: 'e.marketplace' },
           category:    { select: 'e.category AS category',                    group: 'e.category' },
           search_term: { select: 'e.searchterm AS search_term',               group: 'e.searchterm' },

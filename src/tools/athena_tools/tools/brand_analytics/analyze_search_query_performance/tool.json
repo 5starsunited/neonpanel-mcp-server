@@ -292,7 +292,7 @@
                     "month"
                   ]
                 },
-                \"description\": \"Up to 3 dimensions to group by. When provided, the response returns aggregated rows in `aggregations` (with weighted KPIs) instead of per-row `items`.\\n\\nOutput columns by dimension:\\n- 'intent' → primary_intent_id, primary_intent_label\\n- 'company' → company_id\\n- 'marketplace' → marketplace\\n- 'brand' → brand\\n- 'parent_asin' → parent_asin\\n- 'asin' → asin\\n- 'product_family' → product_family\\n- 'search_term' → search_term\\n- 'week' → week\\n- 'month' → month\"
+                "description": "Up to 3 dimensions to group by. When provided, the response returns aggregated rows in `aggregations` (with weighted KPIs) instead of per-row `items`.\n\nOutput columns by dimension:\n- 'intent' → intent_id, intent_label\n- 'company' → company_id\n- 'marketplace' → marketplace\n- 'brand' → brand\n- 'parent_asin' → parent_asin\n- 'asin' → asin\n- 'product_family' → product_family\n- 'search_term' → search_term\n- 'week' → week\n- 'month' → month"
               }
             },
             "additionalProperties": false

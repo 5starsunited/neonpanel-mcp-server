@@ -1,6 +1,7 @@
--- brand_analytics_growth_machine_diagnosis
--- Fuses SQP + SCP + PPC at (normalized_keyword × child_asin × period) with screenshot enrichment.
--- Emits one locked prescription per row.
+-- brand_analytics_growth_machine_diagnosis (grouped)
+-- Same fusion pipeline as query.sql, but aggregates results to the requested
+-- group_by dimensions (intent, prescription, product_family, brand, parent_asin).
+-- Intent enrichment comes from the shared term_intents CTE.
 
 WITH params AS (
   SELECT
@@ -16,6 +17,8 @@ WITH params AS (
     {{use_tracked_search_terms_sql}} AS use_tracked_search_terms,
     {{use_competitor_registry_sql}}  AS use_competitor_registry
 ),
+
+{{term_intents_cte_sql}},
 
 -- ─── Catalog (hero / siblings) ──────────────────────────────────────────────
 catalog_raw AS (
@@ -57,7 +60,6 @@ catalog_enriched AS (
   FROM catalog_raw r
 ),
 
--- Entity filter: resolves grain + entity_ids -> set of child ASINs in scope.
 entity_asins AS (
   SELECT c.child_asin, c.parent_asin, c.product_family, c.brand, c.is_hero, c.sibling_count
   FROM catalog_enriched c, params p
@@ -90,9 +92,6 @@ keyword_override AS (
 ),
 
 -- ─── Intent-cluster scoping (optional) ──────────────────────────────────────
--- When intent_ids is provided, restrict scope to search terms mapped to any of
--- those user-intent clusters. Combined with the base scope (override/tracked)
--- as AND (intersection): if both supplied, results must satisfy both filters.
 intent_keywords AS (
   SELECT DISTINCT LOWER(TRIM(sti.search_term)) AS kw_norm
   FROM "{{catalog}}"."brand_analytics_iceberg"."search_term_to_intent" sti, params p
@@ -132,8 +131,6 @@ keyword_scope AS (
 ),
 
 -- ─── Competitor ASIN registry (optional) ────────────────────────────────────
--- Note: competitor_asins has no keyword column; scope is per (against_my_asin).
--- A NULL/empty against_my_asin means the competitor applies company-wide.
 competitor_registry AS (
   SELECT
     c.competitor_asin AS asin,
@@ -143,20 +140,6 @@ competitor_registry AS (
     AND LOWER(c.marketplace) = LOWER(p.marketplace)
     AND c.is_active = TRUE
     AND p.use_competitor_registry = TRUE
-),
-
--- Pre-aggregate competitor registry per child_asin to avoid a correlated subquery
--- in `prescribed`. Global entries (NULL / empty against_my_asin) fan out to every ASIN.
-competitor_registry_grouped AS (
-  SELECT
-    ea.child_asin,
-    array_agg(DISTINCT cr.asin) AS asins
-  FROM entity_asins ea
-  LEFT JOIN competitor_registry cr
-    ON cr.against_my_asin = ea.child_asin
-    OR cr.against_my_asin IS NULL
-    OR cr.against_my_asin = ''
-  GROUP BY ea.child_asin
 ),
 
 -- ─── SQP: aggregate to (keyword_norm × child_asin) for the period ───────────
@@ -219,9 +202,6 @@ scp AS (
 ),
 
 -- ─── PPC: sp_search_term joined via campaign_asin_map → advertised ASIN ─────
--- campaign_asin_map lives in brand_analytics_iceberg (not amazon_ads_reports_iceberg).
--- All join columns in campaign_asin_map are STRING, so we cast sp_search_term
--- columns to VARCHAR to match and avoid TYPE_MISMATCH.
 ppc_raw AS (
   SELECT
     LOWER(TRIM(st.searchterm))        AS kw_norm,
@@ -264,9 +244,6 @@ screenshots AS (
     s.total_click_rate            AS ss_total_click_rate,
     s.competitors                 AS ss_competitors,
     s.uploaded_at                 AS ss_uploaded_at,
-    -- Rough leader signals from screenshot competitor list (rank=1).
-    -- Athena's UNNEST(array<row<...>>) yields ONE row-typed column; field
-    -- access uses dot syntax. `rank` is a reserved word so must be quoted.
     MAX(CASE WHEN comp_row."rank" = 1 THEN comp_row.click_rate END) AS ss_leader_click_rate,
     MAX(CASE WHEN comp_row."rank" = 1 THEN comp_row.click_rate END) -
       MIN(CASE WHEN comp_row.asin IS NOT NULL THEN comp_row.click_rate END) AS ss_click_rate_spread
@@ -294,7 +271,6 @@ ryg_ranked AS (
 
 thresholds AS (
   SELECT
-    -- Growth Machine rules
     MAX(CASE WHEN tool='growth_machine' AND signal_group='proven_winner'   AND metric='ppc_cvr'                 AND color='green'  THEN threshold_value END) AS gm_proven_ppc_cvr_g,
     MAX(CASE WHEN tool='growth_machine' AND signal_group='proven_winner'   AND metric='brand_purchase_share'    AND color='red'    THEN threshold_value END) AS gm_proven_brand_share_r,
     MAX(CASE WHEN tool='growth_machine' AND signal_group='bleeder'         AND metric='ppc_clicks_min'          AND color='red'    THEN threshold_value END) AS gm_bleed_clicks_min,
@@ -328,7 +304,6 @@ fused AS (
     ea.brand,
     ea.is_hero,
     ea.sibling_count,
-    -- SQP metrics
     sqp.sqp_asin_impressions,
     sqp.sqp_asin_clicks,
     sqp.sqp_impression_share,
@@ -337,7 +312,6 @@ fused AS (
     sqp.sqp_brand_purchase_share,
     sqp.sqp_ctr_advantage,
     sqp.sqp_search_query_score,
-    -- SCP metrics
     scp.scp_impressions,
     scp.scp_clicks,
     scp.scp_cart_adds,
@@ -347,7 +321,6 @@ fused AS (
     scp.scp_purchase_rate,
     scp.scp_sales_per_click,
     scp.scp_search_traffic_sales,
-    -- PPC metrics
     ppc.ppc_impressions,
     ppc.ppc_clicks,
     ppc.ppc_spend,
@@ -361,17 +334,10 @@ fused AS (
          THEN ppc.ppc_sales / ppc.ppc_spend END AS ppc_roas,
     CASE WHEN COALESCE(ppc.ppc_sales, 0) > 0
          THEN ppc.ppc_spend / ppc.ppc_sales END AS ppc_acos,
-    -- Cart-to-purchase (SCP) — prefer SCP-based; falls back NULL otherwise.
     CASE WHEN COALESCE(scp.scp_cart_adds, 0) > 0
          THEN CAST(scp.scp_purchases AS DOUBLE) / scp.scp_cart_adds END AS cart_to_purchase_rate,
-    -- Screenshot enrichment
     (ss.kw_norm IS NOT NULL)                AS screenshot_data_available,
-    ss.ss_uploaded_at                       AS screenshot_uploaded_at,
-    ss.ss_total_impressions                 AS screenshot_total_impressions,
-    ss.ss_total_clicks                      AS screenshot_total_clicks,
-    ss.ss_total_click_rate                  AS screenshot_total_click_rate,
-    ss.ss_leader_click_rate                 AS screenshot_leader_click_rate,
-    ss.ss_competitors                       AS screenshot_competitors
+    ss.ss_leader_click_rate                 AS screenshot_leader_click_rate
   FROM sqp_ppc_keys k
   LEFT JOIN sqp ON sqp.kw_norm = k.kw_norm AND sqp.child_asin = k.child_asin
   LEFT JOIN ppc ON ppc.kw_norm = k.kw_norm AND ppc.child_asin = k.child_asin
@@ -385,19 +351,11 @@ fused AS (
 scored AS (
   SELECT
     f.*,
-    t.gm_proven_ppc_cvr_g,
-    t.gm_proven_brand_share_r,
-    t.gm_bleed_clicks_min,
-    t.gm_bleed_sales_max,
-    t.gm_cannib_brand_share_g,
-    t.gm_cannib_spend_min,
-    t.gm_leak_c2p_r,
-    t.gm_leak_spend_min,
-    t.gm_weak_leader_r,
-    t.gm_weak_gap_y,
-    t.gm_defend_share_g,
-    t.gm_defend_share_wow_r,
-    -- Booleans per signal group
+    t.gm_leak_c2p_r, t.gm_leak_spend_min,
+    t.gm_bleed_clicks_min, t.gm_bleed_sales_max,
+    t.gm_proven_ppc_cvr_g, t.gm_proven_brand_share_r,
+    t.gm_cannib_brand_share_g, t.gm_cannib_spend_min,
+    t.gm_weak_leader_r, t.gm_defend_share_g,
     (f.cart_to_purchase_rate IS NOT NULL
       AND f.cart_to_purchase_rate < COALESCE(t.gm_leak_c2p_r, 0.30)
       AND COALESCE(f.ppc_spend, 0) >= COALESCE(t.gm_leak_spend_min, 100))
@@ -433,16 +391,8 @@ prescribed AS (
       WHEN s.sig_weak_leader      THEN 'DISPLACE_WEAK_LEADER'
       WHEN s.sig_defend           THEN 'DEFEND_ORGANIC'
       ELSE 'EVALUATE_OR_SKIP'
-    END AS prescription,
-    -- Seller Central deep link for manual screenshot upload
-    'https://sellercentral.amazon.com/brand-analytics/dashboard/query-detail?view-id=query-detail-asin-view'
-      || '&asin=' || COALESCE(s.child_asin, '')
-      || '&search-term-freeform=' || COALESCE(s.kw_norm, '')
-      || '&reporting-range=weekly'
-      || '&country-id=' || UPPER((SELECT marketplace FROM params)) AS seller_central_query_detail_url,
-    crg.asins AS competitor_registry_asins
+    END AS prescription
   FROM scored s
-  LEFT JOIN competitor_registry_grouped crg ON crg.child_asin = s.child_asin
 ),
 
 focus_filtered AS (
@@ -456,78 +406,57 @@ focus_filtered AS (
       WHEN 'defend'          THEN p.prescription = 'DEFEND_ORGANIC' AND p.sig_defend
       ELSE TRUE
     END
+),
+
+-- ─── Intent enrichment for group_by: intent ──────────────────────────────────
+intent_enriched AS (
+  SELECT
+    f.*,
+    COALESCE(ti.primary_intent_id, '__UNCLASSIFIED__') AS intent_id,
+    ti.primary_intent_label                             AS intent_label
+  FROM focus_filtered f
+  LEFT JOIN term_intents ti
+    ON ti.company_id = (SELECT company_id FROM params)
+   AND ti.term_norm  = f.kw_norm
+),
+
+-- ─── Group-level aggregation ──────────────────────────────────────────────────
+aggregated AS (
+  SELECT
+    {{group_by_select_clause}},
+    COUNT(*)                          AS row_count,
+    COUNT(DISTINCT e.kw_norm)         AS keyword_count,
+    COUNT(DISTINCT e.child_asin)      AS asin_count,
+    -- Prescription distribution
+    CAST(COUNT(CASE WHEN e.prescription = 'FIX_CART_LEAK_CUT_PPC'  THEN 1 END) AS INTEGER) AS n_fix_cart_leak,
+    CAST(COUNT(CASE WHEN e.prescription = 'NEGATIVE_EXACT'          THEN 1 END) AS INTEGER) AS n_negative_exact,
+    CAST(COUNT(CASE WHEN e.prescription = 'INJECT_INTO_SEO'         THEN 1 END) AS INTEGER) AS n_inject_into_seo,
+    CAST(COUNT(CASE WHEN e.prescription = 'DEFEND_ORGANIC'          THEN 1 END) AS INTEGER) AS n_defend_organic,
+    CAST(COUNT(CASE WHEN e.prescription = 'DISPLACE_WEAK_LEADER'    THEN 1 END) AS INTEGER) AS n_displace_weak_leader,
+    CAST(COUNT(CASE WHEN e.prescription = 'EVALUATE_OR_SKIP'        THEN 1 END) AS INTEGER) AS n_evaluate_or_skip,
+    -- Signal counts
+    CAST(SUM(CASE WHEN e.sig_cart_leak       THEN 1 ELSE 0 END) AS INTEGER) AS n_sig_cart_leak,
+    CAST(SUM(CASE WHEN e.sig_bleeder         THEN 1 ELSE 0 END) AS INTEGER) AS n_sig_bleeder,
+    CAST(SUM(CASE WHEN e.sig_proven_winner   THEN 1 ELSE 0 END) AS INTEGER) AS n_sig_proven_winner,
+    CAST(SUM(CASE WHEN e.sig_cannibalization THEN 1 ELSE 0 END) AS INTEGER) AS n_sig_cannibalization,
+    CAST(SUM(CASE WHEN e.sig_weak_leader     THEN 1 ELSE 0 END) AS INTEGER) AS n_sig_weak_leader,
+    CAST(SUM(CASE WHEN e.sig_defend          THEN 1 ELSE 0 END) AS INTEGER) AS n_sig_defend,
+    -- Averaged KPIs (mean over detail rows in each bucket)
+    AVG(e.sqp_impression_share)      AS avg_sqp_impression_share,
+    AVG(e.sqp_click_share)           AS avg_sqp_click_share,
+    AVG(e.sqp_brand_purchase_share)  AS avg_sqp_brand_purchase_share,
+    AVG(e.ppc_cvr)                   AS avg_ppc_cvr,
+    AVG(e.ppc_roas)                  AS avg_ppc_roas,
+    AVG(e.cart_to_purchase_rate)     AS avg_cart_to_purchase_rate,
+    -- Summed spend / volume
+    SUM(COALESCE(e.ppc_spend,  0))   AS total_ppc_spend,
+    SUM(COALESCE(e.ppc_sales,  0))   AS total_ppc_sales,
+    SUM(COALESCE(e.ppc_clicks, 0))   AS total_ppc_clicks
+  FROM intent_enriched e
+  GROUP BY {{group_by_clause}}
 )
 
-SELECT
-  kw_norm                          AS keyword_normalized,
-  keyword,
-  child_asin,
-  parent_asin,
-  product_family,
-  brand,
-  is_hero,
-  sibling_count,
-  prescription,
-  -- Signals
-  sig_cart_leak,
-  sig_bleeder,
-  sig_proven_winner,
-  sig_cannibalization,
-  sig_weak_leader,
-  sig_defend,
-  -- SQP
-  sqp_asin_impressions,
-  sqp_asin_clicks,
-  sqp_impression_share,
-  sqp_click_share,
-  sqp_cart_add_rate,
-  sqp_brand_purchase_share,
-  sqp_ctr_advantage,
-  sqp_search_query_score,
-  -- SCP
-  scp_impressions,
-  scp_clicks,
-  scp_cart_adds,
-  scp_purchases,
-  scp_click_rate,
-  scp_cart_add_rate,
-  scp_purchase_rate,
-  scp_sales_per_click,
-  scp_search_traffic_sales,
-  cart_to_purchase_rate,
-  -- PPC
-  ppc_impressions,
-  ppc_clicks,
-  ppc_spend,
-  ppc_sales,
-  ppc_purchases,
-  ppc_cvr,
-  ppc_roas,
-  ppc_acos,
-  ppc_campaign_count,
-  ppc_match_type_sample,
-  -- Screenshot
-  screenshot_data_available,
-  screenshot_uploaded_at,
-  screenshot_total_impressions,
-  screenshot_total_clicks,
-  screenshot_total_click_rate,
-  screenshot_leader_click_rate,
-  screenshot_competitors,
-  -- Registry
-  competitor_registry_asins,
-  -- Deep link
-  seller_central_query_detail_url
-FROM focus_filtered
-ORDER BY
-  CASE prescription
-    WHEN 'FIX_CART_LEAK_CUT_PPC' THEN 1
-    WHEN 'NEGATIVE_EXACT'        THEN 2
-    WHEN 'INJECT_INTO_SEO'       THEN 3
-    WHEN 'DISPLACE_WEAK_LEADER'  THEN 4
-    WHEN 'DEFEND_ORGANIC'        THEN 5
-    ELSE 9
-  END,
-  COALESCE(ppc_spend, 0)            DESC,
-  COALESCE(sqp_asin_impressions, 0) DESC
+SELECT *
+FROM aggregated
+ORDER BY total_ppc_spend DESC NULLS LAST
 LIMIT {{limit_top_n}}
