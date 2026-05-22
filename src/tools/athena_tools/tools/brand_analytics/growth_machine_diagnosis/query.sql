@@ -211,7 +211,7 @@ scp AS (
     AVG(sc.kpi_sales_per_impression) AS scp_sales_per_impression,
     SUM(COALESCE(sc.purchasedata_searchtrafficsales_amount, 0)) AS scp_search_traffic_sales
   FROM "{{catalog}}"."brand_analytics_iceberg"."search_catalog_performance_snapshot" sc, params p
-  WHERE sc.company_id = p.company_id
+  WHERE sc.company_id = CAST(p.company_id AS VARCHAR)
     AND LOWER(sc.marketplace_country_code) = LOWER(p.marketplace)
     AND sc.week_start BETWEEN p.period_start AND p.period_end
     AND sc.asin IN (SELECT child_asin FROM entity_asins)
