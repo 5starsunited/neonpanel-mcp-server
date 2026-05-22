@@ -416,7 +416,7 @@ intent_enriched AS (
     ti.primary_intent_label                             AS intent_label
   FROM focus_filtered f
   LEFT JOIN term_intents ti
-    ON ti.company_id = (SELECT company_id FROM params)
+    ON ti.company_id = CAST((SELECT company_id FROM params) AS VARCHAR)
    AND ti.term_norm  = f.kw_norm
 ),
 
