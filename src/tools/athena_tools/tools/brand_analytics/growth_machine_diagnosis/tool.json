@@ -37,7 +37,16 @@
         "enum": ["growth_machine", "cart_leak", "cannibalization", "weak_leader", "defend", "generic"],
         "default": "growth_machine"
       },
-      "limit": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 200 }
+      "limit": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 200 },
+      "group_by": {
+        "type": "array",
+        "maxItems": 3,
+        "items": {
+          "type": "string",
+          "enum": ["intent", "prescription", "product_family", "brand", "parent_asin"]
+        },
+        "description": "Optional dimensions to aggregate results (max 3). When provided, returns grouped rows in `aggregations` instead of per-row `items`.\n\nOutput columns by dimension:\n- 'intent' → intent_id, intent_label\n- 'prescription' → prescription\n- 'product_family' → product_family\n- 'brand' → brand\n- 'parent_asin' → parent_asin\n\nAll grouped rows also include: row_count, keyword_count, asin_count; prescription distribution (n_fix_cart_leak, n_negative_exact, n_inject_into_seo, n_defend_organic, n_displace_weak_leader, n_evaluate_or_skip); signal counts (n_sig_cart_leak, n_sig_bleeder, n_sig_proven_winner, n_sig_cannibalization, n_sig_weak_leader, n_sig_defend); averaged KPIs (avg_sqp_impression_share, avg_sqp_click_share, avg_sqp_brand_purchase_share, avg_ppc_cvr, avg_ppc_roas, avg_cart_to_purchase_rate); summed PPC metrics (total_ppc_spend, total_ppc_sales, total_ppc_clicks). Note: SCP search traffic sales are intentionally excluded from grouped output — SCP is ASIN-grain with no query dimension, so it cannot be meaningfully distributed across intent or prescription buckets."
+      }
     },
     "required": ["company_id", "period_start", "period_end"],
     "additionalProperties": false
@@ -56,13 +65,52 @@
           "grain": { "type": "string" },
           "focus": { "type": "string" },
           "rows_returned": { "type": "integer" },
-          "keywords_in_scope": { "type": "integer" },
+          "keywords_in_scope": { "type": ["integer", "null"] },
           "normalization_match_rate": { "type": ["number", "null"] },
           "use_tracked_search_terms": { "type": "boolean" },
-          "use_competitor_registry": { "type": "boolean" }
+          "use_competitor_registry": { "type": "boolean" },
+          "group_by": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Echoes the requested grouping dimensions (only present in grouped mode)."
+          }
         }
       },
-      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+      "aggregations": {
+        "type": "array",
+        "description": "Present when `group_by` is non-empty. Each row is a grouped prescription summary bucket with counts, averaged KPIs, and summed spend/sales.",
+        "items": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "row_count": { "type": "integer", "description": "Number of (keyword × ASIN) rows in this bucket." },
+            "keyword_count": { "type": "integer", "description": "Distinct keywords in this bucket." },
+            "asin_count": { "type": "integer", "description": "Distinct ASINs in this bucket." },
+            "n_fix_cart_leak": { "type": "integer" },
+            "n_negative_exact": { "type": "integer" },
+            "n_inject_into_seo": { "type": "integer" },
+            "n_defend_organic": { "type": "integer" },
+            "n_displace_weak_leader": { "type": "integer" },
+            "n_evaluate_or_skip": { "type": "integer" },
+            "n_sig_cart_leak": { "type": "integer" },
+            "n_sig_bleeder": { "type": "integer" },
+            "n_sig_proven_winner": { "type": "integer" },
+            "n_sig_cannibalization": { "type": "integer" },
+            "n_sig_weak_leader": { "type": "integer" },
+            "n_sig_defend": { "type": "integer" },
+            "avg_sqp_impression_share": { "type": ["number", "null"] },
+            "avg_sqp_click_share": { "type": ["number", "null"] },
+            "avg_sqp_brand_purchase_share": { "type": ["number", "null"] },
+            "avg_ppc_cvr": { "type": ["number", "null"] },
+            "avg_ppc_roas": { "type": ["number", "null"] },
+            "avg_cart_to_purchase_rate": { "type": ["number", "null"] },
+            "total_ppc_spend": { "type": ["number", "null"] },
+            "total_ppc_sales": { "type": ["number", "null"] },
+            "total_ppc_clicks": { "type": ["integer", "null"] }
+          }
+        }
+      }
     },
     "required": ["header", "items"]
   }

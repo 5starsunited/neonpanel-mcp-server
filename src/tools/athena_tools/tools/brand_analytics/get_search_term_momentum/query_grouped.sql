@@ -36,16 +36,7 @@ WITH params AS (
     CAST({{min_search_volume}} AS DOUBLE)                 AS min_search_volume
 ),
 
-term_intents AS (
-  -- Placeholder CTE: without search_term_to_intent mapping, we return NULLs
-  -- to maintain schema compatibility while grouped query executes
-  SELECT
-    CAST(NULL AS BIGINT) AS company_id,
-    CAST(NULL AS VARCHAR) AS term_norm,
-    CAST(NULL AS VARCHAR) AS primary_intent_id,
-    CAST(NULL AS VARCHAR) AS primary_intent_label
-  WHERE FALSE
-),
+{{term_intents_cte_sql}},
 
 base_filtered AS (
   SELECT s.*
@@ -68,6 +59,8 @@ base_filtered AS (
         END
       )
     )
+
+    AND ({{intent_terms_filter_sql}})
 
     AND (cardinality(p.marketplaces) = 0
          OR any_match(p.marketplaces,

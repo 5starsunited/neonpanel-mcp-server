@@ -18,6 +18,40 @@
         "maxLength": 200,
         "description": "Optional product-category hint (e.g. 'foot care', 'compression apparel') to help the agent name intents."
       },
+      "mode": {
+        "type": "string",
+        "enum": ["auto", "use_existing", "restrict_existing", "suggest_to_agent"],
+        "default": "auto",
+        "description": "Optional. 'auto' (default) = LLM-only clustering. 'use_existing' = prefer mapping to existing intents, allow new ones. 'restrict_existing' = only map to existing intents. 'suggest_to_agent' = produce ranked suggestions for human review."
+      },
+      "top_k_candidates": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 3,
+        "description": "When using suggest_to_agent mode, how many candidate intents to return per term."
+      },
+      "max_review_items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000,
+        "default": 500,
+        "description": "Maximum number of terms to include in the suggestion review payload."
+      },
+      "t_assign": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.85,
+        "description": "Similarity threshold above which terms are considered auto-assignable (not returned for review)."
+      },
+      "t_review_low": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.4,
+        "description": "Similarity floor for items to be considered for human review."
+      },
       "target_cluster_count": {
         "type": "integer",
         "minimum": 3,
@@ -42,6 +76,38 @@
       "response_schema": { "type": "object", "additionalProperties": true },
       "message": { "type": "string" },
       "next_steps": { "type": "array", "items": { "type": "string" } },
+      "existing_intents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "intent_id": { "type": "string" },
+            "intent_name": { "type": "string" },
+            "customer_need": { "type": ["string", "null"] },
+            "sample_terms": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "suggestions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "term": { "type": "string" },
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "intent_id": { "type": "string" },
+                  "intent_name": { "type": "string" },
+                  "score": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            }
+          }
+        }
+      },
       "error": { "type": "string" }
     },
     "required": ["clustering_run_id"]

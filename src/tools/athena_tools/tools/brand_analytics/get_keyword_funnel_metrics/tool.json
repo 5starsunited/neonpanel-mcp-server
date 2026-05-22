@@ -139,7 +139,7 @@
                   "type": "string",
                   "enum": ["intent", "company", "marketplace", "keyword", "week", "month"]
                 },
-                "description": "Optional. When non-empty, returns weighted aggregations bucketed by these dimensions (max 3) instead of per-row items. Brand shares = SUM(brand)/SUM(total); funnel rates use SUM/SUM weighting; search_query_score is volume-weighted."
+                "description": "Optional. When non-empty, returns weighted aggregations bucketed by these dimensions (max 3) instead of per-row items. Brand shares = SUM(brand)/SUM(total); funnel rates use SUM/SUM weighting; search_query_score is volume-weighted.\n\nOutput columns by dimension:\n- 'intent' → intent_id, intent_label\n- 'company' → company_id\n- 'marketplace' → marketplace\n- 'keyword' → keyword\n- 'week' → week\n- 'month' → month"
               }
             },
             "additionalProperties": false

@@ -143,7 +143,7 @@
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
+                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share.\n\nOutput columns by dimension:\n- 'intent' → intent_id, primary_intent_label\n- 'search_term' → search_term\n- 'marketplace' → marketplace\n- 'company' → company_id\n- 'brand' → my_brand\n- 'product_family' → product_family\n- 'category' → category\n- 'asin' → asin"
               },
               "time": {
                 "type": "object",
@@ -264,6 +264,7 @@
                 "leader_conversion_share",
                 "displacement_opportunity_score",
                 "click_share_to_leader",
+                "intent_id",
                 "intent_ids",
                 "primary_intent_id",
                 "primary_intent_label"
@@ -626,6 +627,10 @@
               ],
               "description": "Gap between your click share and the leader's. Negative = you trail. Null if you are the leader or not in top 3."
             },
+            "intent_id": {
+              "type": ["string", "null"],
+              "description": "Grouped mode only (group_by includes 'intent'): the intent bucket identifier (e.g., 'beginner_kit_shopping'), or '__UNCLASSIFIED__' for unclassified terms."
+            },
             "intent_ids": {
               "type": ["array", "null"],
               "items": { "type": "string" },
@@ -637,7 +642,7 @@
             },
             "primary_intent_label": {
               "type": ["string", "null"],
-              "description": "Human-readable label of the primary intent."
+              "description": "Human-readable label of the primary intent. In grouped mode (group_by includes 'intent'), this is the label for the intent_id bucket."
             }
           },
           "additionalProperties": true
