@@ -4,6 +4,32 @@ WITH raw AS (
     FROM "AwsDataCatalog"."brand_analytics_iceberg"."search_query_performance_snapshot"
 ),
 
+-- ─── Intent dimension enrichment ────────────────────────────────────────
+term_intents AS (
+    SELECT
+        sti.company_id,
+        lower(sti.search_term) AS term_norm,
+        array_agg(DISTINCT sti.intent_id) AS intent_ids,
+        arbitrary(CASE WHEN sti.rn_primary = 1 THEN sti.intent_id END) AS primary_intent_id,
+        arbitrary(CASE WHEN sti.rn_primary = 1 THEN ui.intent_name END) AS primary_intent_label
+    FROM (
+        SELECT
+            company_id,
+            search_term,
+            intent_id,
+            confidence,
+            ROW_NUMBER() OVER (
+                PARTITION BY company_id, lower(search_term)
+                ORDER BY confidence DESC NULLS LAST, intent_id ASC
+            ) AS rn_primary
+        FROM "AwsDataCatalog"."brand_analytics_iceberg"."search_term_to_intent"
+    ) sti
+    LEFT JOIN "AwsDataCatalog"."brand_analytics_iceberg"."user_intents" ui
+        ON ui.company_id = sti.company_id
+       AND ui.intent_id = sti.intent_id
+    GROUP BY sti.company_id, lower(sti.search_term)
+),
+
 -- Step 1: Reconstruct Trend Metrics removed from DDL
 trends AS (
     SELECT 
@@ -259,6 +285,9 @@ signal_base AS (
 final AS (
     SELECT
         sb.*,
+        ti.intent_ids,
+        ti.primary_intent_id,
+        ti.primary_intent_label,
         CASE
             WHEN sb.kpi_impression_share_wow > thr.trend_green AND sb.kpi_impression_share_wolast4 > thr.trend_green AND sb.kpi_impression_share_wolast12 > thr.trend_green THEN 'green'
             WHEN sb.kpi_impression_share_wow < thr.trend_red   AND sb.kpi_impression_share_wolast4 < thr.trend_red   AND sb.kpi_impression_share_wolast12 < thr.trend_red   THEN 'red'
@@ -286,6 +315,9 @@ final AS (
         END AS ctr_advantage_trend_signal
     FROM signal_base sb
     JOIN company_thresholds thr ON thr.company_id = CAST(sb.company_id AS BIGINT)
+    LEFT JOIN term_intents ti
+        ON CAST(ti.company_id as VARCHAR)  = sb.company_id
+       AND ti.term_norm = lower(sb.searchquerydata_searchquery)
 )
 
 SELECT
@@ -313,6 +345,9 @@ SELECT
     f.searchquerydata_searchquery                                    AS "Search Query",
     f.searchquerydata_searchqueryscore                               AS "Search Query Score",
     f.searchquerydata_searchqueryvolume                              AS "Search Query Volume",
+    f.primary_intent_id                                              AS "Primary Intent ID",
+    f.primary_intent_label                                           AS "Primary Intent Label",
+    f.intent_ids                                                     AS "Intent IDs",
 
     -- Impressions
     f.impressiondata_totalqueryimpressioncount                        AS "Total Query Impressions",

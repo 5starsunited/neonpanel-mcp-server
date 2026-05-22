@@ -1,0 +1,104 @@
+-- =============================================================================
+-- Enrich search-term performance with primary user intent
+-- Datasource: brand_analytics_iceberg
+-- One row per (company, week, asin, search_term), with primary intent attached.
+-- =============================================================================
+
+WITH
+-- 1. Pick the strongest intent per (company_id, search_term)
+primary_intent AS (
+  SELECT
+    company_id,
+    search_term,
+    intent_id,
+    confidence,
+    ROW_NUMBER() OVER (
+      PARTITION BY company_id, lower(search_term)
+      ORDER BY confidence DESC, intent_id  -- deterministic tiebreak
+    ) AS rn
+  FROM brand_analytics_iceberg.search_term_to_intent
+),
+intent_enriched AS (
+  SELECT
+    pi.company_id,
+    lower(pi.search_term)         AS term_norm,
+    pi.intent_id                  AS primary_intent_id,
+    pi.confidence                 AS primary_intent_confidence,
+    ui.intent_name                AS primary_intent_name,
+    ui.customer_need              AS primary_intent_need,
+    ui.source                     AS primary_intent_source
+  FROM primary_intent pi
+  LEFT JOIN brand_analytics_iceberg.user_intents ui
+    ON ui.company_id = pi.company_id
+   AND ui.intent_id  = pi.intent_id
+   AND ui.status     = 'active'
+  WHERE pi.rn = 1
+)
+
+SELECT
+  -- Scope
+  s.company_id,
+  s.marketplace_country_code,
+  s.brand,
+  s.product_family,
+  s.parent_asin,
+  s.asin,
+  s.week_start,
+
+  -- Search term
+  s.searchquerydata_searchquery                   AS search_term,
+  s.searchquerydata_searchqueryvolume             AS search_volume,
+
+  -- KPIs
+  s.kpi_impression_share,
+  s.kpi_click_share,
+  s.kpi_cart_add_rate,
+  s.kpi_purchase_rate,
+
+  -- Intent enrichment (NULL if term unmapped)
+  ie.primary_intent_id,
+  ie.primary_intent_name,
+  ie.primary_intent_need,
+  ie.primary_intent_confidence,
+  ie.primary_intent_source,
+  CASE WHEN ie.primary_intent_id IS NULL THEN 'unmapped' ELSE 'mapped' END
+    AS intent_coverage_status
+
+FROM brand_analytics_iceberg.search_query_performance_snapshot s
+LEFT JOIN intent_enriched ie
+       ON ie.company_id = CAST(s.company_id AS BIGINT)
+      AND ie.term_norm  = lower(s.searchquerydata_searchquery)
+WHERE s.week_start >= current_date - INTERVAL '13' WEEK   -- adjust as needed
+;
+
+SELECT
+  s.company_id,
+  s.brand,
+  s.product_family,
+  s.parent_asin,
+  s.asin,
+  s.week_start,
+  s.searchquerydata_searchquery                       AS search_term,
+
+  -- Intent join (fanout)
+  ui.intent_id,
+  ui.intent_name,
+  ui.customer_need,
+  m.confidence                                        AS intent_confidence,
+  m.contribution_pct                                  AS intent_contribution_pct,
+
+  -- Volumes/KPIs split by contribution (use these in QuickSight aggregations)
+  s.searchquerydata_searchqueryvolume * m.contribution_pct
+                                                      AS search_volume_attributed,
+  s.kpi_purchase_rate                                 AS purchase_rate_raw
+
+FROM brand_analytics_iceberg.search_query_performance_snapshot s
+LEFT JOIN brand_analytics_iceberg.search_term_to_intent m
+       ON m.company_id   = CAST(s.company_id AS BIGINT)
+      AND lower(m.search_term) = lower(s.searchquerydata_searchquery)
+LEFT JOIN brand_analytics_iceberg.user_intents ui
+       ON ui.company_id = m.company_id
+      AND ui.intent_id  = m.intent_id
+      AND ui.status     = 'active'
+WHERE s.week_start >= current_date - INTERVAL '13' WEEK
+;

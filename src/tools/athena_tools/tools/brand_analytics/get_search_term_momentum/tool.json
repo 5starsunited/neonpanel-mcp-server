@@ -143,7 +143,7 @@
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share."
+                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share.\n\nOutput columns by dimension:\n- 'intent' → intent_id\n- 'search_term' → search_term\n- 'marketplace' → marketplace\n- 'company' → company_id\n- 'brand' → my_brand\n- 'product_family' → product_family\n- 'category' → category\n- 'asin' → asin"
               },
               "time": {
                 "type": "object",

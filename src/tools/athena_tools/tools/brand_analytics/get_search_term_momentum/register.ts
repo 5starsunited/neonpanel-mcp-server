@@ -120,7 +120,7 @@ const inputSchema = z
 type DimensionConfig = { expression: string; alias: string };
 
 const dimensionMap: Record<GroupByField, DimensionConfig> = {
-  intent: { expression: "COALESCE(aw.primary_intent_id, '__UNCLASSIFIED__')", alias: 'primary_intent_id' },
+  intent: { expression: "COALESCE(aw.primary_intent_id, '__UNCLASSIFIED__')", alias: 'intent_id' },
   search_term: { expression: 'aw.search_term', alias: 'search_term' },
   marketplace: { expression: 'aw.marketplace', alias: 'marketplace' },
   company: { expression: 'aw.company_id', alias: 'company_id' },
