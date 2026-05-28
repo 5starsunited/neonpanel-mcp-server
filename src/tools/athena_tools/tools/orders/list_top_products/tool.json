@@ -1,0 +1,120 @@
+{
+  "name": "orders_list_top_products",
+  "description": "Ranks products (ASIN + SKU) by revenue, orders, or units from sp_api_iceberg.orders_v2026.\n\nUse this tool to:\n- Find top-selling ASINs/SKUs by revenue or volume in any time window\n- Compare product performance across marketplaces\n- Identify low-volume vs high-ASP products\n- Filter to specific ASINs, SKUs, marketplaces, or order statuses\n\nRevenue uses item-level proceeds_total (more accurate than order grand_total for multi-item orders).\nRanking is per marketplace × currency × company group.\n\nDefault window: last 3 months. Default sort: gross_revenue DESC.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Company identifier(s) — required."
+              },
+              "asins": { "type": "array", "items": { "type": "string" }, "maxItems": 50 },
+              "skus": { "type": "array", "items": { "type": "string" }, "maxItems": 50 },
+              "marketplace_ids": { "type": "array", "items": { "type": "string" } },
+              "order_statuses": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["SHIPPED", "PENDING", "CANCELED", "UNSHIPPED", "PENDING_AVAILABILITY", "PARTIALLY_SHIPPED"] }
+              }
+            },
+            "required": ["company_ids"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "object",
+                "properties": {
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": { "type": "integer", "minimum": 1, "maximum": 24, "default": 3 }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string", "enum": ["gross_revenue", "orders", "units_ordered"], "default": "gross_revenue" },
+              "direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "tool_specific": {
+        "type": "object",
+        "properties": {
+          "min_orders": { "type": "integer", "minimum": 0, "default": 0, "description": "Minimum distinct orders to include a product." }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rank":            { "type": "integer" },
+            "asin":            { "type": "string" },
+            "seller_sku":      { "type": "string" },
+            "title":           { "type": ["string", "null"] },
+            "marketplace_id":  { "type": "string" },
+            "currency":        { "type": "string" },
+            "company_id":      { "type": "string" },
+            "orders":          { "type": ["integer", "null"] },
+            "units_ordered":   { "type": ["integer", "null"] },
+            "gross_revenue":   { "type": ["number", "null"] },
+            "avg_unit_price":  { "type": ["number", "null"] },
+            "first_order_date":{ "type": "string", "format": "date" },
+            "last_order_date": { "type": "string", "format": "date" }
+          }
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Top 20 products by revenue",
+      "request": {
+        "query": {
+          "filters": { "company_ids": [106] },
+          "sort": { "field": "gross_revenue", "direction": "desc" },
+          "limit": 20
+        },
+        "tool_specific": { "min_orders": 3 }
+      }
+    },
+    {
+      "title": "Top products by units in US marketplace",
+      "request": {
+        "query": {
+          "filters": { "company_ids": [106], "marketplace_ids": ["ATVPDKIKX0DER"] },
+          "sort": { "field": "units_ordered", "direction": "desc" },
+          "limit": 30
+        }
+      }
+    }
+  ]
+}

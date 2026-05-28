@@ -1,0 +1,70 @@
+{
+  "name": "orders_get_order_details",
+  "description": "Fetches full details for a single Amazon order from sp_api_iceberg.orders_v2026, including all order items expanded into individual rows.\n\nUse this tool to:\n- Get complete item-level breakdown for a specific order\n- See unit prices, proceeds, fulfillment quantities per item\n- Check which promotions were applied per line item\n- Verify ship-by windows and fulfillment status\n\nReturns one row per order item. Use orders_list_orders to discover order_ids first.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Company identifier — required for authorization and partition pruning."
+      },
+      "order_id": {
+        "type": "string",
+        "description": "Amazon order ID (e.g. '112-4809023-8655459')."
+      }
+    },
+    "required": ["company_id", "order_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "order_id":               { "type": "string" },
+            "created_time":           { "type": "string" },
+            "last_updated_time":      { "type": "string" },
+            "marketplace_id":         { "type": ["string", "null"] },
+            "marketplace_name":       { "type": ["string", "null"] },
+            "fulfillment_status":     { "type": ["string", "null"] },
+            "fulfilled_by":           { "type": ["string", "null"] },
+            "service_level":          { "type": ["string", "null"] },
+            "ship_by_earliest":       { "type": ["string", "null"] },
+            "ship_by_latest":         { "type": ["string", "null"] },
+            "order_total":            { "type": ["number", "null"] },
+            "order_currency":         { "type": ["string", "null"] },
+            "company_id":             { "type": "string" },
+            "seller_id":              { "type": "string" },
+            "order_item_id":          { "type": "string" },
+            "asin":                   { "type": ["string", "null"] },
+            "seller_sku":             { "type": ["string", "null"] },
+            "title":                  { "type": ["string", "null"] },
+            "unit_list_price":        { "type": ["number", "null"] },
+            "list_price_currency":    { "type": ["string", "null"] },
+            "quantity_ordered":       { "type": ["integer", "null"] },
+            "quantity_fulfilled":     { "type": ["integer", "null"] },
+            "quantity_unfulfilled":   { "type": ["integer", "null"] },
+            "proceeds_total":         { "type": ["number", "null"] },
+            "proceeds_currency":      { "type": ["string", "null"] },
+            "promotion_ids":          { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Get full details for a specific order",
+      "request": {
+        "company_id": 106,
+        "order_id": "112-4809023-8655459"
+      }
+    }
+  ]
+}

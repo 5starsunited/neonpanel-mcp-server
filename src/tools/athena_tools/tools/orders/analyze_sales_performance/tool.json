@@ -1,0 +1,124 @@
+{
+  "name": "orders_analyze_sales_performance",
+  "description": "Analyzes placed-order sales performance over time from sp_api_iceberg.orders_v2026.\n\nUse this tool to:\n- Track daily, weekly, or monthly revenue and order volume trends\n- Monitor fulfillment status mix (shipped / pending / canceled) over time\n- Analyze FBA (AMAZON) vs FBM split by period\n- Compare gross revenue and average order value across time windows\n- Filter by marketplace, order status, fulfillment channel, or seller\n\nKey metrics per period:\n- orders: distinct placed orders (deduplicated to latest snapshot)\n- gross_revenue: sum of order grand_total amounts\n- avg_order_value: gross_revenue ÷ orders\n- shipped_count / pending_count / canceled_count: status breakdown\n- fba_count / fbm_count: fulfillment channel split\n\nGranularity: day (default), week, or month.\nDefault window: last 3 months. Use start_date/end_date for exact ranges.\n\nIMPORTANT: Revenue is per-currency. Filter by marketplace_id to get single-currency results when selling in multiple regions.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Company identifier(s) — required."
+              },
+              "marketplace_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Amazon marketplace IDs (e.g. 'ATVPDKIKX0DER'). Omit for all."
+              },
+              "order_statuses": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["SHIPPED", "PENDING", "CANCELED", "UNSHIPPED", "PENDING_AVAILABILITY", "PARTIALLY_SHIPPED"] },
+                "description": "Filter to specific fulfillment statuses. Omit for all."
+              },
+              "fulfillment_channels": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "fulfilled_by values: 'AMAZON' (FBA) or merchant ID (FBM). Omit for all."
+              },
+              "seller_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Filter to specific seller IDs. Omit for all sellers."
+              }
+            },
+            "required": ["company_ids"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "granularity": {
+                "type": "string",
+                "enum": ["day", "week", "month"],
+                "default": "day",
+                "description": "Time bucket size."
+              },
+              "time": {
+                "type": "object",
+                "properties": {
+                  "start_date": { "type": "string", "format": "date" },
+                  "end_date": { "type": "string", "format": "date" },
+                  "periods_back": { "type": "integer", "minimum": 1, "maximum": 24, "default": 3, "description": "Months to look back (default 3)." }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "period_start":    { "type": "string" },
+            "marketplace_id":  { "type": "string" },
+            "currency":        { "type": "string" },
+            "company_id":      { "type": "string" },
+            "orders":          { "type": ["integer", "null"] },
+            "gross_revenue":   { "type": ["number", "null"] },
+            "avg_order_value": { "type": ["number", "null"] },
+            "shipped_count":   { "type": ["integer", "null"] },
+            "pending_count":   { "type": ["integer", "null"] },
+            "canceled_count":  { "type": ["integer", "null"] },
+            "fba_count":       { "type": ["integer", "null"] },
+            "fbm_count":       { "type": ["integer", "null"] }
+          }
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Monthly revenue trend — last 6 months",
+      "request": {
+        "query": {
+          "filters": { "company_ids": [106] },
+          "aggregation": { "granularity": "month", "time": { "periods_back": 6 } }
+        }
+      }
+    },
+    {
+      "title": "Weekly US shipped orders only",
+      "request": {
+        "query": {
+          "filters": {
+            "company_ids": [106],
+            "marketplace_ids": ["ATVPDKIKX0DER"],
+            "order_statuses": ["SHIPPED"]
+          },
+          "aggregation": { "granularity": "week", "time": { "periods_back": 3 } }
+        }
+      }
+    }
+  ]
+}
