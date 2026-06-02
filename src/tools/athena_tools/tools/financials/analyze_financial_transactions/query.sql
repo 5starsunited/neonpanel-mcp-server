@@ -1,5 +1,23 @@
--- Tool: financials_analyze_financial_transactions
--- Purpose: Summarize Amazon Monthly Transaction rows into monthly summary report classes.
+-- Tool: financials_analyze_financial_transactions (JSON / financial_transactions table)
+-- Purpose: Summarize SP-API financial transactions into monthly summary report
+--          classes, mirroring Amazon's Date Range Summary report.
+--
+-- Classification model:
+--   * Money is classified at the BREAKDOWN (leaf) level, not the transaction
+--     level -- one Shipment fans out across Income / Expenses / Tax. We unpivot
+--     the bd_* leaf columns into lines, then join a rules map on
+--     (match_key, sign).
+--   * Transactions with NO breakdowns (Transfer, FBAInventoryReimbursement, some
+--     ServiceFee) are classified at the transaction level on their total, keyed
+--     as 'TXN:<transactionType>'.
+--   * The class is constant per breakdown type; only the subclass flips with the
+--     sign of the amount (charge vs refund). SUM of all classified lines
+--     reconciles to SUM(item_total) because SUM(bd_*) == item_total per row.
+--
+-- The transaction_class_map CTE is shaped identically to the optional physical
+-- table neonpanel_iceberg.financial_transaction_class_map (see seed file
+-- financial_transaction_class_map.sql). To externalize, replace the CTE body
+-- with: SELECT * FROM "{{catalog}}"."neonpanel_iceberg"."financial_transaction_class_map".
 
 WITH params AS (
     SELECT
@@ -11,243 +29,176 @@ WITH params AS (
 ),
 source_rows AS (
     SELECT r.*
-    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_monthly_transactions_raw" r
+    FROM "{{catalog}}"."neonpanel_iceberg"."financial_transactions" r
     CROSS JOIN params p
     WHERE CAST(r.company_id AS BIGINT) = p.company_id
       AND (
           cardinality(p.report_months) = 0
-          OR contains(p.report_months, r.report_month)
+          OR contains(p.report_months, r.posted_month)
       )
 ),
-amount_lines AS (
-    SELECT
-        'Income' AS summary_class,
-        CASE
-            WHEN transaction_type = 'Chargeback Refund' THEN 'Chargebacks'
-            WHEN transaction_type = 'Liquidations' THEN 'FBA liquidation proceeds'
-            WHEN transaction_type = 'Liquidations Adjustments' THEN 'FBA Liquidations proceeds adjustments'
-            WHEN product_sales < 0 AND fulfillment = 'Amazon' THEN 'FBA product sale refunds'
-            WHEN product_sales < 0 THEN 'Product sale refunds (non-FBA)'
-            WHEN fulfillment = 'Amazon' THEN 'FBA product sales'
-            ELSE 'Product sales (non-FBA)'
-        END AS summary_subclass,
-        product_sales AS amount
-    FROM source_rows
-    WHERE product_sales <> 0
-
-    UNION ALL
-
-    SELECT
-        'Tax',
-        CASE
-            WHEN product_sales_tax + shipping_credits_tax + gift_wrap_credits_tax + regulatory_fee + tax_on_regulatory_fee < 0
-                THEN 'Product, shipping, gift wrap taxes and regulatory fee refunded'
-            ELSE 'Product, shipping, gift wrap taxes and regulatory fee collected'
-        END,
-        product_sales_tax + shipping_credits_tax + gift_wrap_credits_tax + regulatory_fee + tax_on_regulatory_fee
-    FROM source_rows
-    WHERE transaction_type <> 'Chargeback Refund'
-      AND product_sales_tax + shipping_credits_tax + gift_wrap_credits_tax + regulatory_fee + tax_on_regulatory_fee <> 0
-
-    UNION ALL
-
-    SELECT
-        'Income',
-        CASE WHEN shipping_credits < 0 THEN 'Shipping credit refunds' ELSE 'Shipping credits' END,
-        shipping_credits
-    FROM source_rows
-    WHERE shipping_credits <> 0
-
-    UNION ALL
-
-    SELECT
-        'Income',
-        CASE WHEN gift_wrap_credits < 0 THEN 'Gift wrap credit refunds' ELSE 'Gift wrap credits' END,
-        gift_wrap_credits
-    FROM source_rows
-    WHERE gift_wrap_credits <> 0
-
-    UNION ALL
-
-    SELECT
-        'Income',
-        CASE WHEN promotional_rebates < 0 THEN 'Promotional rebates' ELSE 'Promotional rebate refunds' END,
-        promotional_rebates
-    FROM source_rows
-    WHERE promotional_rebates <> 0
-
-    UNION ALL
-
-    SELECT
-        'Tax',
-        'Amazon Obligated Tax and Regulatory Fee Withheld',
-        marketplace_withheld_tax
-    FROM source_rows
-    WHERE marketplace_withheld_tax <> 0
-
-    UNION ALL
-
-    SELECT
-        'Expenses',
-        CASE
-            WHEN transaction_type = 'Amazon Fees' THEN 'Service fees'
-            WHEN selling_fees >= 0 THEN 'Selling fee refunds'
-            WHEN fulfillment = 'Amazon' THEN 'FBA selling fees'
-            ELSE 'Seller fulfilled selling fees'
-        END,
-        selling_fees
-    FROM source_rows
-    WHERE transaction_type <> 'Chargeback Refund'
-      AND selling_fees <> 0
-
-    UNION ALL
-
-    SELECT
-        'Expenses',
-        CASE
-            WHEN transaction_type IN ('Service Fee', 'Service Fee - Reversal', 'Service Fee - Correction') THEN 'FBA inventory and inbound services fees'
-            WHEN fba_fees >= 0 THEN 'FBA transaction fee refunds'
-            ELSE 'FBA transaction fees'
-        END,
-        fba_fees
-    FROM source_rows
-    WHERE fba_fees <> 0
-
-    UNION ALL
-
-    SELECT
-        CASE
-            WHEN transaction_type = 'Service Fee' AND description = 'Refund for Advertiser' THEN 'Expenses'
-            WHEN transaction_type IN ('Liquidations', 'Liquidations Adjustments') THEN 'Expenses'
-            WHEN other_transaction_fees >= 0 THEN 'Expenses'
-            ELSE 'Expenses'
-        END,
-        CASE
-            WHEN transaction_type = 'Service Fee' AND description = 'Refund for Advertiser' THEN 'Refund for Advertiser'
-            WHEN transaction_type IN ('Liquidations', 'Liquidations Adjustments') THEN 'Liquidations fees'
-            WHEN other_transaction_fees >= 0 THEN 'Other transaction fee refunds'
-            ELSE 'Other transaction fees'
-        END,
-        other_transaction_fees
-    FROM source_rows
-    WHERE other_transaction_fees <> 0
-
-    UNION ALL
-
-    SELECT
-        CASE
-            WHEN transaction_type = 'Transfer' THEN 'Transfers'
-            WHEN transaction_type = 'Adjustment' AND other_amount > 0 THEN 'Income'
-            WHEN transaction_type IS NULL THEN 'Income'
-            ELSE 'Expenses'
-        END,
-        CASE
-            WHEN transaction_type = 'Transfer' THEN 'Transfers to bank account'
-            WHEN transaction_type = 'Adjustment' AND other_amount > 0 THEN 'FBA inventory credit'
-            WHEN transaction_type = 'Adjustment' THEN 'Adjustments'
-            WHEN transaction_type = 'FBA Inventory Fee' THEN 'FBA inventory and inbound services fees'
-            WHEN transaction_type = 'Service Fee' THEN 'Service fees'
-            WHEN transaction_type IS NULL THEN 'Receivables Deductions'
-            WHEN other_amount >= 0 THEN 'FBA inventory credit'
-            ELSE 'Adjustments'
-        END,
-        other_amount
-    FROM source_rows
-    WHERE other_amount <> 0
-
-    UNION ALL
-
-    SELECT
-        'Income',
-        'Chargebacks',
-        product_sales_tax + shipping_credits_tax + gift_wrap_credits_tax + regulatory_fee + tax_on_regulatory_fee + selling_fees + fba_fees + other_transaction_fees + other_amount
-    FROM source_rows
-    WHERE transaction_type = 'Chargeback Refund'
-      AND product_sales_tax + shipping_credits_tax + gift_wrap_credits_tax + regulatory_fee + tax_on_regulatory_fee + selling_fees + fba_fees + other_transaction_fees + other_amount <> 0
+-- 1) Unpivot leaf breakdown columns into one line per non-zero amount.
+breakdown_lines AS (
+    SELECT transaction_id, transaction_type, fulfillment_network, 'OurPricePrincipal'                   AS match_key, bd_price_principal                      AS amount FROM source_rows WHERE bd_price_principal IS NOT NULL AND bd_price_principal <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'OurPriceDiscount',                    bd_price_discount                       FROM source_rows WHERE bd_price_discount IS NOT NULL AND bd_price_discount <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'OurPriceTax',                         bd_price_tax                            FROM source_rows WHERE bd_price_tax IS NOT NULL AND bd_price_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Commission',                          bd_commission                           FROM source_rows WHERE bd_commission IS NOT NULL AND bd_commission <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'RefundCommission',                    bd_refund_commission                    FROM source_rows WHERE bd_refund_commission IS NOT NULL AND bd_refund_commission <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'FBAPerUnitFulfillmentFee',            bd_fba_fulfillment_fee                  FROM source_rows WHERE bd_fba_fulfillment_fee IS NOT NULL AND bd_fba_fulfillment_fee <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'FBADisposalFee',                      bd_fba_disposal_fee                     FROM source_rows WHERE bd_fba_disposal_fee IS NOT NULL AND bd_fba_disposal_fee <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingPrincipal',                   bd_shipping_principal                   FROM source_rows WHERE bd_shipping_principal IS NOT NULL AND bd_shipping_principal <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingDiscount',                    bd_shipping_discount                    FROM source_rows WHERE bd_shipping_discount IS NOT NULL AND bd_shipping_discount <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingChargeback',                  bd_shipping_chargeback                  FROM source_rows WHERE bd_shipping_chargeback IS NOT NULL AND bd_shipping_chargeback <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingTax',                         bd_shipping_tax                         FROM source_rows WHERE bd_shipping_tax IS NOT NULL AND bd_shipping_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'MarketplaceFacilitatorTax-Principal', bd_marketplace_facilitator_tax          FROM source_rows WHERE bd_marketplace_facilitator_tax IS NOT NULL AND bd_marketplace_facilitator_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'MarketplaceFacilitatorTax-Shipping',  bd_marketplace_facilitator_tax_shipping FROM source_rows WHERE bd_marketplace_facilitator_tax_shipping IS NOT NULL AND bd_marketplace_facilitator_tax_shipping <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'RecommerceLiquidation',               bd_recommerce_liquidation               FROM source_rows WHERE bd_recommerce_liquidation IS NOT NULL AND bd_recommerce_liquidation <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'AmazonFees',                          bd_amazon_fees                          FROM source_rows WHERE bd_amazon_fees IS NOT NULL AND bd_amazon_fees <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Tax',                                 bd_tax                                  FROM source_rows WHERE bd_tax IS NOT NULL AND bd_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Promo',                               bd_promo                                FROM source_rows WHERE bd_promo IS NOT NULL AND bd_promo <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Other',                               bd_other                                FROM source_rows WHERE bd_other IS NOT NULL AND bd_other <> 0
 ),
-summary_catalog AS (
+-- 2) Transaction-level lines for rows that carry no breakdowns.
+total_lines AS (
+    SELECT
+        transaction_id,
+        transaction_type,
+        fulfillment_network,
+        'TXN:' || COALESCE(transaction_type, 'UNKNOWN') AS match_key,
+        COALESCE(item_total, transaction_total) AS amount
+    FROM source_rows
+    WHERE (item_breakdowns_raw IS NULL OR item_breakdowns_raw = '[]')
+      AND COALESCE(item_total, transaction_total) IS NOT NULL
+      AND COALESCE(item_total, transaction_total) <> 0
+),
+all_lines AS (
+    SELECT match_key, fulfillment_network, amount FROM breakdown_lines
+    UNION ALL
+    SELECT match_key, fulfillment_network, amount FROM total_lines
+),
+-- 3) Classification rules. Shape == financial_transaction_class_map table.
+--    sign: 'POS' (amount >= 0), 'NEG' (amount < 0).
+--    fulfillment: 'AFN' / 'MFN' for fulfillment-specific rules, '*' = any.
+--    Resolution prefers a fulfillment-specific row over the '*' fallback.
+transaction_class_map AS (
     SELECT * FROM (VALUES
-        (1,  1, 'Income',   'Product sales (non-FBA)'),
-        (1,  2, 'Income',   'Product sale refunds (non-FBA)'),
-        (1,  3, 'Income',   'FBA product sales'),
-        (1,  4, 'Income',   'FBA product sale refunds'),
-        (1,  5, 'Income',   'FBA inventory credit'),
-        (1,  6, 'Income',   'FBA liquidation proceeds'),
-        (1,  7, 'Income',   'FBA Liquidations proceeds adjustments'),
-        (1,  8, 'Income',   'Shipping credits'),
-        (1,  9, 'Income',   'Shipping credit refunds'),
-        (1, 10, 'Income',   'Gift wrap credits'),
-        (1, 11, 'Income',   'Gift wrap credit refunds'),
-        (1, 12, 'Income',   'Promotional rebates'),
-        (1, 13, 'Income',   'Promotional rebate refunds'),
-        (1, 14, 'Income',   'A-to-z Guarantee claims'),
-        (1, 15, 'Income',   'Chargebacks'),
-        (1, 16, 'Income',   'Amazon Shipping Reimbursement Adjustments'),
-        (1, 17, 'Income',   'SAFE-T reimbursement'),
-        (1, 18, 'Income',   'Receivables Deductions'),
-        (1, 19, 'Income',   'Amazon Shipping Charge Adjustments'),
-        (2,  1, 'Expenses', 'Seller fulfilled selling fees'),
-        (2,  2, 'Expenses', 'FBA selling fees'),
-        (2,  3, 'Expenses', 'Selling fee refunds'),
-        (2,  4, 'Expenses', 'FBA transaction fees'),
-        (2,  5, 'Expenses', 'FBA transaction fee refunds'),
-        (2,  6, 'Expenses', 'Other transaction fees'),
-        (2,  7, 'Expenses', 'Other transaction fee refunds'),
-        (2,  8, 'Expenses', 'FBA inventory and inbound services fees'),
-        (2,  9, 'Expenses', 'Shipping label purchases'),
-        (2, 10, 'Expenses', 'Shipping label refunds'),
-        (2, 11, 'Expenses', 'Carrier shipping label adjustments'),
-        (2, 12, 'Expenses', 'Service fees'),
-        (2, 13, 'Expenses', 'Refund administration fees'),
-        (2, 14, 'Expenses', 'Adjustments'),
-        (2, 15, 'Expenses', 'Cost of Advertising'),
-        (2, 16, 'Expenses', 'Refund for Advertiser'),
-        (2, 17, 'Expenses', 'Liquidations fees'),
-        (3,  1, 'Tax',      'Product, shipping, gift wrap taxes and regulatory fee collected'),
-        (3,  2, 'Tax',      'Product, shipping, gift wrap taxes and regulatory fee refunded'),
-        (3,  3, 'Tax',      'Amazon Obligated Tax and Regulatory Fee Withheld'),
-        (4,  1, 'Transfers','Transfers to bank account'),
-        (4,  2, 'Transfers','Failed transfers to bank account'),
-        (4,  3, 'Transfers','Disburse to Amazon Gift Card balance'),
-        (4,  4, 'Transfers','Charges to credit card and other debt recovery')
-    ) AS labels(class_order, subclass_order, summary_class, summary_subclass)
+        -- match_key,                             sign,  fulfillment, class,       subclass,                                                          class_order, subclass_order
+        ('OurPricePrincipal',                     'POS', '*',  'Income',    'Product sales',                                                   1,  1),
+        ('OurPricePrincipal',                     'NEG', '*',  'Income',    'Product sale refunds',                                            1,  2),
+        ('ShippingPrincipal',                     'POS', '*',  'Income',    'Shipping credits',                                                1,  3),
+        ('ShippingPrincipal',                     'NEG', '*',  'Income',    'Shipping credit refunds',                                         1,  4),
+        ('OurPriceDiscount',                      'POS', '*',  'Income',    'Promotional rebate refunds',                                      1,  5),
+        ('OurPriceDiscount',                      'NEG', '*',  'Income',    'Promotional rebates',                                             1,  5),
+        ('ShippingDiscount',                      'POS', '*',  'Income',    'Promotional rebate refunds',                                      1,  5),
+        ('ShippingDiscount',                      'NEG', '*',  'Income',    'Promotional rebates',                                             1,  5),
+        ('Promo',                                 'POS', '*',  'Income',    'Promotional rebate refunds',                                      1,  5),
+        ('Promo',                                 'NEG', '*',  'Income',    'Promotional rebates',                                             1,  5),
+        ('ShippingChargeback',                    'POS', '*',  'Income',    'Chargebacks',                                                     1,  6),
+        ('ShippingChargeback',                    'NEG', '*',  'Income',    'Chargebacks',                                                     1,  6),
+        ('RecommerceLiquidation',                 'POS', '*',  'Income',    'FBA liquidation proceeds',                                        1,  7),
+        ('RecommerceLiquidation',                 'NEG', '*',  'Income',    'FBA Liquidations proceeds adjustments',                           1,  8),
+        ('TXN:FBAInventoryReimbursement',         'POS', '*',  'Income',    'FBA inventory reimbursement',                                     1,  9),
+        ('TXN:FBAInventoryReimbursement',         'NEG', '*',  'Income',    'FBA inventory reimbursement adjustments',                         1,  9),
+
+        ('Commission',                            'NEG', 'AFN','Expenses',  'FBA selling fees',                                                2,  1),
+        ('Commission',                            'NEG', 'MFN','Expenses',  'Seller fulfilled selling fees',                                   2,  1),
+        ('Commission',                            'NEG', '*',  'Expenses',  'Selling fees',                                                    2,  1),
+        ('Commission',                            'POS', '*',  'Expenses',  'Selling fee refunds',                                             2,  2),
+        ('RefundCommission',                      'POS', '*',  'Expenses',  'Selling fee refunds',                                             2,  2),
+        ('RefundCommission',                      'NEG', '*',  'Expenses',  'Selling fee refunds',                                             2,  2),
+        ('FBAPerUnitFulfillmentFee',              'NEG', '*',  'Expenses',  'FBA transaction fees',                                            2,  3),
+        ('FBAPerUnitFulfillmentFee',              'POS', '*',  'Expenses',  'FBA transaction fee refunds',                                     2,  4),
+        ('FBADisposalFee',                        'NEG', '*',  'Expenses',  'FBA inventory and inbound services fees',                         2,  5),
+        ('FBADisposalFee',                        'POS', '*',  'Expenses',  'FBA inventory and inbound services fees',                         2,  5),
+        ('AmazonFees',                            'NEG', '*',  'Expenses',  'Service fees',                                                    2,  6),
+        ('AmazonFees',                            'POS', '*',  'Expenses',  'Service fee refunds',                                             2,  6),
+        ('TXN:ServiceFee',                        'NEG', '*',  'Expenses',  'Service fees',                                                    2,  6),
+        ('TXN:ServiceFee',                        'POS', '*',  'Expenses',  'Service fee refunds',                                             2,  6),
+        ('Other',                                 'NEG', '*',  'Expenses',  'Other transaction fees',                                          2,  7),
+        ('Other',                                 'POS', '*',  'Expenses',  'Other transaction fee refunds',                                   2,  7),
+        ('TXN:Retrocharge',                       'NEG', '*',  'Expenses',  'Adjustments',                                                     2,  8),
+        ('TXN:Retrocharge',                       'POS', '*',  'Income',    'Chargebacks',                                                     1,  6),
+
+        ('OurPriceTax',                           'POS', '*',  'Tax',       'Product, shipping, gift wrap taxes and regulatory fee collected', 3,  1),
+        ('OurPriceTax',                           'NEG', '*',  'Tax',       'Product, shipping, gift wrap taxes and regulatory fee refunded',  3,  2),
+        ('ShippingTax',                           'POS', '*',  'Tax',       'Product, shipping, gift wrap taxes and regulatory fee collected', 3,  1),
+        ('ShippingTax',                           'NEG', '*',  'Tax',       'Product, shipping, gift wrap taxes and regulatory fee refunded',  3,  2),
+        ('Tax',                                   'POS', '*',  'Tax',       'Product, shipping, gift wrap taxes and regulatory fee collected', 3,  1),
+        ('Tax',                                   'NEG', '*',  'Tax',       'Product, shipping, gift wrap taxes and regulatory fee refunded',  3,  2),
+        ('MarketplaceFacilitatorTax-Principal',  'POS', '*',  'Tax',       'Amazon Obligated Tax and Regulatory Fee Withheld',                3,  3),
+        ('MarketplaceFacilitatorTax-Principal',  'NEG', '*',  'Tax',       'Amazon Obligated Tax and Regulatory Fee Withheld',                3,  3),
+        ('MarketplaceFacilitatorTax-Shipping',   'POS', '*',  'Tax',       'Amazon Obligated Tax and Regulatory Fee Withheld',                3,  3),
+        ('MarketplaceFacilitatorTax-Shipping',   'NEG', '*',  'Tax',       'Amazon Obligated Tax and Regulatory Fee Withheld',                3,  3),
+
+        ('TXN:Transfer',                          'POS', '*',  'Transfers', 'Transfers to bank account',                                       4,  1),
+        ('TXN:Transfer',                          'NEG', '*',  'Transfers', 'Transfers to bank account',                                       4,  1)
+    ) AS m(match_key, sign, fulfillment, summary_class, summary_subclass, class_order, subclass_order)
+),
+-- Resolve each line once: a fulfillment-specific rule wins over the '*' fallback.
+resolved AS (
+    SELECT
+        l.match_key,
+        l.amount,
+        COALESCE(ms.summary_class,    mw.summary_class)    AS summary_class,
+        COALESCE(ms.summary_subclass, mw.summary_subclass) AS summary_subclass,
+        COALESCE(ms.class_order,      mw.class_order)      AS class_order,
+        COALESCE(ms.subclass_order,   mw.subclass_order)   AS subclass_order
+    FROM all_lines l
+    LEFT JOIN transaction_class_map ms
+      ON ms.match_key = l.match_key
+     AND ms.sign = CASE WHEN l.amount >= 0 THEN 'POS' ELSE 'NEG' END
+     AND ms.fulfillment = l.fulfillment_network
+    LEFT JOIN transaction_class_map mw
+      ON mw.match_key = l.match_key
+     AND mw.sign = CASE WHEN l.amount >= 0 THEN 'POS' ELSE 'NEG' END
+     AND mw.fulfillment = '*'
+),
+-- Lines with no matching rule fall to 'Unclassified' so totals never silently
+-- drop; surfaces new Amazon breakdown/transaction types for triage.
+combined AS (
+    SELECT
+        COALESCE(summary_class, 'Unclassified')               AS summary_class,
+        COALESCE(summary_subclass, 'Unmapped: ' || match_key) AS summary_subclass,
+        COALESCE(class_order, 9)                              AS class_order,
+        COALESCE(subclass_order, 999)                         AS subclass_order,
+        amount
+    FROM resolved
 ),
 subclass_summary AS (
     SELECT
         summary_class,
         summary_subclass,
+        MIN(class_order) AS class_order,
+        MIN(subclass_order) AS subclass_order,
         SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS debits,
         SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credits,
         SUM(amount) AS net_amount,
         COUNT(*) AS line_count
-    FROM amount_lines
+    FROM combined
     GROUP BY 1, 2
 ),
 final_rows AS (
-    SELECT
-        summary_catalog.class_order,
-        summary_catalog.subclass_order,
-        summary_catalog.summary_class,
-        summary_catalog.summary_subclass,
-        COALESCE(subclass_summary.debits, CAST(0 AS DECIMAL(18, 2))) AS debits,
-        COALESCE(subclass_summary.credits, CAST(0 AS DECIMAL(18, 2))) AS credits,
-        COALESCE(subclass_summary.net_amount, CAST(0 AS DECIMAL(18, 2))) AS net_amount,
-        COALESCE(subclass_summary.line_count, 0) AS line_count
-    FROM summary_catalog
-    LEFT JOIN subclass_summary
-        ON subclass_summary.summary_class = summary_catalog.summary_class
-       AND subclass_summary.summary_subclass = summary_catalog.summary_subclass
+    SELECT s.*
+    FROM subclass_summary s
     CROSS JOIN params p
     WHERE (
         cardinality(p.summary_classes) = 0
-        OR any_match(p.summary_classes, c -> lower(c) = lower(summary_catalog.summary_class))
+        OR any_match(p.summary_classes, c -> lower(c) = lower(s.summary_class))
     )
       AND (
         cardinality(p.summary_subclasses) = 0
-        OR any_match(p.summary_subclasses, sc -> lower(summary_catalog.summary_subclass) LIKE '%' || lower(sc) || '%')
+        OR any_match(p.summary_subclasses, sc -> lower(s.summary_subclass) LIKE '%' || lower(sc) || '%')
     )
 )
-SELECT *
+SELECT
+    class_order,
+    subclass_order,
+    summary_class,
+    summary_subclass,
+    debits,
+    credits,
+    net_amount,
+    line_count
 FROM final_rows
 ORDER BY {{sort_column}} {{sort_direction}}, class_order ASC, subclass_order ASC
 LIMIT {{limit_top_n}}
