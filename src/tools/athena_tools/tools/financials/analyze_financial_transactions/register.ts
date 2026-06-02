@@ -88,7 +88,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
   registry.register({
     name: 'financials_analyze_financial_transactions',
     description:
-      'Analyzes Amazon monthly financial transactions into the same summary_class / summary_subclass structure used by monthly payment summary reports. Use this to reconcile a payment/summary report against financial_transactions instead of Amazon statement settlement data.',
+      'Analyzes Amazon SP-API financial transactions (neonpanel_iceberg.financial_transactions) into the same summary_class / summary_subclass structure used by monthly payment summary reports. Use this to reconcile a payment/summary report against financial_transactions instead of Amazon statement settlement data.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
