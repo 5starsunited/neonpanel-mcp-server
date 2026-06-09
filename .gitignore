@@ -6,6 +6,7 @@ build/
 .env.local
 .DS_Store
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
