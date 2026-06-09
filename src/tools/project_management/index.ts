@@ -21,6 +21,7 @@ import {
   listInventoryOrdersInputSchema,
   listPaymentRequestsInputSchema,
   listPaymentTermsInputSchema,
+  listSalesChannelsInputSchema,
   listServicesInputSchema,
   listShipmentsInputSchema,
   listVendorsInputSchema,
@@ -171,16 +172,20 @@ const invoiceProjectJsonSchema = {
     sales_channel_id: { type: ['integer', 'null'], minimum: 1, description: 'Sales channel ID.' },
     details: {
       type: ['array', 'null'],
-      description: 'Invoice line items. On update, providing details replaces all existing line items. Positive quantity means stock sold; negative quantity means customer return.',
+      description: 'Invoice line items. On update, providing details replaces all existing line items. Positive quantity means stock sold; negative quantity means customer return. Each line must reference at least one of inventory_id (product sale) or service_id (fee/charge); both may be supplied together.',
       items: {
         type: 'object',
         properties: {
-          inventory_id: { type: 'integer', minimum: 1, description: 'Inventory record ID.' },
-          service_id: { type: 'integer', minimum: 1, description: 'Associated service ID.' },
+          inventory_id: { type: 'integer', minimum: 1, description: 'Inventory record ID. Optional if service_id is provided.' },
+          service_id: { type: 'integer', minimum: 1, description: 'Associated service ID. Optional if inventory_id is provided.' },
           quantity: { type: 'integer', description: 'Display quantity. Positive=sold, negative=returned.' },
           amount: { type: 'number', description: 'Total monetary amount for this line.' },
         },
-        required: ['inventory_id', 'service_id', 'quantity', 'amount'],
+        required: ['quantity', 'amount'],
+        anyOf: [
+          { required: ['inventory_id'] },
+          { required: ['service_id'] },
+        ],
         additionalProperties: false,
       },
     },
@@ -617,13 +622,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_create_invoice',
-      description: 'Create a NeonPanel manual invoice. Details use inventory_id, service_id, quantity, and amount.',
+      description: 'Create a NeonPanel manual invoice. Each detail line uses quantity and amount plus at least one of inventory_id (product sale) or service_id (fee/charge); both may be supplied together.',
       isConsequential: true,
       inputSchema: createInvoiceInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
         name: 'project_management_create_invoice',
-        description: 'Create a NeonPanel manual invoice. Details use inventory_id, service_id, quantity, and amount.',
+        description: 'Create a NeonPanel manual invoice. Each detail line uses quantity and amount plus at least one of inventory_id (product sale) or service_id (fee/charge); both may be supplied together.',
         isConsequential: true,
         inputSchema: createInvoiceInputJsonSchema,
         outputSchema: passthroughOutputSchema,
@@ -1102,6 +1107,26 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
         return neonPanelRequest({
           token: context.userToken,
           path: '/api/v1/payment-terms',
+        });
+      },
+    })
+    .register({
+      name: 'project_management_list_sales_channels',
+      description: 'List global NeonPanel sales channels (NeonPanel: GET /api/v1/sales-channels). Channels are not company-scoped — they are shared across all companies and used as reference data (sales_channel_id) when creating or updating invoices. Returns a flat, non-paginated list where each channel has id and name (e.g., "Amazon").',
+      isConsequential: false,
+      inputSchema: listSalesChannelsInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'List Sales Channels',
+          arguments: {},
+        },
+      ],
+      execute: async (args, context) => {
+        listSalesChannelsInputSchema.parse(args);
+        return neonPanelRequest({
+          token: context.userToken,
+          path: '/api/v1/sales-channels',
         });
       },
     });

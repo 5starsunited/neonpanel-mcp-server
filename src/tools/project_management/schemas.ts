@@ -101,10 +101,12 @@ export const billPayloadSchema = z.object({
 });
 
 export const invoiceDetailInputSchema = z.object({
-  inventory_id: z.coerce.number().int().min(1),
-  service_id: z.coerce.number().int().min(1),
+  inventory_id: z.coerce.number().int().min(1).optional(),
+  service_id: z.coerce.number().int().min(1).optional(),
   quantity: z.coerce.number().int(),
   amount: z.coerce.number(),
+}).refine((d) => d.inventory_id != null || d.service_id != null, {
+  message: 'Provide at least one of inventory_id or service_id',
 });
 
 export const invoicePayloadSchema = z.object({
@@ -243,6 +245,8 @@ export const listShipmentsInputSchema = companyScopedBaseSchema.extend({
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const listPaymentTermsInputSchema = z.object({});
+
+export const listSalesChannelsInputSchema = z.object({});
 
 export const passthroughOutputSchema = {
   type: 'object',
