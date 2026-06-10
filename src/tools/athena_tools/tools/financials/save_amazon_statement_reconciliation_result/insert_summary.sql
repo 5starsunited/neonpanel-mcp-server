@@ -1,4 +1,4 @@
--- Tool: financials_save_amazon_statement_reconciliation_result
+-- Tool: financials_save_financial_transaction_reconciliation_result
 -- Purpose: INSERT one summary row into amazon_payments_summaries (Iceberg).
 
 INSERT INTO "{{fa_catalog}}"."{{fa_database}}"."{{fa_table_summaries}}" (

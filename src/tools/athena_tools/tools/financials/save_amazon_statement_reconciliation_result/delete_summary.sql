@@ -1,4 +1,4 @@
--- Tool: financials_save_amazon_statement_reconciliation_result
+-- Tool: financials_save_financial_transaction_reconciliation_result
 -- Purpose: DELETE existing reconciliation rows for company_id + year (before replace-mode insert).
 
 DELETE FROM "{{fa_catalog}}"."{{fa_database}}"."{{fa_table_summaries}}"
