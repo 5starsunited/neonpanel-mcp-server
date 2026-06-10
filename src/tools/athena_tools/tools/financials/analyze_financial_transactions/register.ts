@@ -90,6 +90,7 @@ const querySchema = z
         company_id: z.coerce.number().int().min(1),
         report_months: z.array(z.string().regex(/^\d{4}-\d{2}$/)).optional(),
         marketplaces: z.array(z.string().min(1)).optional(),
+        marketplace_codes: z.array(z.string().min(1)).optional(),
         start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         summary_classes: z.array(z.string()).optional(),
@@ -185,7 +186,9 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
 
       const reportMonths = (query.filters.report_months ?? []).map((s) => s.trim()).filter(Boolean);
       const marketplaces = expandMarketplaces(
-        (query.filters.marketplaces ?? []).map((s) => s.trim()).filter(Boolean),
+        ([...(query.filters.marketplaces ?? []), ...(query.filters.marketplace_codes ?? [])] as string[])
+          .map((s) => s.trim())
+          .filter(Boolean),
       );
       const summaryClasses = (query.filters.summary_classes ?? []).map((s) => s.trim()).filter(Boolean);
       const summarySubclasses = (query.filters.summary_subclasses ?? []).map((s) => s.trim()).filter(Boolean);

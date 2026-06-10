@@ -47,6 +47,11 @@
                 "items": { "type": "string" },
                 "description": "Optional filter by marketplace. Accepts a country code (US, CA, MX, UK, DE, FR, IT, ES, NL, SE, PL, BE, TR, EG, SA, AE, IN, SG, JP, AU), a marketplace_name ('Amazon.com', 'Amazon.co.uk'), or a marketplace_id ('ATVPDKIKX0DER'). Amazon's unified reports are per-marketplace, so set this to scope to a country report, e.g. ['US']."
               },
+              "marketplace_codes": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional alias for marketplaces. Accepts country codes, marketplace names, or marketplace IDs just like marketplaces."
+              },
               "start_date": {
                 "type": "string",
                 "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
