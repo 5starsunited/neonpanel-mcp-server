@@ -115,7 +115,9 @@ transaction_class_map AS (
         ('RecommerceLiquidation',                 'POS', '*',  'Income',    'FBA liquidation proceeds',                                        1,  7),
         ('RecommerceLiquidation',                 'NEG', '*',  'Income',    'FBA Liquidations proceeds adjustments',                           1,  8),
         ('TXN:FBAInventoryReimbursement',         'POS', '*',  'Income',    'FBA inventory reimbursement',                                     1,  9),
-        ('TXN:FBAInventoryReimbursement',         'NEG', '*',  'Income',    'FBA inventory reimbursement adjustments',                         1,  9),
+        -- Negative reimbursements are booked by Amazon as Expenses/'Adjustments'
+        -- (the summary splits the Adjustment txn type by sign), not as income.
+        ('TXN:FBAInventoryReimbursement',         'NEG', '*',  'Expenses',  'Adjustments',                                                     2,  8),
 
         ('Commission',                            'NEG', 'AFN','Expenses',  'FBA selling fees',                                                2,  1),
         ('Commission',                            'NEG', 'MFN','Expenses',  'Seller fulfilled selling fees',                                   2,  1),
