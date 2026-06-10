@@ -1,4 +1,4 @@
--- Tool: financials_save_amazon_statement_reconciliation_result
+-- Tool: financials_save_financial_transaction_reconciliation_result
 -- Purpose: dry-run validation / preview of reconciliation writes.
 -- Validates summary + detail rows and returns per-row status.
 

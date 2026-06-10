@@ -126,9 +126,12 @@ const inputSchema = z
   .object({
     company_id: z.coerce.number().int().min(1),
     year: z.coerce.number().int().min(2020).max(2030),
+    // financial_transactions is the supported source; amazon_statement is kept
+    // for backwards compatibility only (Amazon changed its report rules, making
+    // statement-based reconciliation invalid for new periods).
     reconciliation_source: z
       .enum(['amazon_statement', 'financial_transactions'])
-      .default('amazon_statement')
+      .default('financial_transactions')
       .optional(),
     author: authorSchema.optional(),
     reason: z.string().min(3),
@@ -214,9 +217,9 @@ export function registerFinancialsSaveAmazonStatementReconciliationResultTool(
   }
 
   registry.register({
-    name: 'financials_save_amazon_statement_reconciliation_result',
+    name: 'financials_save_financial_transaction_reconciliation_result',
     description:
-      'Persist reconciliation results (summary + details) to Iceberg tables. Dry-run by default.',
+      'Persist Amazon financial-transaction reconciliation results (summary + details) to Iceberg tables. Dry-run by default.',
     isConsequential: true,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -244,7 +247,7 @@ export function registerFinancialsSaveAmazonStatementReconciliationResultTool(
       const dryRun = parsed.dry_run ?? true;
       const writeMode = parsed.write_mode ?? 'append';
       const debugSql = parsed.debug_sql === true;
-      const reconciliationSource = parsed.reconciliation_source ?? 'amazon_statement';
+      const reconciliationSource = parsed.reconciliation_source ?? 'financial_transactions';
 
       if (reconciliationSource === 'financial_transactions') {
         warnings.push(
