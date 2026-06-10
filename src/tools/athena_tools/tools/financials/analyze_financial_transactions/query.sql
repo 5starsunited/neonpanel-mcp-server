@@ -23,10 +23,17 @@ WITH params AS (
     SELECT
         CAST({{company_id}} AS BIGINT) AS company_id,
         {{report_months_array}} AS report_months,
+        {{marketplaces_array}} AS marketplaces,
+        {{start_date}} AS start_date,
+        {{end_date}} AS end_date,
         {{summary_classes_array}} AS summary_classes,
         {{summary_subclasses_array}} AS summary_subclasses,
         {{limit_top_n}} AS limit_top_n
 ),
+-- posted_month and posted_date_day are derived in the MARKETPLACE-LOCAL report
+-- timezone (US/CA=Pacific, UK=London, EU=CET, JP=Tokyo, AU=Sydney), so filtering
+-- on them matches Amazon's report calendar. start_date/end_date bound the local
+-- day (posted_date_day) inclusively; report_months bounds the local month.
 source_rows AS (
     SELECT r.*
     FROM "{{catalog}}"."neonpanel_iceberg"."financial_transactions" r
@@ -36,6 +43,13 @@ source_rows AS (
           cardinality(p.report_months) = 0
           OR contains(p.report_months, r.posted_month)
       )
+      AND (
+          cardinality(p.marketplaces) = 0
+          OR any_match(p.marketplaces, m -> lower(m) = lower(r.marketplace_name))
+          OR contains(p.marketplaces, r.marketplace_id)
+      )
+      AND (p.start_date IS NULL OR r.posted_date_day >= p.start_date)
+      AND (p.end_date   IS NULL OR r.posted_date_day <= p.end_date)
 ),
 -- 1) Unpivot leaf breakdown columns into one line per non-zero amount.
 breakdown_lines AS (
@@ -93,8 +107,11 @@ transaction_class_map AS (
         ('ShippingDiscount',                      'NEG', '*',  'Income',    'Promotional rebates',                                             1,  5),
         ('Promo',                                 'POS', '*',  'Income',    'Promotional rebate refunds',                                      1,  5),
         ('Promo',                                 'NEG', '*',  'Income',    'Promotional rebates',                                             1,  5),
-        ('ShippingChargeback',                    'POS', '*',  'Income',    'Chargebacks',                                                     1,  6),
-        ('ShippingChargeback',                    'NEG', '*',  'Income',    'Chargebacks',                                                     1,  6),
+        -- ShippingChargeback is a shipping FEE charged to the seller, not income.
+        -- Amazon's report defines "Other transaction fees" as including shipping
+        -- chargebacks, so classify it under Expenses (was wrongly Income/Chargebacks).
+        ('ShippingChargeback',                    'NEG', '*',  'Expenses',  'Other transaction fees',                                          2,  7),
+        ('ShippingChargeback',                    'POS', '*',  'Expenses',  'Other transaction fee refunds',                                   2,  7),
         ('RecommerceLiquidation',                 'POS', '*',  'Income',    'FBA liquidation proceeds',                                        1,  7),
         ('RecommerceLiquidation',                 'NEG', '*',  'Income',    'FBA Liquidations proceeds adjustments',                           1,  8),
         ('TXN:FBAInventoryReimbursement',         'POS', '*',  'Income',    'FBA inventory reimbursement',                                     1,  9),

@@ -47,6 +47,9 @@ const querySchema = z
       .object({
         company_id: z.coerce.number().int().min(1),
         report_months: z.array(z.string().regex(/^\d{4}-\d{2}$/)).optional(),
+        marketplaces: z.array(z.string().min(1)).optional(),
+        start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         summary_classes: z.array(z.string()).optional(),
         summary_subclasses: z.array(z.string()).optional(),
       })
@@ -139,8 +142,11 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
       }
 
       const reportMonths = (query.filters.report_months ?? []).map((s) => s.trim()).filter(Boolean);
+      const marketplaces = (query.filters.marketplaces ?? []).map((s) => s.trim()).filter(Boolean);
       const summaryClasses = (query.filters.summary_classes ?? []).map((s) => s.trim()).filter(Boolean);
       const summarySubclasses = (query.filters.summary_subclasses ?? []).map((s) => s.trim()).filter(Boolean);
+      const sqlDateOrNull = (d?: string) =>
+        d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `DATE '${d}'` : 'CAST(NULL AS DATE)';
       const limitTopN = query.limit ?? 200;
       const sortField = query.sort?.field ?? 'class_order';
       const sortDirection = query.sort?.direction ?? 'asc';
@@ -150,6 +156,9 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
         catalog: config.athena.catalog,
         company_id: companyId,
         report_months_array: sqlVarcharArrayExpr(reportMonths),
+        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+        start_date: sqlDateOrNull(query.filters.start_date),
+        end_date: sqlDateOrNull(query.filters.end_date),
         summary_classes_array: sqlVarcharArrayExpr(summaryClasses),
         summary_subclasses_array: sqlVarcharArrayExpr(summarySubclasses),
         limit_top_n: Number(limitTopN),
