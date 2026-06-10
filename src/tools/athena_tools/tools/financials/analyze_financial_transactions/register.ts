@@ -30,6 +30,48 @@ function sqlVarcharArrayExpr(values: string[]): string {
   return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
 }
 
+// Country/marketplace code -> [marketplace_name, marketplace_id]. Lets callers
+// filter by an intuitive country (e.g. 'US') in addition to the raw
+// marketplace_name ('Amazon.com') or marketplace_id ('ATVPDKIKX0DER'). Amazon's
+// unified reports are per-marketplace, so this is how you scope to a country report.
+const COUNTRY_MARKETPLACES: Record<string, [string, string]> = {
+  US: ['Amazon.com', 'ATVPDKIKX0DER'],
+  CA: ['Amazon.ca', 'A2EUQ1WTGCTBG2'],
+  MX: ['Amazon.com.mx', 'A1AM78C64UM0Y8'],
+  BR: ['Amazon.com.br', 'A2Q3Y263D00KWC'],
+  UK: ['Amazon.co.uk', 'A1F83G8C2ARO7P'],
+  GB: ['Amazon.co.uk', 'A1F83G8C2ARO7P'],
+  DE: ['Amazon.de', 'A1PA6795UKMFR9'],
+  FR: ['Amazon.fr', 'A13V1IB3VIYZZH'],
+  IT: ['Amazon.it', 'APJ6JRA9NG5V4'],
+  ES: ['Amazon.es', 'A1RKKUPIHCS9HS'],
+  NL: ['Amazon.nl', 'A1805IZSGTT6HS'],
+  SE: ['Amazon.se', 'A2NODRKZP88ZB9'],
+  PL: ['Amazon.pl', 'A1C3SOZRARQ6R3'],
+  BE: ['Amazon.com.be', 'AMEN7PMS3EDWL'],
+  TR: ['Amazon.com.tr', 'A33AVAJ2PDY3EV'],
+  EG: ['Amazon.eg', 'ARBP9OOSHTCHU'],
+  SA: ['Amazon.sa', 'A17E79C6D8DWNP'],
+  AE: ['Amazon.ae', 'A2VIGQ35RCS4UG'],
+  IN: ['Amazon.in', 'A21TJRUUN4KGV'],
+  SG: ['Amazon.sg', 'A19VAU5U5O7RUS'],
+  JP: ['Amazon.co.jp', 'A1VC38T7YXB528'],
+  AU: ['Amazon.com.au', 'A39IBJ37TRP1C6'],
+};
+
+function expandMarketplaces(values: string[]): string[] {
+  const out = new Set<string>();
+  for (const v of values) {
+    out.add(v);
+    const mapped = COUNTRY_MARKETPLACES[v.toUpperCase()];
+    if (mapped) {
+      out.add(mapped[0]);
+      out.add(mapped[1]);
+    }
+  }
+  return [...out];
+}
+
 const SORTABLE_FIELDS = [
   'class_order',
   'subclass_order',
@@ -142,7 +184,9 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
       }
 
       const reportMonths = (query.filters.report_months ?? []).map((s) => s.trim()).filter(Boolean);
-      const marketplaces = (query.filters.marketplaces ?? []).map((s) => s.trim()).filter(Boolean);
+      const marketplaces = expandMarketplaces(
+        (query.filters.marketplaces ?? []).map((s) => s.trim()).filter(Boolean),
+      );
       const summaryClasses = (query.filters.summary_classes ?? []).map((s) => s.trim()).filter(Boolean);
       const summarySubclasses = (query.filters.summary_subclasses ?? []).map((s) => s.trim()).filter(Boolean);
       const sqlDateOrNull = (d?: string) =>
