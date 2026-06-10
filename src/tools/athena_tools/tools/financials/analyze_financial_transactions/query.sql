@@ -28,7 +28,16 @@ WITH params AS (
         {{end_date}} AS end_date,
         {{summary_classes_array}} AS summary_classes,
         {{summary_subclasses_array}} AS summary_subclasses,
+        {{consolidation_currency}} AS consolidation_currency,
         {{limit_top_n}} AS limit_top_n
+),
+-- Daily FX rates, USD-base multipliers: rate = USD per 1 unit of currency
+-- (USD itself is present with rate 1.0). Used to convert each line at its
+-- posted_date_day: amount_consolidated = amount * rate(line ccy) / rate(target).
+fx AS (
+    SELECT lower(currency) AS currency_key, date AS rate_date, MAX(rate) AS rate
+    FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
+    GROUP BY lower(currency), date
 ),
 -- posted_month and posted_date_day are derived in the MARKETPLACE-LOCAL report
 -- timezone (US/CA=Pacific, UK=London, EU=CET, JP=Tokyo, AU=Sydney), so filtering
@@ -53,25 +62,25 @@ source_rows AS (
 ),
 -- 1) Unpivot leaf breakdown columns into one line per non-zero amount.
 breakdown_lines AS (
-    SELECT transaction_id, transaction_type, fulfillment_network, 'OurPricePrincipal'                   AS match_key, bd_price_principal                      AS amount FROM source_rows WHERE bd_price_principal IS NOT NULL AND bd_price_principal <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'OurPriceDiscount',                    bd_price_discount                       FROM source_rows WHERE bd_price_discount IS NOT NULL AND bd_price_discount <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'OurPriceTax',                         bd_price_tax                            FROM source_rows WHERE bd_price_tax IS NOT NULL AND bd_price_tax <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Commission',                          bd_commission                           FROM source_rows WHERE bd_commission IS NOT NULL AND bd_commission <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'RefundCommission',                    bd_refund_commission                    FROM source_rows WHERE bd_refund_commission IS NOT NULL AND bd_refund_commission <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'FBAPerUnitFulfillmentFee',            bd_fba_fulfillment_fee                  FROM source_rows WHERE bd_fba_fulfillment_fee IS NOT NULL AND bd_fba_fulfillment_fee <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'FBADisposalFee',                      bd_fba_disposal_fee                     FROM source_rows WHERE bd_fba_disposal_fee IS NOT NULL AND bd_fba_disposal_fee <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingPrincipal',                   bd_shipping_principal                   FROM source_rows WHERE bd_shipping_principal IS NOT NULL AND bd_shipping_principal <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingDiscount',                    bd_shipping_discount                    FROM source_rows WHERE bd_shipping_discount IS NOT NULL AND bd_shipping_discount <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingChargeback',                  bd_shipping_chargeback                  FROM source_rows WHERE bd_shipping_chargeback IS NOT NULL AND bd_shipping_chargeback <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'ShippingTax',                         bd_shipping_tax                         FROM source_rows WHERE bd_shipping_tax IS NOT NULL AND bd_shipping_tax <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'MarketplaceFacilitatorTax-Principal', bd_marketplace_facilitator_tax          FROM source_rows WHERE bd_marketplace_facilitator_tax IS NOT NULL AND bd_marketplace_facilitator_tax <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'MarketplaceFacilitatorTax-Shipping',  bd_marketplace_facilitator_tax_shipping FROM source_rows WHERE bd_marketplace_facilitator_tax_shipping IS NOT NULL AND bd_marketplace_facilitator_tax_shipping <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'RecommerceLiquidation',               bd_recommerce_liquidation               FROM source_rows WHERE bd_recommerce_liquidation IS NOT NULL AND bd_recommerce_liquidation <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'AmazonFees',                          bd_amazon_fees                          FROM source_rows WHERE bd_amazon_fees IS NOT NULL AND bd_amazon_fees <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Tax',                                 bd_tax                                  FROM source_rows WHERE bd_tax IS NOT NULL AND bd_tax <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Promo',                               bd_promo                                FROM source_rows WHERE bd_promo IS NOT NULL AND bd_promo <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'GiftwrapPrincipal',                   bd_gift_wrap_principal                  FROM source_rows WHERE bd_gift_wrap_principal IS NOT NULL AND bd_gift_wrap_principal <> 0
-    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Other',                               bd_other                                FROM source_rows WHERE bd_other IS NOT NULL AND bd_other <> 0
+    SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'OurPricePrincipal'                   AS match_key, bd_price_principal                      AS amount FROM source_rows WHERE bd_price_principal IS NOT NULL AND bd_price_principal <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'OurPriceDiscount',                    bd_price_discount                       FROM source_rows WHERE bd_price_discount IS NOT NULL AND bd_price_discount <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'OurPriceTax',                         bd_price_tax                            FROM source_rows WHERE bd_price_tax IS NOT NULL AND bd_price_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'Commission',                          bd_commission                           FROM source_rows WHERE bd_commission IS NOT NULL AND bd_commission <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'RefundCommission',                    bd_refund_commission                    FROM source_rows WHERE bd_refund_commission IS NOT NULL AND bd_refund_commission <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'FBAPerUnitFulfillmentFee',            bd_fba_fulfillment_fee                  FROM source_rows WHERE bd_fba_fulfillment_fee IS NOT NULL AND bd_fba_fulfillment_fee <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'FBADisposalFee',                      bd_fba_disposal_fee                     FROM source_rows WHERE bd_fba_disposal_fee IS NOT NULL AND bd_fba_disposal_fee <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'ShippingPrincipal',                   bd_shipping_principal                   FROM source_rows WHERE bd_shipping_principal IS NOT NULL AND bd_shipping_principal <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'ShippingDiscount',                    bd_shipping_discount                    FROM source_rows WHERE bd_shipping_discount IS NOT NULL AND bd_shipping_discount <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'ShippingChargeback',                  bd_shipping_chargeback                  FROM source_rows WHERE bd_shipping_chargeback IS NOT NULL AND bd_shipping_chargeback <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'ShippingTax',                         bd_shipping_tax                         FROM source_rows WHERE bd_shipping_tax IS NOT NULL AND bd_shipping_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'MarketplaceFacilitatorTax-Principal', bd_marketplace_facilitator_tax          FROM source_rows WHERE bd_marketplace_facilitator_tax IS NOT NULL AND bd_marketplace_facilitator_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'MarketplaceFacilitatorTax-Shipping',  bd_marketplace_facilitator_tax_shipping FROM source_rows WHERE bd_marketplace_facilitator_tax_shipping IS NOT NULL AND bd_marketplace_facilitator_tax_shipping <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'RecommerceLiquidation',               bd_recommerce_liquidation               FROM source_rows WHERE bd_recommerce_liquidation IS NOT NULL AND bd_recommerce_liquidation <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'AmazonFees',                          bd_amazon_fees                          FROM source_rows WHERE bd_amazon_fees IS NOT NULL AND bd_amazon_fees <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'Tax',                                 bd_tax                                  FROM source_rows WHERE bd_tax IS NOT NULL AND bd_tax <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'Promo',                               bd_promo                                FROM source_rows WHERE bd_promo IS NOT NULL AND bd_promo <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'GiftwrapPrincipal',                   bd_gift_wrap_principal                  FROM source_rows WHERE bd_gift_wrap_principal IS NOT NULL AND bd_gift_wrap_principal <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, currency, posted_date_day, 'Other',                               bd_other                                FROM source_rows WHERE bd_other IS NOT NULL AND bd_other <> 0
 ),
 -- 2) Transaction-level lines for rows that carry no breakdowns.
 total_lines AS (
@@ -79,6 +88,8 @@ total_lines AS (
         transaction_id,
         transaction_type,
         fulfillment_network,
+        currency,
+        posted_date_day,
         'TXN:' || COALESCE(transaction_type, 'UNKNOWN') AS match_key,
         COALESCE(item_total, transaction_total) AS amount
     FROM source_rows
@@ -87,9 +98,35 @@ total_lines AS (
       AND COALESCE(item_total, transaction_total) <> 0
 ),
 all_lines AS (
-    SELECT match_key, fulfillment_network, amount FROM breakdown_lines
+    SELECT match_key, fulfillment_network, currency, posted_date_day, amount FROM breakdown_lines
     UNION ALL
-    SELECT match_key, fulfillment_network, amount FROM total_lines
+    SELECT match_key, fulfillment_network, currency, posted_date_day, amount FROM total_lines
+),
+-- Per-line FX conversion at the line's posted_date_day. amount_consolidated is
+-- NULL when no consolidation_currency was requested OR a needed daily rate is
+-- missing (fx_missing flags the latter -- never silently assume rate=1.0).
+priced_lines AS (
+    SELECT
+        l.match_key,
+        l.fulfillment_network,
+        COALESCE(l.currency, 'UNKNOWN') AS currency,
+        l.amount,
+        CASE WHEN p.consolidation_currency IS NOT NULL
+                  AND fr.rate IS NOT NULL AND fc.rate IS NOT NULL AND fc.rate <> 0
+             THEN l.amount * fr.rate / fc.rate
+        END AS amount_consolidated,
+        CASE WHEN p.consolidation_currency IS NOT NULL
+                  AND (fr.rate IS NULL OR fc.rate IS NULL OR fc.rate = 0)
+             THEN 1 ELSE 0
+        END AS fx_missing
+    FROM all_lines l
+    CROSS JOIN params p
+    LEFT JOIN fx fr
+      ON fr.currency_key = lower(l.currency)
+     AND fr.rate_date = l.posted_date_day
+    LEFT JOIN fx fc
+      ON fc.currency_key = lower(p.consolidation_currency)
+     AND fc.rate_date = l.posted_date_day
 ),
 -- 3) Classification rules. Shape == financial_transaction_class_map table.
 --    sign: 'POS' (amount >= 0), 'NEG' (amount < 0).
@@ -160,12 +197,15 @@ transaction_class_map AS (
 resolved AS (
     SELECT
         l.match_key,
+        l.currency,
         l.amount,
+        l.amount_consolidated,
+        l.fx_missing,
         COALESCE(ms.summary_class,    mw.summary_class)    AS summary_class,
         COALESCE(ms.summary_subclass, mw.summary_subclass) AS summary_subclass,
         COALESCE(ms.class_order,      mw.class_order)      AS class_order,
         COALESCE(ms.subclass_order,   mw.subclass_order)   AS subclass_order
-    FROM all_lines l
+    FROM priced_lines l
     LEFT JOIN transaction_class_map ms
       ON ms.match_key = l.match_key
      AND ms.sign = CASE WHEN l.amount >= 0 THEN 'POS' ELSE 'NEG' END
@@ -183,21 +223,30 @@ combined AS (
         COALESCE(summary_subclass, 'Unmapped: ' || match_key) AS summary_subclass,
         COALESCE(class_order, 9)                              AS class_order,
         COALESCE(subclass_order, 999)                         AS subclass_order,
-        amount
+        currency,
+        amount,
+        amount_consolidated,
+        fx_missing
     FROM resolved
 ),
+-- One row per (class, subclass, CURRENCY): local-currency figures must never be
+-- summed across currencies; the *_consolidated figures (single target currency)
+-- are the ones safe to aggregate across rows.
 subclass_summary AS (
     SELECT
         summary_class,
         summary_subclass,
+        currency,
         MIN(class_order) AS class_order,
         MIN(subclass_order) AS subclass_order,
         SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS debits,
         SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS credits,
         SUM(amount) AS net_amount,
+        SUM(amount_consolidated) AS net_amount_consolidated,
+        SUM(fx_missing) AS fx_missing_lines,
         COUNT(*) AS line_count
     FROM combined
-    GROUP BY 1, 2
+    GROUP BY 1, 2, 3
 ),
 final_rows AS (
     SELECT s.*
@@ -213,14 +262,19 @@ final_rows AS (
     )
 )
 SELECT
-    class_order,
-    subclass_order,
-    summary_class,
-    summary_subclass,
-    debits,
-    credits,
-    net_amount,
-    line_count
-FROM final_rows
-ORDER BY {{sort_column}} {{sort_direction}}, class_order ASC, subclass_order ASC
+    f.class_order,
+    f.subclass_order,
+    f.summary_class,
+    f.summary_subclass,
+    f.currency,
+    f.debits,
+    f.credits,
+    f.net_amount,
+    p.consolidation_currency,
+    f.net_amount_consolidated,
+    f.fx_missing_lines,
+    f.line_count
+FROM final_rows f
+CROSS JOIN params p
+ORDER BY {{sort_column}} {{sort_direction}}, f.class_order ASC, f.subclass_order ASC, f.currency ASC
 LIMIT {{limit_top_n}}
