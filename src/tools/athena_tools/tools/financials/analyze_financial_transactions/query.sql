@@ -70,6 +70,7 @@ breakdown_lines AS (
     UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'AmazonFees',                          bd_amazon_fees                          FROM source_rows WHERE bd_amazon_fees IS NOT NULL AND bd_amazon_fees <> 0
     UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Tax',                                 bd_tax                                  FROM source_rows WHERE bd_tax IS NOT NULL AND bd_tax <> 0
     UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Promo',                               bd_promo                                FROM source_rows WHERE bd_promo IS NOT NULL AND bd_promo <> 0
+    UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'GiftwrapPrincipal',                   bd_gift_wrap_principal                  FROM source_rows WHERE bd_gift_wrap_principal IS NOT NULL AND bd_gift_wrap_principal <> 0
     UNION ALL SELECT transaction_id, transaction_type, fulfillment_network, 'Other',                               bd_other                                FROM source_rows WHERE bd_other IS NOT NULL AND bd_other <> 0
 ),
 -- 2) Transaction-level lines for rows that carry no breakdowns.
@@ -101,6 +102,8 @@ transaction_class_map AS (
         ('OurPricePrincipal',                     'NEG', '*',  'Income',    'Product sale refunds',                                            1,  2),
         ('ShippingPrincipal',                     'POS', '*',  'Income',    'Shipping credits',                                                1,  3),
         ('ShippingPrincipal',                     'NEG', '*',  'Income',    'Shipping credit refunds',                                         1,  4),
+        ('GiftwrapPrincipal',                     'POS', '*',  'Income',    'Gift wrap credits',                                               1,  4),
+        ('GiftwrapPrincipal',                     'NEG', '*',  'Income',    'Gift wrap credit refunds',                                        1,  4),
         ('OurPriceDiscount',                      'POS', '*',  'Income',    'Promotional rebate refunds',                                      1,  5),
         ('OurPriceDiscount',                      'NEG', '*',  'Income',    'Promotional rebates',                                             1,  5),
         ('ShippingDiscount',                      'POS', '*',  'Income',    'Promotional rebate refunds',                                      1,  5),
