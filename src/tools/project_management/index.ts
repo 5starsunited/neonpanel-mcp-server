@@ -5,11 +5,13 @@ import { resolveCompanyUuid } from '../neonpanel-common';
 import { projectAdapters } from './adapters';
 import {
   createAdjustmentInputSchema,
+  createAssemblyOrderInputSchema,
   createBillInputSchema,
   createInventoryOrderInputSchema,
   createInvoiceInputSchema,
   createShipmentInputSchema,
   getAdjustmentInputSchema,
+  getAssemblyOrderInputSchema,
   getBillInputSchema,
   getInventoryOrderInputSchema,
   getInvoiceInputSchema,
@@ -28,6 +30,7 @@ import {
   passthroughOutputSchema,
   recordPaymentInputSchema,
   updateAdjustmentInputSchema,
+  updateAssemblyOrderInputSchema,
   updateBillInputSchema,
   updateInventoryOrderInputSchema,
   updateInvoiceInputSchema,
@@ -785,7 +788,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_list_assembly_orders',
-      description: 'List NeonPanel assembly orders for a company (NeonPanel: GET /api/v1/companies/{uuid}/assembly-orders). Assembly orders are currently list-only in the NeonPanel Documents API. Optional filters: search, warehouses, and date range (start_date, end_date).',
+      description: 'List NeonPanel assembly orders for a company (NeonPanel: GET /api/v1/companies/{uuid}/assembly-orders). Optional filters: search, warehouses, and date range (start_date, end_date).',
       isConsequential: false,
       inputSchema: listAssemblyOrdersInputSchema,
       outputSchema: passthroughOutputSchema,
@@ -800,6 +803,66 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
       execute: async (args, context) => {
         const parsed = listAssemblyOrdersInputSchema.parse(args);
         return listProjectRecords('assembly_order', parsed, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_get_assembly_order',
+      description: 'Get a single NeonPanel assembly order by ID (NeonPanel: GET /api/v1/companies/{uuid}/assembly-orders/{id}).',
+      isConsequential: false,
+      inputSchema: getAssemblyOrderInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Get Assembly Order',
+          arguments: { company_id: 230, assembly_order_id: 1 },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = getAssemblyOrderInputSchema.parse(args);
+        return getProjectRecord('assembly_order', parsed, parsed.assembly_order_id, context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_create_assembly_order',
+      description: 'Create a NeonPanel assembly order (NeonPanel: POST /api/v1/companies/{uuid}/assembly-orders). Items replace any existing line items when provided.',
+      isConsequential: true,
+      inputSchema: createAssemblyOrderInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Create Assembly Order',
+          arguments: {
+            company_id: 230,
+            name: 'Q2 Assembly Run',
+            warehouse_id: 5,
+            items: [{ assembly_id: 12, quantity: 100 }],
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = createAssemblyOrderInputSchema.parse(args);
+        return createProjectRecord('assembly_order', parsed, projectBodyFromArgs(parsed), context.userToken);
+      },
+    })
+    .register({
+      name: 'project_management_update_assembly_order',
+      description: 'Update a NeonPanel assembly order (NeonPanel: PUT /api/v1/companies/{uuid}/assembly-orders/{id}). Sparse update — only provided fields are modified. Items array fully replaces existing line items when included.',
+      isConsequential: true,
+      inputSchema: updateAssemblyOrderInputSchema,
+      outputSchema: passthroughOutputSchema,
+      examples: [
+        {
+          name: 'Update Assembly Order',
+          arguments: {
+            company_id: 230,
+            assembly_order_id: 1,
+            date_order_assembled: '2026-06-15',
+          },
+        },
+      ],
+      execute: async (args, context) => {
+        const parsed = updateAssemblyOrderInputSchema.parse(args);
+        return updateProjectRecord('assembly_order', parsed, parsed.assembly_order_id, projectBodyFromArgs(parsed, 'assembly_order_id'), context.userToken);
       },
     })
     .register({
@@ -1004,7 +1067,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_list_vendors',
-      description: 'List vendors for a company for use when creating or updating project records (NeonPanel: GET /api/v1/companies/{uuid}/vendors). Supports optional search and per_page.',
+      description: 'List vendors for a company (NeonPanel: GET /api/v1/companies/{uuid}/vendors). Supports optional search and per_page. Each vendor includes id, name, code, payment_term_id (the default payment term — when a document is created with this vendor and no payment_term_id is explicitly set, NeonPanel auto-generates installments from this value), bk_id, and bk_type (external bookkeeping system identifiers, e.g. Xero contact ID).',
       isConsequential: false,
       inputSchema: listVendorsInputSchema,
       outputSchema: passthroughOutputSchema,
@@ -1092,21 +1155,22 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_list_payment_terms',
-      description: 'List global NeonPanel payment terms available for project/document creation (NeonPanel: GET /api/v1/payment-terms). Terms are not company-scoped and include the document type they apply to, such as InventoryOrder or Bill.',
+      description: 'List NeonPanel payment terms for a company (NeonPanel: GET /api/v1/companies/{uuid}/payment-terms). Terms are company-scoped and include the document type they apply to, such as InventoryOrder or Bill.',
       isConsequential: false,
       inputSchema: listPaymentTermsInputSchema,
       outputSchema: passthroughOutputSchema,
       examples: [
         {
           name: 'List Payment Terms',
-          arguments: {},
+          arguments: { company_id: 123 },
         },
       ],
       execute: async (args, context) => {
-        listPaymentTermsInputSchema.parse(args);
+        const parsed = listPaymentTermsInputSchema.parse(args);
+        const companyUuid = await resolveCompanyUuid(parsed, context.userToken);
         return neonPanelRequest({
           token: context.userToken,
-          path: '/api/v1/payment-terms',
+          path: `/api/v1/companies/${companyUuid}/payment-terms`,
         });
       },
     })

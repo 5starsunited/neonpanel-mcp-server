@@ -40,5 +40,8 @@ export const projectAdapters: Record<ProjectType, ProjectAdapter> = {
   },
   assembly_order: {
     listPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/assembly-orders`,
+    getPath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/assembly-orders/${encodeURIComponent(String(projectId))}`,
+    createPath: (companyUuid) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/assembly-orders`,
+    updatePath: (companyUuid, projectId) => `/api/v1/companies/${encodeURIComponent(companyUuid)}/assembly-orders/${encodeURIComponent(String(projectId))}`,
   },
 };

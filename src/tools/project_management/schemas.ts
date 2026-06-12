@@ -194,6 +194,31 @@ export const updateShipmentInputSchema = companyScopedBaseSchema.extend({
   shipment_id: z.coerce.number().int().min(1),
 }).merge(shipmentPayloadSchema).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
+export const assemblyOrderItemInputSchema = z.object({
+  assembly_id: z.coerce.number().int().min(1),
+  quantity: z.coerce.number().int().min(1),
+});
+
+export const assemblyOrderPayloadSchema = z.object({
+  name: z.string().nullable().optional(),
+  ref_number: z.string().optional(),
+  date_order_assembled: isoDateSchema.nullable().optional(),
+  market: z.string().length(2).nullable().optional(),
+  warehouse_id: z.coerce.number().int().min(1).nullable().optional(),
+  items: z.array(assemblyOrderItemInputSchema).nullable().optional(),
+});
+
+export const getAssemblyOrderInputSchema = companyScopedBaseSchema.extend({
+  assembly_order_id: z.coerce.number().int().min(1),
+}).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const createAssemblyOrderInputSchema = companyScopedBaseSchema.merge(assemblyOrderPayloadSchema)
+  .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
+export const updateAssemblyOrderInputSchema = companyScopedBaseSchema.extend({
+  assembly_order_id: z.coerce.number().int().min(1),
+}).merge(assemblyOrderPayloadSchema).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
+
 export const listPaymentRequestsInputSchema = companyScopedBaseSchema.extend({
   start_date: isoDateSchema.optional(),
   end_date: isoDateSchema.optional(),
@@ -244,7 +269,7 @@ export const listShipmentsInputSchema = companyScopedBaseSchema.extend({
   end_date: isoDateSchema.optional(),
 }).refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
-export const listPaymentTermsInputSchema = z.object({});
+export const listPaymentTermsInputSchema = companyScopedBaseSchema.refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const listSalesChannelsInputSchema = z.object({});
 

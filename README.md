@@ -59,13 +59,18 @@ Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validatio
 
 ### NeonPanel API Schemas
 
-NeonPanel exposes multiple OpenAPI documents. The general GPT API schema is available from `https://my.neonpanel.com/api/v1/scheme/3.1.0`, while project/document routes such as Inventory Orders, Bills, Shipments, Invoices, Adjustments, Payment Requests, Vendors, Services, and Payment Terms are documented separately at:
+NeonPanel exposes multiple OpenAPI documents:
+
+- **General API** (`https://my.neonpanel.com/api/v1/scheme/3.1.0`) — core platform endpoints
+- **Documents API** (`https://my.neonpanel.com/api/v1/scheme/documents`) — project/document routes: Inventory Orders, Bills, Shipments, Invoices, Adjustments, Payment Requests, Assembly Orders, Vendors, Services, Payment Terms, Sales Channels
+
+> **When updating MCP tools**, always refresh from the Documents API schema — it is the authoritative source for all `project_management_*` tools:
 
 ```bash
 curl -fsS 'https://my.neonpanel.com/api/v1/scheme/documents' -o /tmp/neonpanel-documents.yaml
 ```
 
-Use the dedicated documents schema when checking project-management tools or refreshing [documents.yaml](documents.yaml):
+Inspect specific endpoints after refreshing:
 
 ```bash
 grep -n 'shipments\|Shipment\|/companies/{companyUuid}/shipments' /tmp/neonpanel-documents.yaml | head -80
