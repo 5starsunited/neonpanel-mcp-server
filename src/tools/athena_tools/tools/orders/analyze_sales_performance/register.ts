@@ -15,7 +15,7 @@ import {
   sqlDateExpr,
 } from '../_shared';
 
-const VALID_GRANULARITIES = new Set(['day', 'week', 'month']);
+const VALID_GRANULARITIES = new Set(['hour', 'day', 'week', 'month']);
 
 const inputSchema = z
   .object({
@@ -32,7 +32,7 @@ const inputSchema = z
           .strict(),
         aggregation: z
           .object({
-            granularity: z.enum(['day', 'week', 'month']).default('day').optional(),
+            granularity: z.enum(['hour', 'day', 'week', 'month']).default('day').optional(),
             utc_offset_hours: z.coerce.number().int().min(-14).max(14).optional(),
             time: z
               .object({
