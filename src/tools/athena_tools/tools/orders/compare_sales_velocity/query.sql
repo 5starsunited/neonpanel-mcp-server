@@ -30,15 +30,18 @@ WITH params AS (
     CAST({{prune_months_back}} AS INTEGER) AS prune_months_back
 ),
 
--- ── 0. Reference clock + current bucket start ──────────────────────────────
+-- ── 0. Reference clock + current bucket start (in the requested time zone) ──
+-- All bucketing/windowing is done in local wall-clock time so day/week/month
+-- boundaries match the seller's reporting time zone (default America/Los_Angeles),
+-- not UTC.
 bounds AS (
   SELECT
-    CAST(CURRENT_TIMESTAMP AS TIMESTAMP) AS now_ts,
+    CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP) AS now_ts,
     CASE p.granularity
-      WHEN 'hour'  THEN DATE_TRUNC('hour',  CAST(CURRENT_TIMESTAMP AS TIMESTAMP))
-      WHEN 'week'  THEN DATE_TRUNC('week',  CAST(CURRENT_TIMESTAMP AS TIMESTAMP))
-      WHEN 'month' THEN DATE_TRUNC('month', CAST(CURRENT_TIMESTAMP AS TIMESTAMP))
-      ELSE              DATE_TRUNC('day',   CAST(CURRENT_TIMESTAMP AS TIMESTAMP))
+      WHEN 'hour'  THEN DATE_TRUNC('hour',  CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
+      WHEN 'week'  THEN DATE_TRUNC('week',  CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
+      WHEN 'month' THEN DATE_TRUNC('month', CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
+      ELSE              DATE_TRUNC('day',   CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
     END AS cur_start
   FROM params p
 ),
@@ -93,7 +96,8 @@ filtered AS (
 items AS (
   SELECT
     f.company_id,
-    f.created_time,
+    -- Convert UTC order timestamp to local wall-clock time for window matching.
+    CAST((f.created_time AT TIME ZONE 'UTC') AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP) AS created_time,
     f.marketplace_id,
     oi.product.asin                                   AS asin,
     oi.product.seller_sku                             AS sku,
@@ -150,6 +154,56 @@ enriched AS (
     AND (cardinality(p.product_families) = 0 OR contains(p.product_families, ia.product_family))
 ),
 
+-- ── 4b. Per-company main reporting currency + FX validity ranges ────────────
+company_main AS (
+  SELECT id AS company_id, currency AS main_currency
+  FROM "{{catalog}}"."neonpanel_iceberg"."app_companies"
+),
+
+-- currency_rates.rate is native->USD (USD = 1.0). Rates are sparse (~weekly),
+-- so each rate is valid from its date until the next rate for that currency.
+fx AS (
+  SELECT
+    currency,
+    date AS from_date,
+    COALESCE(
+      LEAD(date) OVER (PARTITION BY currency ORDER BY date),
+      DATE '9999-12-31'
+    ) AS to_date,
+    rate
+  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
+),
+
+-- Convert each item to the company main currency at its own (local) order date:
+--   amount_main = amount_native * rate(native) / rate(main)
+converted AS (
+  SELECT
+    e.company_id,
+    e.created_time,
+    e.marketplace_id,
+    e.asin,
+    e.sku,
+    e.title,
+    e.units,
+    e.sales_amount,
+    e.currency,
+    e.inventory_id,
+    e.brand,
+    e.product_family,
+    cm.main_currency,
+    e.sales_amount * fxn.rate / NULLIF(fxm.rate, 0.0) AS sales_amount_main
+  FROM enriched e
+  LEFT JOIN company_main cm ON cm.company_id = e.company_id
+  LEFT JOIN fx fxn
+    ON fxn.currency = e.currency
+   AND CAST(e.created_time AS DATE) >= fxn.from_date
+   AND CAST(e.created_time AS DATE) <  fxn.to_date
+  LEFT JOIN fx fxm
+    ON fxm.currency = cm.main_currency
+   AND CAST(e.created_time AS DATE) >= fxm.from_date
+   AND CAST(e.created_time AS DATE) <  fxm.to_date
+),
+
 -- ── 5. Assign each item to every window it falls in ────────────────────────
 joined AS (
   SELECT
@@ -157,11 +211,13 @@ joined AS (
     {{group_dim_expr}}              AS group_value,
     e.marketplace_id,
     COALESCE(e.currency, 'UNKNOWN') AS currency,
+    e.main_currency,
     e.title,
     w.offset_days,
     e.units,
-    e.sales_amount
-  FROM enriched e
+    e.sales_amount,
+    e.sales_amount_main
+  FROM converted e
   CROSS JOIN windows w
   WHERE e.created_time >= w.win_start
     AND e.created_time <  w.win_end
@@ -174,6 +230,7 @@ agg AS (
     group_value,
     marketplace_id,
     currency,
+    MAX(main_currency) AS main_currency,
     MAX(title) AS representative_title,
     {{metric_pivot_columns}}
   FROM joined
@@ -187,6 +244,7 @@ SELECT
   representative_title,
   marketplace_id,
   currency,
+  main_currency,
   {{select_columns}}
 FROM agg
 ORDER BY current_sales DESC NULLS LAST

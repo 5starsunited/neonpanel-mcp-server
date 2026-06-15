@@ -1,6 +1,6 @@
 {
   "name": "customer_orders_compare_amazon_sales_velocity",
-  "description": "Compares CURRENT Amazon sales velocity against prior periods, from placed orders (sp_api_iceberg.orders_v2026) enriched with inventory dimensions (neonpanel_iceberg.inventory_attributes).\n\nUse this tool to:\n- See how today's / this week's / this month's sales pace compares to yesterday, last week (7d ago), last month (30d ago), and last year (365d ago)\n- Spot fast- and slow-moving products, brands, or product families vs their own history\n- Track units_sold, sales (revenue), and average price momentum per group\n\nHow the comparison works (period-to-date):\n- Pick a granularity: hour, day (default), week, or month. The CURRENT window runs from the start of that bucket up to now.\n- Each comparison window is that SAME elapsed window shifted back by a number of days (default 1, 7, 30, 365 = yesterday / last week / last month / last year). So an in-progress day compares fairly against the same slice of prior days.\n- Offsets are configurable via comparison_offsets_days (day-based; best suited to hour/day granularity — for week/month use larger offsets like [7, 30, 365]).\n\nGrouping: choose one of inventory_id, sku, asin, product_family, brand, or company_id. Rows are ALWAYS additionally split by company_id x marketplace x currency — sales are NOT currency-converted, so filter by marketplace_ids for single-currency results.\n\nMetrics per window: units_sold (sum of quantity_ordered), sales (sum of item proceeds_total), avg_price (sales / units).\n\nOutput columns are dynamic based on the requested offsets:\n- current_units_sold, current_sales, current_avg_price\n- prev_<N>d_units_sold, prev_<N>d_sales, prev_<N>d_avg_price for each offset N\n- units_pct_vs_<N>d, sales_pct_vs_<N>d, price_pct_vs_<N>d  (percent change of current vs that prior period)\nplus group_by, company_id, group_value, representative_title, marketplace_id, currency.\n\nDimensions (inventory_id / brand / product_family) come from inventory_attributes joined on company_id + sku; unmapped items return null for those and are excluded when a brand/product_family filter is set. Default limit: 100, ranked by current_sales DESC.",
+  "description": "Compares CURRENT Amazon sales velocity against prior periods, from placed orders (sp_api_iceberg.orders_v2026) enriched with inventory dimensions (neonpanel_iceberg.inventory_attributes).\n\nUse this tool to:\n- See how today's / this week's / this month's sales pace compares to yesterday, last week (7d ago), last month (30d ago), and last year (365d ago)\n- Spot fast- and slow-moving products, brands, or product families vs their own history\n- Track units_sold, sales (revenue), and average price momentum per group\n\nHow the comparison works (period-to-date):\n- Pick a granularity: hour, day (default), week, or month. The CURRENT window runs from the start of that bucket up to now.\n- Each comparison window is that SAME elapsed window shifted back by a number of days (default 1, 7, 30, 365 = yesterday / last week / last month / last year). So an in-progress day compares fairly against the same slice of prior days.\n- Offsets are configurable via comparison_offsets_days (day-based; best suited to hour/day granularity — for week/month use larger offsets like [7, 30, 365]).\n\nGrouping: choose one of inventory_id, sku, asin, product_family, brand, or company_id. Rows are ALWAYS additionally split by company_id x marketplace x currency — sales are NOT currency-converted, so filter by marketplace_ids for single-currency results.\n\nMetrics per window: units_sold (sum of quantity_ordered), sales (sum of item proceeds_total), avg_price (sales / units).\n\nOutput columns are dynamic based on the requested offsets:\n- current_units_sold, current_sales, current_sales_main, current_avg_price\n- prev_<N>d_units_sold, prev_<N>d_sales, prev_<N>d_sales_main, prev_<N>d_avg_price for each offset N\n- units_pct_vs_<N>d, sales_pct_vs_<N>d, price_pct_vs_<N>d  (percent change of current vs that prior period, native currency)\nplus group_by, company_id, group_value, representative_title, marketplace_id, currency, main_currency.\n\nCurrency: *_sales is in the row's native currency; *_sales_main is the same converted to the company's main_currency (app_companies.currency) at each window's order dates (each comparison window uses its own period's FX rates). Main-currency avg price = *_sales_main / *_units_sold; main-currency % deltas derive from the *_sales_main columns.\n\nDimensions (inventory_id / brand / product_family) come from inventory_attributes joined on company_id + sku; unmapped items return null for those and are excluded when a brand/product_family filter is set. Default limit: 100, ranked by current_sales DESC.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -62,6 +62,11 @@
                 "maxItems": 6,
                 "default": [1, 7, 30, 365],
                 "description": "Day offsets to compare the current window against. Default 1/7/30/365 = yesterday / last week / last month / last year."
+              },
+              "time_zone": {
+                "type": "string",
+                "default": "America/Los_Angeles",
+                "description": "IANA time zone (e.g. 'America/Los_Angeles') or fixed offset (e.g. '-08:00') used for all day/week/month/hour bucketing and the current-time reference. Defaults to America/Los_Angeles (LA), matching NeonPanel reporting. Order timestamps (UTC) are converted to this zone before bucketing."
               }
             },
             "additionalProperties": false
@@ -88,9 +93,11 @@
             "group_value": { "type": ["string", "null"] },
             "representative_title": { "type": ["string", "null"] },
             "marketplace_id": { "type": ["string", "null"] },
-            "currency": { "type": ["string", "null"] },
+            "currency": { "type": ["string", "null"], "description": "Native currency of this marketplace row." },
+            "main_currency": { "type": ["string", "null"], "description": "Company main reporting currency (app_companies.currency)." },
             "current_units_sold": { "type": ["integer", "null"] },
-            "current_sales": { "type": ["number", "null"] },
+            "current_sales": { "type": ["number", "null"], "description": "Current-window sales in native currency." },
+            "current_sales_main": { "type": ["number", "null"], "description": "Current-window sales in main_currency." },
             "current_avg_price": { "type": ["number", "null"] }
           },
           "additionalProperties": true
