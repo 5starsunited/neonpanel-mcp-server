@@ -127,7 +127,7 @@ bucketed AS (
     f.fulfilled_by
   FROM filtered f
   CROSS JOIN params p
-  LEFT JOIN company_main cm ON cm.company_id = f.company_id
+  LEFT JOIN company_main cm ON cm.company_id = TRY_CAST(f.company_id AS BIGINT)
   LEFT JOIN fx fxn
     ON fxn.currency = f.currency
    AND CAST(f.created_local AS DATE) >= fxn.from_date
