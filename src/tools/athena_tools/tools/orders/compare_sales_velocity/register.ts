@@ -9,14 +9,13 @@ import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   fetchPermittedCompanyIds,
-  resolveDefaultTimeZone,
   sqlBigintArrayExpr,
   sqlVarcharArrayExpr,
-  sqlStringLiteral,
 } from '../_shared';
 
-// IANA zone name or fixed offset (e.g. 'America/Los_Angeles' or '-08:00').
-const TIME_ZONE_PATTERN = /^[A-Za-z0-9_+\-:/]{1,64}$/;
+// Hours offset from UTC for local bucketing. Default -8 matches the NeonPanel
+// report's LA (Pacific) setting; pass -7 for PDT or 0 for UTC.
+const DEFAULT_UTC_OFFSET_HOURS = -8;
 
 // Maps the group_by dimension to the SQL expression used in the `enriched` CTE.
 const GROUP_DIM_EXPR: Record<string, string> = {
@@ -57,7 +56,7 @@ const inputSchema = z
               .min(1)
               .max(6)
               .optional(),
-            time_zone: z.string().regex(TIME_ZONE_PATTERN).optional(),
+            utc_offset_hours: z.coerce.number().int().min(-14).max(14).optional(),
           })
           .optional(),
         limit: z.coerce.number().int().min(1).max(500).default(100).optional(),
@@ -137,8 +136,7 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
       const agg = query.aggregation;
       const granularity = agg?.granularity ?? 'day';
       const groupBy = agg?.group_by ?? 'sku';
-      // Explicit param wins; otherwise default to the company's app_companies time zone (LA fallback).
-      const timeZone = agg?.time_zone ?? (await resolveDefaultTimeZone(allowedIds));
+      const utcOffsetHours = agg?.utc_offset_hours ?? DEFAULT_UTC_OFFSET_HOURS;
       // De-duplicate + sort offsets for stable, predictable column ordering.
       const offsets = Array.from(
         new Set((agg?.comparison_offsets_days ?? [1, 7, 30, 365]).map((n) => Math.trunc(n))),
@@ -162,7 +160,7 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
         brands_array: sqlVarcharArrayExpr(query.filters.brands ?? []),
         product_families_array: sqlVarcharArrayExpr(query.filters.product_families ?? []),
         offsets_array: sqlBigintArrayExpr(offsets),
-        time_zone_sql: sqlStringLiteral(timeZone),
+        utc_offset_hours: Number(utcOffsetHours),
         granularity,
         group_by: groupBy,
         group_dim_expr: GROUP_DIM_EXPR[groupBy],

@@ -9,17 +9,16 @@ import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   fetchPermittedCompanyIds,
-  resolveDefaultTimeZone,
   sqlBigintArrayExpr,
   sqlVarcharArrayExpr,
   sqlDateExpr,
-  sqlStringLiteral,
 } from '../_shared';
 
 const VALID_GRANULARITIES = new Set(['day', 'week', 'month']);
 
-// IANA zone name or fixed offset (e.g. 'America/Los_Angeles' or '-08:00').
-const TIME_ZONE_PATTERN = /^[A-Za-z0-9_+\-:/]{1,64}$/;
+// Hours offset from UTC for local-day bucketing. Default -8 matches the NeonPanel
+// report's LA (Pacific) setting; pass -7 for PDT or 0 for UTC.
+const DEFAULT_UTC_OFFSET_HOURS = -8;
 
 const inputSchema = z
   .object({
@@ -37,7 +36,7 @@ const inputSchema = z
         aggregation: z
           .object({
             granularity: z.enum(['day', 'week', 'month']).default('day').optional(),
-            time_zone: z.string().regex(TIME_ZONE_PATTERN).optional(),
+            utc_offset_hours: z.coerce.number().int().min(-14).max(14).optional(),
             time: z
               .object({
                 start_date: z.string().optional(),
@@ -83,8 +82,7 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
 
       const time = query.aggregation?.time;
       const granularity = query.aggregation?.granularity ?? 'day';
-      // Explicit param wins; otherwise default to the company's app_companies time zone (LA fallback).
-      const timeZone = query.aggregation?.time_zone ?? (await resolveDefaultTimeZone(allowedIds));
+      const utcOffsetHours = query.aggregation?.utc_offset_hours ?? DEFAULT_UTC_OFFSET_HOURS;
       const periodsBack = time?.periods_back ?? 3;
       const limitTopN = query.limit ?? 100;
 
@@ -100,7 +98,7 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
         end_date_sql: sqlDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
         granularity: VALID_GRANULARITIES.has(granularity) ? granularity : 'day',
-        time_zone_sql: sqlStringLiteral(timeZone),
+        utc_offset_hours: Number(utcOffsetHours),
         limit_top_n: Number(limitTopN),
       });
 

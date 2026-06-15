@@ -1,6 +1,6 @@
 {
   "name": "customer_orders_analyze_amazon_sales_performance",
-  "description": "Analyzes placed-order sales performance over time from sp_api_iceberg.orders_v2026.\n\nUse this tool to:\n- Track daily, weekly, or monthly revenue and order volume trends\n- Monitor fulfillment status mix (shipped / pending / canceled) over time\n- Analyze FBA (AMAZON) vs FBM split by period\n- Compare gross revenue and average order value across time windows\n- Filter by marketplace, order status, fulfillment channel, or seller\n\nKey metrics per period:\n- orders: distinct placed orders (deduplicated to latest snapshot)\n- gross_revenue: Sales = principal + shipping per item (proceeds.breakdowns ITEM+SHIPPING, with unit_price×qty fallback; excludes tax), matching NeonPanel report 'Sales'. NOT proceeds.grand_total (which is NULL for orders Amazon hasn't finalized).\n- avg_order_value: gross_revenue ÷ orders\n- shipped_count / pending_count / canceled_count: status breakdown\n- fba_count / fbm_count: fulfillment channel split\n\nGranularity: day (default), week, or month.\nDefault window: last 3 months. Use start_date/end_date for exact ranges.\n\nTime zone: periods are bucketed in the requested time_zone (default America/Los_Angeles / LA), matching NeonPanel reporting. Order timestamps (UTC) are converted to this zone before date filtering and bucketing, so a 'day' is a local-calendar day, not a UTC day.\n\nCurrency: each row carries native amounts (gross_revenue / avg_order_value in the marketplace's own currency) AND main-currency amounts (gross_revenue_main / avg_order_value_main), converted to the company's main_currency (app_companies.currency) at each order's date via currency_rates. Use native for per-marketplace figures and main-currency for cross-marketplace aggregation — both are always returned.",
+  "description": "Analyzes placed-order sales performance over time from sp_api_iceberg.orders_v2026.\n\nUse this tool to:\n- Track daily, weekly, or monthly revenue and order volume trends\n- Monitor fulfillment status mix (shipped / pending / canceled) over time\n- Analyze FBA (AMAZON) vs FBM split by period\n- Compare gross revenue and average order value across time windows\n- Filter by marketplace, order status, fulfillment channel, or seller\n\nKey metrics per period:\n- orders: distinct placed orders (deduplicated to latest snapshot)\n- gross_revenue: Sales = principal + shipping per item (proceeds.breakdowns ITEM+SHIPPING, with unit_price×qty fallback; excludes tax), matching NeonPanel report 'Sales'. NOT proceeds.grand_total (which is NULL for orders Amazon hasn't finalized).\n- avg_order_value: gross_revenue ÷ orders\n- shipped_count / pending_count / canceled_count: status breakdown\n- fba_count / fbm_count: fulfillment channel split\n\nGranularity: day (default), week, or month.\nDefault window: last 3 months. Use start_date/end_date for exact ranges.\n\nTime zone: periods are bucketed using utc_offset_hours (default -8 = LA), matching NeonPanel reporting. Order timestamps (UTC) are shifted by this offset before date filtering and bucketing, so a 'day' is a local-calendar day, not a UTC day.\n\nCurrency: each row carries native amounts (gross_revenue / avg_order_value in the marketplace's own currency) AND main-currency amounts (gross_revenue_main / avg_order_value_main), converted to the company's main_currency (app_companies.currency) at each order's date via currency_rates. Use native for per-marketplace figures and main-currency for cross-marketplace aggregation — both are always returned.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -50,10 +50,12 @@
                 "default": "day",
                 "description": "Time bucket size."
               },
-              "time_zone": {
-                "type": "string",
-                "default": "America/Los_Angeles",
-                "description": "IANA time zone (e.g. 'America/Los_Angeles') or fixed offset (e.g. '-08:00') used for date filtering and day/week/month bucketing. Defaults to America/Los_Angeles (LA). Order timestamps (UTC) are converted to this zone first."
+              "utc_offset_hours": {
+                "type": "integer",
+                "minimum": -14,
+                "maximum": 14,
+                "default": -8,
+                "description": "Hours offset from UTC for date filtering and day/week/month bucketing. Default -8 = LA/Pacific (matches NeonPanel report). Use -7 for PDT or 0 for UTC. Order timestamps (UTC) are shifted by this many hours before bucketing."
               },
               "time": {
                 "type": "object",

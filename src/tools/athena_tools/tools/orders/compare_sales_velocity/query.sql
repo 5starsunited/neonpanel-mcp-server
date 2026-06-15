@@ -30,18 +30,20 @@ WITH params AS (
     CAST({{prune_months_back}} AS INTEGER) AS prune_months_back
 ),
 
--- ── 0. Reference clock + current bucket start (in the requested time zone) ──
+-- ── 0. Reference clock + current bucket start (in local time) ───────────────
 -- All bucketing/windowing is done in local wall-clock time so day/week/month
--- boundaries match the seller's reporting time zone (default America/Los_Angeles),
--- not UTC.
+-- boundaries match the seller's reporting calendar. Local = UTC shifted by
+-- utc_offset_hours (default -8 = LA) via DATE_ADD. NOT AT TIME ZONE: casting a
+-- timestamp-with-tz back to timestamp re-renders in the session zone (UTC),
+-- which would silently undo the conversion.
 bounds AS (
   SELECT
-    CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP) AS now_ts,
+    DATE_ADD('hour', {{utc_offset_hours}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)) AS now_ts,
     CASE p.granularity
-      WHEN 'hour'  THEN DATE_TRUNC('hour',  CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
-      WHEN 'week'  THEN DATE_TRUNC('week',  CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
-      WHEN 'month' THEN DATE_TRUNC('month', CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
-      ELSE              DATE_TRUNC('day',   CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP))
+      WHEN 'hour'  THEN DATE_TRUNC('hour',  DATE_ADD('hour', {{utc_offset_hours}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
+      WHEN 'week'  THEN DATE_TRUNC('week',  DATE_ADD('hour', {{utc_offset_hours}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
+      WHEN 'month' THEN DATE_TRUNC('month', DATE_ADD('hour', {{utc_offset_hours}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
+      ELSE              DATE_TRUNC('day',   DATE_ADD('hour', {{utc_offset_hours}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
     END AS cur_start
   FROM params p
 ),
@@ -97,7 +99,7 @@ items AS (
   SELECT
     f.company_id,
     -- Convert UTC order timestamp to local wall-clock time for window matching.
-    CAST((f.created_time AT TIME ZONE 'UTC') AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP) AS created_time,
+    DATE_ADD('hour', {{utc_offset_hours}}, f.created_time) AS created_time,
     f.marketplace_id,
     oi.product.asin                                   AS asin,
     oi.product.seller_sku                             AS sku,
