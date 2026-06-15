@@ -147,7 +147,7 @@ enriched AS (
     ia.product_family    AS product_family
   FROM items i
   LEFT JOIN ia_dedup ia
-    ON ia.attr_company_id = i.company_id
+    ON ia.attr_company_id = TRY_CAST(i.company_id AS BIGINT)
    AND ia.sku = i.sku
   CROSS JOIN params p
   WHERE (cardinality(p.brands) = 0           OR contains(p.brands, ia.brand))
@@ -193,7 +193,7 @@ converted AS (
     cm.main_currency,
     e.sales_amount * fxn.rate / NULLIF(fxm.rate, 0.0) AS sales_amount_main
   FROM enriched e
-  LEFT JOIN company_main cm ON cm.company_id = e.company_id
+  LEFT JOIN company_main cm ON cm.company_id = TRY_CAST(e.company_id AS BIGINT)
   LEFT JOIN fx fxn
     ON fxn.currency = e.currency
    AND CAST(e.created_time AS DATE) >= fxn.from_date
