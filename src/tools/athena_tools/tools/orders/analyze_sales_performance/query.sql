@@ -143,13 +143,12 @@ fx AS (
 --   order_total_main = order_total * rate(native) / rate(main)
 bucketed AS (
   SELECT
-    CAST(
-      CASE p.granularity
-        WHEN 'week'  THEN DATE_TRUNC('week',  CAST(f.created_local AS DATE))
-        WHEN 'month' THEN DATE_TRUNC('month', CAST(f.created_local AS DATE))
-        ELSE              DATE_TRUNC('day',   CAST(f.created_local AS DATE))
-      END
-    AS VARCHAR)                       AS period_start,
+    CASE p.granularity
+      WHEN 'hour'  THEN DATE_FORMAT(DATE_TRUNC('hour', f.created_local), '%Y-%m-%dT%H:00')
+      WHEN 'week'  THEN CAST(DATE_TRUNC('week',  CAST(f.created_local AS DATE)) AS VARCHAR)
+      WHEN 'month' THEN CAST(DATE_TRUNC('month', CAST(f.created_local AS DATE)) AS VARCHAR)
+      ELSE              CAST(DATE_TRUNC('day',   CAST(f.created_local AS DATE)) AS VARCHAR)
+    END                               AS period_start,
     f.marketplace_id,
     f.currency,
     cm.main_currency,
