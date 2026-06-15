@@ -7,7 +7,16 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { fetchPermittedCompanyIds, sqlBigintArrayExpr, sqlVarcharArrayExpr } from '../_shared';
+import {
+  fetchPermittedCompanyIds,
+  resolveDefaultTimeZone,
+  sqlBigintArrayExpr,
+  sqlVarcharArrayExpr,
+  sqlStringLiteral,
+} from '../_shared';
+
+// IANA zone name or fixed offset (e.g. 'America/Los_Angeles' or '-08:00').
+const TIME_ZONE_PATTERN = /^[A-Za-z0-9_+\-:/]{1,64}$/;
 
 // Maps the group_by dimension to the SQL expression used in the `enriched` CTE.
 const GROUP_DIM_EXPR: Record<string, string> = {
@@ -48,6 +57,7 @@ const inputSchema = z
               .min(1)
               .max(6)
               .optional(),
+            time_zone: z.string().regex(TIME_ZONE_PATTERN).optional(),
           })
           .optional(),
         limit: z.coerce.number().int().min(1).max(500).default(100).optional(),
@@ -64,6 +74,7 @@ function buildMetricPivotColumns(offsets: number[]): string {
     cols.push(
       `SUM(CASE WHEN offset_days = ${off} THEN units END) AS ${label}_units_sold`,
       `ROUND(SUM(CASE WHEN offset_days = ${off} THEN sales_amount END), 2) AS ${label}_sales`,
+      `ROUND(SUM(CASE WHEN offset_days = ${off} THEN sales_amount_main END), 2) AS ${label}_sales_main`,
       `ROUND(SUM(CASE WHEN offset_days = ${off} THEN sales_amount END) / NULLIF(SUM(CASE WHEN offset_days = ${off} THEN units END), 0), 4) AS ${label}_avg_price`,
     );
   }
@@ -72,12 +83,18 @@ function buildMetricPivotColumns(offsets: number[]): string {
 
 /** Builds the final projection: current metrics + each comparison + % deltas vs current. */
 function buildSelectColumns(offsets: number[]): string {
-  const cols: string[] = ['current_units_sold', 'current_sales', 'current_avg_price'];
+  const cols: string[] = [
+    'current_units_sold',
+    'current_sales',
+    'current_sales_main',
+    'current_avg_price',
+  ];
   for (const off of offsets) {
     const p = `prev_${off}d`;
     cols.push(
       `${p}_units_sold`,
       `${p}_sales`,
+      `${p}_sales_main`,
       `${p}_avg_price`,
       `ROUND(100.0 * (current_units_sold - ${p}_units_sold) / NULLIF(${p}_units_sold, 0), 1) AS units_pct_vs_${off}d`,
       `ROUND(100.0 * (current_sales - ${p}_sales) / NULLIF(${p}_sales, 0), 1) AS sales_pct_vs_${off}d`,
@@ -120,6 +137,8 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
       const agg = query.aggregation;
       const granularity = agg?.granularity ?? 'day';
       const groupBy = agg?.group_by ?? 'sku';
+      // Explicit param wins; otherwise default to the company's app_companies time zone (LA fallback).
+      const timeZone = agg?.time_zone ?? (await resolveDefaultTimeZone(allowedIds));
       // De-duplicate + sort offsets for stable, predictable column ordering.
       const offsets = Array.from(
         new Set((agg?.comparison_offsets_days ?? [1, 7, 30, 365]).map((n) => Math.trunc(n))),
@@ -143,6 +162,7 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
         brands_array: sqlVarcharArrayExpr(query.filters.brands ?? []),
         product_families_array: sqlVarcharArrayExpr(query.filters.product_families ?? []),
         offsets_array: sqlBigintArrayExpr(offsets),
+        time_zone_sql: sqlStringLiteral(timeZone),
         granularity,
         group_by: groupBy,
         group_dim_expr: GROUP_DIM_EXPR[groupBy],
