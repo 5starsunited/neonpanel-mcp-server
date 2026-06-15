@@ -103,8 +103,19 @@ items AS (
     oi.product.seller_sku                             AS sku,
     oi.product.title                                  AS title,
     COALESCE(oi.quantity_ordered, 0)                  AS units,
-    COALESCE(oi.proceeds.proceeds_total.amount, 0.0)  AS sales_amount,
-    oi.proceeds.proceeds_total.currency_code          AS currency
+    -- Sales = principal (ITEM breakdown, fallback unit_price * qty) + shipping (SHIPPING breakdown).
+    -- Matches NeonPanel report "Sales"; avoids proceeds.grand_total which is NULL for unfinalized orders.
+    (
+      COALESCE(
+        element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.amount,
+        oi.product.price.unit_price.amount * oi.quantity_ordered
+      )
+      + COALESCE(element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'SHIPPING'), 1).subtotal.amount, 0.0)
+    )                                                 AS sales_amount,
+    COALESCE(
+      element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.currency_code,
+      oi.product.price.unit_price.currency_code
+    )                                                 AS currency
   FROM filtered f
   CROSS JOIN UNNEST(f.order_items) AS t(oi)
   CROSS JOIN params p
