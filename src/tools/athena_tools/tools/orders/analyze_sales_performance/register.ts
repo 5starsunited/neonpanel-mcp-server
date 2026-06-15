@@ -54,7 +54,7 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
   } catch { specJson = undefined; }
 
   registry.register({
-    name: 'orders_analyze_sales_performance',
+    name: 'customer_orders_analyze_amazon_sales_performance',
     description:
       'Time-series sales performance from placed Amazon orders (sp_api_iceberg.orders_v2026). Revenue, order count, status mix, FBA/FBM split by day/week/month.',
     isConsequential: false,

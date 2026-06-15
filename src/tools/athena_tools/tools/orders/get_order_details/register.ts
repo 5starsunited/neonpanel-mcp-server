@@ -28,7 +28,7 @@ export function registerOrdersGetOrderDetailsTool(registry: ToolRegistry) {
   } catch { specJson = undefined; }
 
   registry.register({
-    name: 'orders_get_order_details',
+    name: 'customer_orders_get_amazon_customer_order_details',
     description:
       'Fetches full details for a single Amazon order from sp_api_iceberg.orders_v2026, including all order items expanded into individual rows.',
     isConsequential: false,

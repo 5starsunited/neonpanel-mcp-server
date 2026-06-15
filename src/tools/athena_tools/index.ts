@@ -1,5 +1,6 @@
 import type { ToolRegistry } from '../types';
 import { registerOrdersAnalyzeSalesPerformanceTool } from './tools/orders/analyze_sales_performance/register';
+import { registerOrdersCompareSalesVelocityTool } from './tools/orders/compare_sales_velocity/register';
 import { registerOrdersListTopProductsTool } from './tools/orders/list_top_products/register';
 import { registerOrdersListOrdersTool } from './tools/orders/list_orders/register';
 import { registerOrdersGetOrderDetailsTool } from './tools/orders/get_order_details/register';
@@ -143,6 +144,7 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerShopifyListInventoryBalancesTool(registry);
   registerShopifyListOrdersTool(registry);
   registerOrdersAnalyzeSalesPerformanceTool(registry);
+  registerOrdersCompareSalesVelocityTool(registry);
   registerOrdersListTopProductsTool(registry);
   registerOrdersListOrdersTool(registry);
   registerOrdersGetOrderDetailsTool(registry);

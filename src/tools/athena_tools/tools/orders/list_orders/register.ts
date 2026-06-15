@@ -52,7 +52,7 @@ export function registerOrdersListOrdersTool(registry: ToolRegistry) {
   } catch { specJson = undefined; }
 
   registry.register({
-    name: 'orders_list_orders',
+    name: 'customer_orders_list_amazon_customer_orders',
     description:
       'Lists placed orders from sp_api_iceberg.orders_v2026. One row per order with fulfillment status, marketplace, order total, and item count. Supports lookup by order_id.',
     isConsequential: false,

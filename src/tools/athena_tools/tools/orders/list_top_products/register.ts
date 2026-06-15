@@ -65,7 +65,7 @@ export function registerOrdersListTopProductsTool(registry: ToolRegistry) {
   } catch { specJson = undefined; }
 
   registry.register({
-    name: 'orders_list_top_products',
+    name: 'customer_orders_list_top_performance_on_amazon',
     description:
       'Ranks products (ASIN+SKU) by revenue, orders, or units from sp_api_iceberg.orders_v2026. Uses item-level proceeds for accurate revenue.',
     isConsequential: false,

@@ -1,6 +1,6 @@
 {
-  "name": "orders_list_orders",
-  "description": "Lists placed orders from sp_api_iceberg.orders_v2026 with filters. Returns one flattened row per order (no item expansion).\n\nUse this tool to:\n- Browse recent orders with status, marketplace, fulfillment detail\n- Look up specific orders by order_id\n- Filter orders by status, marketplace, seller, fulfillment channel, or date range\n- Get order_id values to feed into orders_get_order_details\n\nReturns: order_id, created_time, last_updated_time, marketplace, fulfillment status/channel/service_level, ship_by window, order_total, item_count.\n\nDefault window: last 3 months. Default limit: 50.",
+  "name": "customer_orders_list_amazon_customer_orders",
+  "description": "Lists placed orders from sp_api_iceberg.orders_v2026 with filters. Returns one flattened row per order (no item expansion).\n\nUse this tool to:\n- Browse recent orders with status, marketplace, fulfillment detail\n- Look up specific orders by order_id\n- Filter orders by status, marketplace, seller, fulfillment channel, or date range\n- Get order_id values to feed into customer_orders_get_amazon_customer_order_details\n\nReturns: order_id, created_time, last_updated_time, marketplace, fulfillment status/channel/service_level, ship_by window, order_total, item_count.\n\nDefault window: last 3 months. Default limit: 50.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",

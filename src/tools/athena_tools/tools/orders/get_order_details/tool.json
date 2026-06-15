@@ -1,6 +1,6 @@
 {
-  "name": "orders_get_order_details",
-  "description": "Fetches full details for a single Amazon order from sp_api_iceberg.orders_v2026, including all order items expanded into individual rows.\n\nUse this tool to:\n- Get complete item-level breakdown for a specific order\n- See unit prices, proceeds, fulfillment quantities per item\n- Check which promotions were applied per line item\n- Verify ship-by windows and fulfillment status\n\nReturns one row per order item. Use orders_list_orders to discover order_ids first.",
+  "name": "customer_orders_get_amazon_customer_order_details",
+  "description": "Fetches full details for a single Amazon order from sp_api_iceberg.orders_v2026, including all order items expanded into individual rows.\n\nUse this tool to:\n- Get complete item-level breakdown for a specific order\n- See unit prices, proceeds, fulfillment quantities per item\n- Check which promotions were applied per line item\n- Verify ship-by windows and fulfillment status\n\nReturns one row per order item. Use customer_orders_list_amazon_customer_orders to discover order_ids first.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
