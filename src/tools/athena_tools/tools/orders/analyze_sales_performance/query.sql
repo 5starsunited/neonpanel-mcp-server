@@ -2,9 +2,10 @@
 -- Source: sp_api_iceberg.orders_v2026
 -- Revenue: proceeds.grand_total.amount (order-level)
 -- Dedup: latest last_updated_time per order_id + company_id
--- Time zone: order timestamps (UTC) are converted to the requested zone
---   ({{time_zone_sql}}, default America/Los_Angeles) before date filtering and
---   day/week/month bucketing, so periods match the seller's reporting calendar.
+-- Time zone: order timestamps (UTC) are shifted by utc_offset_hours (default -8 = LA)
+--   via DATE_ADD before date filtering and day/week/month bucketing, so periods match
+--   the seller's reporting calendar. (Offset, not AT TIME ZONE: CAST(tstz AS timestamp)
+--   re-renders in the session zone (UTC), which would silently undo a zone conversion.)
 
 WITH params AS (
   SELECT
@@ -23,7 +24,7 @@ WITH params AS (
 latest AS (
   SELECT
     o.order_id,
-    CAST((o.created_time AT TIME ZONE 'UTC') AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP) AS created_local,
+    DATE_ADD('hour', {{utc_offset_hours}}, o.created_time) AS created_local,
     o.last_updated_time,
     o.sales_channel.marketplace_id                  AS marketplace_id,
     o.sales_channel.marketplace_name                AS marketplace_name,
@@ -67,7 +68,7 @@ filtered AS (
       p.start_date IS NOT NULL
       OR CAST(l.created_local AS DATE) >= DATE_ADD(
         'month', -p.periods_back,
-        CAST(CAST(CURRENT_TIMESTAMP AT TIME ZONE {{time_zone_sql}} AS TIMESTAMP) AS DATE)
+        CAST(DATE_ADD('hour', {{utc_offset_hours}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)) AS DATE)
       )
     )
     AND (

@@ -63,10 +63,12 @@
                 "default": [1, 7, 30, 365],
                 "description": "Day offsets to compare the current window against. Default 1/7/30/365 = yesterday / last week / last month / last year."
               },
-              "time_zone": {
-                "type": "string",
-                "default": "America/Los_Angeles",
-                "description": "IANA time zone (e.g. 'America/Los_Angeles') or fixed offset (e.g. '-08:00') used for all day/week/month/hour bucketing and the current-time reference. Defaults to America/Los_Angeles (LA), matching NeonPanel reporting. Order timestamps (UTC) are converted to this zone before bucketing."
+              "utc_offset_hours": {
+                "type": "integer",
+                "minimum": -14,
+                "maximum": 14,
+                "default": -8,
+                "description": "Hours offset from UTC for all hour/day/week/month bucketing and the current-time reference. Default -8 = LA/Pacific (matches NeonPanel report). Use -7 for PDT or 0 for UTC. Order timestamps (UTC) are shifted by this many hours before bucketing."
               }
             },
             "additionalProperties": false
