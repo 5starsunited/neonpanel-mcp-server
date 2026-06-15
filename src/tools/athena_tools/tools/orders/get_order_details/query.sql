@@ -1,4 +1,4 @@
--- Tool: orders_get_order_details
+-- Tool: customer_orders_get_amazon_customer_order_details
 -- Source: sp_api_iceberg.orders_v2026
 -- Returns: one row per order-item for the requested order_id
 

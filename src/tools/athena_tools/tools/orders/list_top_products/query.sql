@@ -1,4 +1,4 @@
--- Tool: orders_list_top_products
+-- Tool: customer_orders_list_top_performance_on_amazon
 -- Source: sp_api_iceberg.orders_v2026
 -- Revenue: order_items[].proceeds.proceeds_total.amount (item-level)
 -- Dedup: latest last_updated_time per order_id + company_id

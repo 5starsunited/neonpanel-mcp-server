@@ -1,5 +1,5 @@
 {
-  "name": "orders_list_top_products",
+  "name": "customer_orders_list_top_performance_on_amazon",
   "description": "Ranks products (ASIN + SKU) by revenue, orders, or units from sp_api_iceberg.orders_v2026.\n\nUse this tool to:\n- Find top-selling ASINs/SKUs by revenue or volume in any time window\n- Compare product performance across marketplaces\n- Identify low-volume vs high-ASP products\n- Filter to specific ASINs, SKUs, marketplaces, or order statuses\n\nRevenue uses item-level proceeds_total (more accurate than order grand_total for multi-item orders).\nRanking is per marketplace × currency × company group.\n\nDefault window: last 3 months. Default sort: gross_revenue DESC.",
   "isConsequential": false,
   "inputSchema": {

@@ -1,4 +1,4 @@
--- Tool: orders_analyze_sales_performance
+-- Tool: customer_orders_analyze_amazon_sales_performance
 -- Source: sp_api_iceberg.orders_v2026
 -- Revenue: proceeds.grand_total.amount (order-level)
 -- Dedup: latest last_updated_time per order_id + company_id

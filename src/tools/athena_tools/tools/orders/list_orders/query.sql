@@ -1,4 +1,4 @@
--- Tool: orders_list_orders
+-- Tool: customer_orders_list_amazon_customer_orders
 -- Source: sp_api_iceberg.orders_v2026
 -- Returns one flattened row per order (no item expansion)
 -- Dedup: latest last_updated_time per order_id + company_id

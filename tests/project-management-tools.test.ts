@@ -37,7 +37,7 @@ test('project management registers separated project and payment write tools', (
   assert.ok(byName.has('project_management_record_payment'));
   assert.ok(byName.has('project_management_list_invoices'));
   assert.ok(byName.has('project_management_list_shipments'));
-  assert.match(byName.get('project_management_list_assembly_orders')?.description ?? '', /list-only/);
+  assert.match(byName.get('project_management_list_assembly_orders')?.description ?? '', /List NeonPanel assembly orders/);
   assert.equal(byName.get('project_management_create_bill')?.isConsequential, true);
   assert.equal(byName.get('project_management_create_shipment')?.isConsequential, true);
   assert.equal(byName.get('project_management_update_shipment')?.isConsequential, true);
@@ -144,7 +144,7 @@ test('project management accepts invoice and adjustment project payloads', () =>
   assert.equal(adjustment.details?.[0]?.rate, 25);
 });
 
-test('project management supports assembly orders only as a separated list tool', () => {
+test('project management exposes assembly orders as full CRUD tools', () => {
   const parsed = listAssemblyOrdersInputSchema.parse({
     company_id: 230,
   });
@@ -153,9 +153,15 @@ test('project management supports assembly orders only as a separated list tool'
 
   const registry = new ToolRegistry();
   registerProjectManagementTools(registry);
-  const names = new Set(registry.list().map((tool) => tool.name));
-  assert.equal(names.has('project_management_create_assembly_order'), false);
-  assert.equal(names.has('project_management_update_assembly_order'), false);
+  const byName = new Map(registry.list().map((tool) => [tool.name, tool]));
+  assert.ok(byName.has('project_management_list_assembly_orders'));
+  assert.ok(byName.has('project_management_get_assembly_order'));
+  assert.ok(byName.has('project_management_create_assembly_order'));
+  assert.ok(byName.has('project_management_update_assembly_order'));
+  assert.equal(byName.get('project_management_list_assembly_orders')?.isConsequential, false);
+  assert.equal(byName.get('project_management_get_assembly_order')?.isConsequential, false);
+  assert.equal(byName.get('project_management_create_assembly_order')?.isConsequential, true);
+  assert.equal(byName.get('project_management_update_assembly_order')?.isConsequential, true);
 });
 
 test('project management advertises bill documents as an array of typed references', () => {

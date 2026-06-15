@@ -1,0 +1,132 @@
+{
+  "name": "customer_orders_compare_amazon_sales_velocity",
+  "description": "Compares CURRENT Amazon sales velocity against prior periods, from placed orders (sp_api_iceberg.orders_v2026) enriched with inventory dimensions (neonpanel_iceberg.inventory_attributes).\n\nUse this tool to:\n- See how today's / this week's / this month's sales pace compares to yesterday, last week (7d ago), last month (30d ago), and last year (365d ago)\n- Spot fast- and slow-moving products, brands, or product families vs their own history\n- Track units_sold, sales (revenue), and average price momentum per group\n\nHow the comparison works (period-to-date):\n- Pick a granularity: hour, day (default), week, or month. The CURRENT window runs from the start of that bucket up to now.\n- Each comparison window is that SAME elapsed window shifted back by a number of days (default 1, 7, 30, 365 = yesterday / last week / last month / last year). So an in-progress day compares fairly against the same slice of prior days.\n- Offsets are configurable via comparison_offsets_days (day-based; best suited to hour/day granularity — for week/month use larger offsets like [7, 30, 365]).\n\nGrouping: choose one of inventory_id, sku, asin, product_family, brand, or company_id. Rows are ALWAYS additionally split by company_id x marketplace x currency — sales are NOT currency-converted, so filter by marketplace_ids for single-currency results.\n\nMetrics per window: units_sold (sum of quantity_ordered), sales (sum of item proceeds_total), avg_price (sales / units).\n\nOutput columns are dynamic based on the requested offsets:\n- current_units_sold, current_sales, current_avg_price\n- prev_<N>d_units_sold, prev_<N>d_sales, prev_<N>d_avg_price for each offset N\n- units_pct_vs_<N>d, sales_pct_vs_<N>d, price_pct_vs_<N>d  (percent change of current vs that prior period)\nplus group_by, company_id, group_value, representative_title, marketplace_id, currency.\n\nDimensions (inventory_id / brand / product_family) come from inventory_attributes joined on company_id + sku; unmapped items return null for those and are excluded when a brand/product_family filter is set. Default limit: 100, ranked by current_sales DESC.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_ids": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1 },
+                "minItems": 1,
+                "description": "Company identifier(s) — required."
+              },
+              "marketplace_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Amazon marketplace IDs (e.g. 'ATVPDKIKX0DER'). Omit for all. Filter to one for single-currency results."
+              },
+              "order_statuses": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["SHIPPED", "PENDING", "CANCELED", "UNSHIPPED", "PENDING_AVAILABILITY", "PARTIALLY_SHIPPED"] }
+              },
+              "fulfillment_channels": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "fulfilled_by values: 'AMAZON' (FBA) or merchant ID (FBM). Omit for all."
+              },
+              "seller_ids": { "type": "array", "items": { "type": "string" } },
+              "asins": { "type": "array", "items": { "type": "string" } },
+              "skus": { "type": "array", "items": { "type": "string" } },
+              "brands": { "type": "array", "items": { "type": "string" }, "description": "Resolved via inventory_attributes (company_id + sku)." },
+              "product_families": { "type": "array", "items": { "type": "string" }, "description": "Resolved via inventory_attributes (company_id + sku)." }
+            },
+            "required": ["company_ids"],
+            "additionalProperties": false
+          },
+          "aggregation": {
+            "type": "object",
+            "properties": {
+              "granularity": {
+                "type": "string",
+                "enum": ["hour", "day", "week", "month"],
+                "default": "day",
+                "description": "Size of the current (and each comparison) window."
+              },
+              "group_by": {
+                "type": "string",
+                "enum": ["inventory_id", "sku", "asin", "product_family", "brand", "company_id"],
+                "default": "sku",
+                "description": "Dimension to group rows by. Rows are also always split by company_id x marketplace x currency."
+              },
+              "comparison_offsets_days": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 1, "maximum": 1095 },
+                "minItems": 1,
+                "maxItems": 6,
+                "default": [1, 7, 30, 365],
+                "description": "Day offsets to compare the current window against. Default 1/7/30/365 = yesterday / last week / last month / last year."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["query"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "group_by": { "type": "string" },
+            "company_id": { "type": "string" },
+            "group_value": { "type": ["string", "null"] },
+            "representative_title": { "type": ["string", "null"] },
+            "marketplace_id": { "type": ["string", "null"] },
+            "currency": { "type": ["string", "null"] },
+            "current_units_sold": { "type": ["integer", "null"] },
+            "current_sales": { "type": ["number", "null"] },
+            "current_avg_price": { "type": ["number", "null"] }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "title": "Today's SKU velocity vs yesterday / last week / last month / last year",
+      "request": {
+        "query": {
+          "filters": { "company_ids": [106], "marketplace_ids": ["ATVPDKIKX0DER"] },
+          "aggregation": { "granularity": "day", "group_by": "sku" },
+          "limit": 50
+        }
+      }
+    },
+    {
+      "title": "This month's brand velocity vs last month and last year",
+      "request": {
+        "query": {
+          "filters": { "company_ids": [106], "marketplace_ids": ["ATVPDKIKX0DER"] },
+          "aggregation": { "granularity": "month", "group_by": "brand", "comparison_offsets_days": [30, 365] }
+        }
+      }
+    },
+    {
+      "title": "Current-hour ASIN pace vs same hour yesterday and a week ago",
+      "request": {
+        "query": {
+          "filters": { "company_ids": [106], "marketplace_ids": ["ATVPDKIKX0DER"] },
+          "aggregation": { "granularity": "hour", "group_by": "asin", "comparison_offsets_days": [1, 7] }
+        }
+      }
+    }
+  ]
+}
