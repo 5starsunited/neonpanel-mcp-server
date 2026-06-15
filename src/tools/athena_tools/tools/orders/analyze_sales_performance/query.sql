@@ -29,8 +29,7 @@ latest AS (
     o.sales_channel.marketplace_name                AS marketplace_name,
     o.fulfillment.fulfillment_status                AS fulfillment_status,
     o.fulfillment.fulfilled_by                      AS fulfilled_by,
-    COALESCE(o.proceeds.grand_total.amount, 0.0)    AS order_total,
-    o.proceeds.grand_total.currency_code            AS currency,
+    o.order_items                                   AS order_items,
     o.company_id,
     o.seller_id,
     ROW_NUMBER() OVER (
@@ -85,6 +84,39 @@ filtered AS (
     )
 ),
 
+-- ── 2a. Order-level Sales = principal + shipping (matches NeonPanel report) ──
+-- principal = ITEM breakdown subtotal, fallback unit_price * qty; shipping = SHIPPING breakdown.
+-- Avoids proceeds.grand_total, which is NULL for orders Amazon hasn't finalized.
+order_sales AS (
+  SELECT
+    f.order_id,
+    f.created_local,
+    f.marketplace_id,
+    f.marketplace_name,
+    f.fulfillment_status,
+    f.fulfilled_by,
+    f.company_id,
+    f.seller_id,
+    SUM(
+      COALESCE(
+        element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.amount,
+        oi.product.price.unit_price.amount * oi.quantity_ordered
+      )
+      + COALESCE(element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'SHIPPING'), 1).subtotal.amount, 0.0)
+    ) AS order_total,
+    ARBITRARY(
+      COALESCE(
+        element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.currency_code,
+        oi.product.price.unit_price.currency_code
+      )
+    ) AS currency
+  FROM filtered f
+  CROSS JOIN UNNEST(f.order_items) AS t(oi)
+  GROUP BY
+    f.order_id, f.created_local, f.marketplace_id, f.marketplace_name,
+    f.fulfillment_status, f.fulfilled_by, f.company_id, f.seller_id
+),
+
 -- ── 2b. Per-company main reporting currency + FX validity ranges ────────────
 company_main AS (
   SELECT id AS company_id, currency AS main_currency
@@ -125,7 +157,7 @@ bucketed AS (
     f.order_total * fxn.rate / NULLIF(fxm.rate, 0.0) AS order_total_main,
     f.fulfillment_status,
     f.fulfilled_by
-  FROM filtered f
+  FROM order_sales f
   CROSS JOIN params p
   LEFT JOIN company_main cm ON cm.company_id = TRY_CAST(f.company_id AS BIGINT)
   LEFT JOIN fx fxn
