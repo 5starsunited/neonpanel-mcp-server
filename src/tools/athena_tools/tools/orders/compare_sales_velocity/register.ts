@@ -9,13 +9,10 @@ import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   fetchPermittedCompanyIds,
+  resolveDefaultUtcOffsetMinutes,
   sqlBigintArrayExpr,
   sqlVarcharArrayExpr,
 } from '../_shared';
-
-// Hours offset from UTC for local bucketing. Default -8 matches the NeonPanel
-// report's LA (Pacific) setting; pass -7 for PDT or 0 for UTC.
-const DEFAULT_UTC_OFFSET_HOURS = -8;
 
 // Maps the group_by dimension to the SQL expression used in the `enriched` CTE.
 const GROUP_DIM_EXPR: Record<string, string> = {
@@ -136,7 +133,12 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
       const agg = query.aggregation;
       const granularity = agg?.granularity ?? 'day';
       const groupBy = agg?.group_by ?? 'sku';
-      const utcOffsetHours = agg?.utc_offset_hours ?? DEFAULT_UTC_OFFSET_HOURS;
+      // Bucketing offset: explicit utc_offset_hours wins; otherwise derive it
+      // (DST-aware) from the company's app_companies.timezone for the current date.
+      const offsetMinutes =
+        agg?.utc_offset_hours != null
+          ? agg.utc_offset_hours * 60
+          : await resolveDefaultUtcOffsetMinutes(allowedIds, new Date());
       // De-duplicate + sort offsets for stable, predictable column ordering.
       const offsets = Array.from(
         new Set((agg?.comparison_offsets_days ?? [1, 7, 30, 365]).map((n) => Math.trunc(n))),
@@ -160,7 +162,7 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
         brands_array: sqlVarcharArrayExpr(query.filters.brands ?? []),
         product_families_array: sqlVarcharArrayExpr(query.filters.product_families ?? []),
         offsets_array: sqlBigintArrayExpr(offsets),
-        utc_offset_hours: Number(utcOffsetHours),
+        utc_offset_minutes: Math.trunc(offsetMinutes),
         granularity,
         group_by: groupBy,
         group_dim_expr: GROUP_DIM_EXPR[groupBy],

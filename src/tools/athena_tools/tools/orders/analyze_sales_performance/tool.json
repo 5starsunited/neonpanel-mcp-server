@@ -54,8 +54,7 @@
                 "type": "integer",
                 "minimum": -14,
                 "maximum": 14,
-                "default": -8,
-                "description": "Hours offset from UTC for date filtering and day/week/month bucketing. Default -8 = LA/Pacific (matches NeonPanel report). Use -7 for PDT or 0 for UTC. Order timestamps (UTC) are shifted by this many hours before bucketing."
+                "description": "Optional override for the UTC offset used in date filtering and day/week/month bucketing. By default the offset is derived (DST-aware) from the company's configured time zone (app_companies.timezone) for the query date — e.g. America/Los_Angeles resolves to -7 in summer (PDT), -8 in winter (PST). Only set this to force a specific offset (e.g. 0 for UTC)."
               },
               "time": {
                 "type": "object",
