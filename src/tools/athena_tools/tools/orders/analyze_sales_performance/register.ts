@@ -9,16 +9,13 @@ import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   fetchPermittedCompanyIds,
+  resolveDefaultUtcOffsetMinutes,
   sqlBigintArrayExpr,
   sqlVarcharArrayExpr,
   sqlDateExpr,
 } from '../_shared';
 
 const VALID_GRANULARITIES = new Set(['day', 'week', 'month']);
-
-// Hours offset from UTC for local-day bucketing. Default -8 matches the NeonPanel
-// report's LA (Pacific) setting; pass -7 for PDT or 0 for UTC.
-const DEFAULT_UTC_OFFSET_HOURS = -8;
 
 const inputSchema = z
   .object({
@@ -82,9 +79,18 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
 
       const time = query.aggregation?.time;
       const granularity = query.aggregation?.granularity ?? 'day';
-      const utcOffsetHours = query.aggregation?.utc_offset_hours ?? DEFAULT_UTC_OFFSET_HOURS;
       const periodsBack = time?.periods_back ?? 3;
       const limitTopN = query.limit ?? 100;
+
+      // Bucketing offset: explicit utc_offset_hours wins; otherwise derive it
+      // (DST-aware) from the company's app_companies.timezone for the query date.
+      const refDate = time?.end_date
+        ? new Date(`${time.end_date}T12:00:00Z`)
+        : new Date();
+      const offsetMinutes =
+        query.aggregation?.utc_offset_hours != null
+          ? query.aggregation.utc_offset_hours * 60
+          : await resolveDefaultUtcOffsetMinutes(allowedIds, refDate);
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
@@ -98,7 +104,7 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
         end_date_sql: sqlDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
         granularity: VALID_GRANULARITIES.has(granularity) ? granularity : 'day',
-        utc_offset_hours: Number(utcOffsetHours),
+        utc_offset_minutes: Math.trunc(offsetMinutes),
         limit_top_n: Number(limitTopN),
       });
 

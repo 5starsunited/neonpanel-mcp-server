@@ -57,6 +57,46 @@ export async function resolveDefaultTimeZone(
   return zones.length === 1 ? zones[0] : fallback;
 }
 
+/**
+ * UTC offset (in minutes) for an IANA time zone at a given instant — DST-aware.
+ * e.g. America/Los_Angeles → -420 in summer (PDT), -480 in winter (PST).
+ * Returns null if the zone can't be resolved.
+ */
+export function tzOffsetMinutes(timeZone: string, at: Date): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'shortOffset',
+    }).formatToParts(at);
+    const name = parts.find((p) => p.type === 'timeZoneName')?.value; // "GMT-7", "GMT+5:30", "GMT"
+    if (!name) return null;
+    if (name === 'GMT' || name === 'UTC') return 0;
+    const m = name.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+    if (!m) return null;
+    const sign = m[1] === '-' ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Default bucketing offset (minutes from UTC) derived from the company's
+ * app_companies.timezone, DST-aware for the given reference date. No hardcoded
+ * offset: it follows whatever zone the company is configured with. Falls back to
+ * America/Los_Angeles only if the company has no usable zone.
+ */
+export async function resolveDefaultUtcOffsetMinutes(
+  companyIds: number[],
+  referenceDate: Date,
+  fallbackZone = 'America/Los_Angeles',
+): Promise<number> {
+  const zone = await resolveDefaultTimeZone(companyIds, fallbackZone);
+  const offset = tzOffsetMinutes(zone, referenceDate);
+  if (offset !== null) return offset;
+  return tzOffsetMinutes(fallbackZone, referenceDate) ?? -480;
+}
+
 export async function fetchPermittedCompanyIds(userToken: string): Promise<number[]> {
   const permissions = [
     'view:quicksight_group.sales_and_marketing_new',
