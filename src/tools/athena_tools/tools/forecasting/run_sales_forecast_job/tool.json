@@ -1,6 +1,6 @@
 {
   "name": "forecasting_run_sales_forecast_job",
-  "description": "Trigger the sales-forecast Glue ETL job that re-computes forecasts and writes the results to the Iceberg table.\n\nThe job is idempotent: it deletes existing rows for the target calc_period + scenario_uuid + company_id before appending fresh results.\n\nThe tool returns immediately with a JobRunId. Use forecasting_check_sales_forecast_job_status to monitor progress.\n\nJobs typically take 3-5 minutes to complete.\n\nIMPORTANT:\n- Before calling, use get_forecasting_settings for the company to obtain the correct scenario_uuid(s).\n- company_id, calc_period, and scenario_uuids are all REQUIRED to prevent unintentional broad recalculations.\n- After starting, use forecasting_check_sales_forecast_job_status — do NOT check earlier than 3 minutes.",
+  "description": "Trigger the sales-forecast Glue ETL job that re-computes forecasts and writes the results to the Iceberg table.\n\nThe job is idempotent: it deletes existing rows for the target calc_period + scenario_uuid + company_id before appending fresh results.\n\nThe tool returns immediately with a JobRunId. Use forecasting_check_sales_forecast_job_status to monitor progress.\n\nJobs typically take 3-5 minutes to complete.\n\nSCENARIO SELECTION (precedence):\n1. scenario_uuids if provided (explicit override).\n2. scenario_id if provided — resolved to its scenario_uuid server-side.\n3. Otherwise the company's default_scenario_id (from forecasting settings) is used and resolved server-side.\nIn most cases pass only company_id + calc_period and let the company default apply. Use forecasting_get_company_settings to inspect the default_scenario_id.\n\nIMPORTANT:\n- company_id and calc_period are REQUIRED.\n- After starting, use forecasting_check_sales_forecast_job_status — do NOT check earlier than 3 minutes.",
   "isConsequential": true,
   "inputSchema": {
     "type": "object",
@@ -8,7 +8,7 @@
       "company_id": {
         "type": "integer",
         "minimum": 1,
-        "description": "Required. The company to run the forecast for. Use get_forecasting_settings to look up the company's forecasting configuration."
+        "description": "Required. The company to run the forecast for. Use forecasting_get_company_settings to look up the company's forecasting configuration."
       },
       "calc_period": {
         "type": "string",
@@ -23,7 +23,12 @@
         },
         "minItems": 1,
         "maxItems": 10,
-        "description": "Required. Scenario UUID(s) to run. Use get_forecasting_settings for the company to get the default scenario_uuid."
+        "description": "Optional explicit override. Scenario UUID(s) to run. If omitted, the tool resolves the scenario from scenario_id or the company's default_scenario_id server-side."
+      },
+      "scenario_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional. Numeric sales_forecast_scenario_id; resolved to its scenario_uuid server-side. Ignored if scenario_uuids is provided. If both scenario_uuids and scenario_id are omitted, the company's default_scenario_id is used."
       },
       "inventory_id": {
         "type": "integer",
@@ -38,7 +43,7 @@
         "description": "Forecast horizon in months. Default: 24."
       }
     },
-    "required": ["company_id", "calc_period", "scenario_uuids"],
+    "required": ["company_id", "calc_period"],
     "additionalProperties": false
   },
   "outputSchema": {
@@ -53,7 +58,21 @@
       },
       "state": {
         "type": "string",
-        "description": "STARTED on success, DENIED if not authorized."
+        "description": "STARTED on success, DENIED if not authorized or scenario could not be resolved."
+      },
+      "scenario_uuids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "The scenario UUID(s) actually sent to the job after resolution."
+      },
+      "scenario_source": {
+        "type": "string",
+        "enum": ["explicit_uuids", "explicit_scenario_id", "company_default"],
+        "description": "How the scenario was determined."
+      },
+      "resolved_scenario_id": {
+        "type": "integer",
+        "description": "The numeric scenario_id resolved (present when scenario came from scenario_id or the company default)."
       },
       "arguments_sent": {
         "type": "object",

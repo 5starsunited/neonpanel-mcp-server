@@ -137,6 +137,16 @@ if [[ "$ROLE_MODE" == "write" ]]; then
         "glue:UpdateTable"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "GlueJobExecution",
+      "Effect": "Allow",
+      "Action": [
+        "glue:StartJobRun",
+        "glue:GetJobRun",
+        "glue:GetJob"
+      ],
+      "Resource": "*"
     }
 JSON
 )
