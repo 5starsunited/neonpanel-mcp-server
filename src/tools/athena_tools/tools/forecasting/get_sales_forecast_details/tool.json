@@ -107,8 +107,8 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 24,
-            "default": 12,
-            "description": "How many months of the forward forecast plan to include (when available)."
+            "default": 24,
+            "description": "How many months of the forward forecast plan to include (when available). Defaults to the full 24-month horizon."
           },
           "include_plan_series": {
             "type": "boolean",

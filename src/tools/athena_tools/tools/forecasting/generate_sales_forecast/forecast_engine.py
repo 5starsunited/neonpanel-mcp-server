@@ -351,7 +351,7 @@ def generate_forecasts(input_data: Dict) -> Dict:
         if not methods:
             methods = ['rwlt_monthly_plan']
         
-        horizon = config.get('horizon_months', 12)
+        horizon = config.get('horizon_months', 24)
         start_period = config.get('start_period')
         
         if not start_period:

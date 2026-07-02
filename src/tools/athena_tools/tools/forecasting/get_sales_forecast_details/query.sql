@@ -45,9 +45,47 @@ latest_snapshot AS (
   LIMIT 1
 ),
 
--- Forecast run selection: pick the latest row per forecast segment, then sum segments per item/period.
--- Segment dimensions must stay in the window partition; otherwise marketplace/channel/country rows
--- collapse to a single arbitrary row and company-level group_by totals are understated.
+-- Run selection: pick ONE (scenario_uuid, calc_period) run per item BEFORE pulling
+-- any forecast_period rows. Resolving "latest" independently per forecast_period
+-- (the previous approach) let rows from different scenarios or different calc_period
+-- runs for the same item get summed together into a single blended series whenever
+-- the caller didn't pin scenario_uuid/calc_period, and left the reported
+-- scenario_name/scenario_uuid label (a MAX() over the blend) inaccurate for part of
+-- the series.
+item_run_candidates AS (
+  SELECT
+    f.company_id,
+    f.inventory_id,
+    f.scenario_uuid,
+    f.calc_period,
+    MAX(f.updated_at) AS run_updated_at
+  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+  CROSS JOIN params p
+  WHERE contains(p.company_ids, f.company_id)
+    AND f.dataset <> 'actual'
+    AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
+    AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
+    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+    AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
+  GROUP BY f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period
+),
+
+item_selected_run AS (
+  SELECT company_id, inventory_id, scenario_uuid, calc_period
+  FROM (
+    SELECT
+      company_id, inventory_id, scenario_uuid, calc_period,
+      ROW_NUMBER() OVER (
+        PARTITION BY company_id, inventory_id
+        ORDER BY calc_period DESC, run_updated_at DESC
+      ) AS rn
+    FROM item_run_candidates
+  )
+  WHERE rn = 1
+),
+
+-- Rows belonging to the single selected run per item, deduplicated per segment
+-- (marketplace/channel/country) in case of double-writes within that same run.
 forecast_latest_rows AS (
   SELECT
     ranked.company_id,
@@ -70,18 +108,19 @@ forecast_latest_rows AS (
           f.company_id,
           f.inventory_id,
           f.forecast_period,
-          COALESCE(f.scenario_uuid, ''),
           COALESCE(f.amazon_marketplace_id, ''),
           COALESCE(f.sales_channel, ''),
           COALESCE(f.country_code, '')
-        ORDER BY f.calc_period DESC, f.updated_at DESC
+        ORDER BY f.updated_at DESC
       ) AS rn
     FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+    JOIN item_selected_run r
+      ON r.company_id = f.company_id
+      AND r.inventory_id = f.inventory_id
+      AND r.scenario_uuid = f.scenario_uuid
+      AND r.calc_period = f.calc_period
     CROSS JOIN params p
-    WHERE contains(p.company_ids, f.company_id)
-      AND f.dataset <> 'actual'
-      AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
-      AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
+    WHERE f.dataset <> 'actual'
       AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
       AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
   ) ranked
@@ -236,10 +275,16 @@ t_base AS (
     pil.units_30d,
 
     -- scenario metadata for the latest forecast run
+    -- sales_forecast_scenario_id is left NULL: the forecast table only stores
+    -- scenario_uuid, and the snapshot's numeric id reflects the item's CURRENT
+    -- assignment, which can differ from whatever scenario_uuid produced this
+    -- (possibly older) run — reporting it here would risk mislabeling by run.
     CAST(NULL AS BIGINT) AS sales_forecast_scenario_id,
     fp.dataset AS sales_forecast_scenario_name,
     fp.scenario_uuid AS sales_forecast_scenario_uuid,
-    CAST(NULL AS VARCHAR) AS seasonality_pattern,
+    -- Current configured pattern (not necessarily what was applied when this
+    -- specific run was computed, for the same reason as scenario_id above).
+    pil.seasonality_pattern AS seasonality_pattern,
 
     -- additional useful attributes
     pil.asin_img_path,
@@ -360,7 +405,15 @@ SELECT
                 element_at(t.forecast_plan_sales_array, i) / element_at(t.forecast_plan_units_array, i),
                 CAST(NULL AS DOUBLE)
               ), 3),
-              CAST(1.0 AS DOUBLE)
+              COALESCE(
+                TRY_CAST(
+                  element_at(
+                    split(COALESCE(t.seasonality_pattern, ''), ';'),
+                    CAST(substr(element_at(t.forecast_plan_periods_array, i), 6, 2) AS INTEGER)
+                  ) AS DOUBLE
+                ),
+                1.0
+              )
             ) AS ROW(
               period VARCHAR,
               units_sold BIGINT,

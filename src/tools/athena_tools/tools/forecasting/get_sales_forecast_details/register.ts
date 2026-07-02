@@ -90,7 +90,7 @@ const toolSpecificSchema = z
   .object({
     scenario_uuid: z.string().optional(),
     calc_period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-    horizon_months: z.coerce.number().int().min(1).max(24).default(12),
+    horizon_months: z.coerce.number().int().min(1).max(24).default(24),
     include_plan_series: z.boolean().default(true),
     include_sales_history_signals: z.boolean().default(true),
     include_actuals: z.boolean().default(false),
@@ -295,7 +295,7 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
       const hasSkuFilter = skuList.length > 0;
       const limitTopN = hasSkuFilter ? Math.max(limit, Math.max(10, skuList.length)) : limit;
       const maxRows = hasSkuFilter ? Math.max(50, limit * 5) : limit;
-      const groupedMaxRows = Math.min(10000, Math.max(limitTopN, limitTopN * Number(toolSpecific.horizon_months ?? 12) * 2 + limitTopN));
+      const groupedMaxRows = Math.min(10000, Math.max(limitTopN, limitTopN * Number(toolSpecific.horizon_months ?? 24) * 2 + limitTopN));
 
       // Common template variables shared by both detail and grouped SQL paths.
       const commonTemplateVars: Record<string, string | number> = {
@@ -306,7 +306,7 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
         sales_forecast_table: salesForecastTable,
 
         limit_top_n: Number(limitTopN),
-        horizon_months: Number(toolSpecific.horizon_months ?? 12),
+        horizon_months: Number(toolSpecific.horizon_months ?? 24),
         include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
         include_actuals_sql: toolSpecific.include_actuals ? 'TRUE' : 'FALSE',
 

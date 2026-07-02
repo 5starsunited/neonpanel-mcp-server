@@ -44,9 +44,45 @@ latest_snapshot AS (
   LIMIT 1
 ),
 
--- Forecast run selection: pick the latest row per forecast segment, then sum segments per item/period.
--- Segment dimensions must stay in the window partition; otherwise marketplace/channel/country rows
--- collapse to a single arbitrary row and company-level group_by totals are understated.
+-- Run selection: pick ONE (scenario_uuid, calc_period) run per item BEFORE pulling
+-- any forecast_period rows. Resolving "latest" independently per forecast_period
+-- (the previous approach) let rows from different scenarios or different calc_period
+-- runs for the same item get summed together into a single blended series whenever
+-- the caller didn't pin scenario_uuid/calc_period.
+item_run_candidates AS (
+  SELECT
+    f.company_id,
+    f.inventory_id,
+    f.scenario_uuid,
+    f.calc_period,
+    MAX(f.updated_at) AS run_updated_at
+  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+  CROSS JOIN params p
+  WHERE contains(p.company_ids, f.company_id)
+    AND f.dataset <> 'actual'
+    AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
+    AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
+    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
+    AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
+  GROUP BY f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period
+),
+
+item_selected_run AS (
+  SELECT company_id, inventory_id, scenario_uuid, calc_period
+  FROM (
+    SELECT
+      company_id, inventory_id, scenario_uuid, calc_period,
+      ROW_NUMBER() OVER (
+        PARTITION BY company_id, inventory_id
+        ORDER BY calc_period DESC, run_updated_at DESC
+      ) AS rn
+    FROM item_run_candidates
+  )
+  WHERE rn = 1
+),
+
+-- Rows belonging to the single selected run per item, deduplicated per segment
+-- (marketplace/channel/country) in case of double-writes within that same run.
 forecast_latest_rows AS (
   SELECT
     ranked.company_id,
@@ -69,18 +105,19 @@ forecast_latest_rows AS (
           f.company_id,
           f.inventory_id,
           f.forecast_period,
-          COALESCE(f.scenario_uuid, ''),
           COALESCE(f.amazon_marketplace_id, ''),
           COALESCE(f.sales_channel, ''),
           COALESCE(f.country_code, '')
-        ORDER BY f.calc_period DESC, f.updated_at DESC
+        ORDER BY f.updated_at DESC
       ) AS rn
     FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+    JOIN item_selected_run r
+      ON r.company_id = f.company_id
+      AND r.inventory_id = f.inventory_id
+      AND r.scenario_uuid = f.scenario_uuid
+      AND r.calc_period = f.calc_period
     CROSS JOIN params p
-    WHERE contains(p.company_ids, f.company_id)
-      AND f.dataset <> 'actual'
-      AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
-      AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
+    WHERE f.dataset <> 'actual'
       AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
       AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
   ) ranked
