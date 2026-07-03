@@ -16,6 +16,10 @@ WITH params AS (
     {{fba_safety_stock_days_override}} AS fba_safety_stock_days_override,
     {{days_between_shipments}} AS days_between_shipments,
     CAST({{active_sold_min_units_per_day}} AS DOUBLE) AS active_sold_min_units_per_day,
+    -- 'current' velocity blend weights over realized daily averages (30d/7d/3d)
+    CAST({{weight_30d}} AS DOUBLE) AS weight_30d,
+    CAST({{weight_7d}} AS DOUBLE) AS weight_7d,
+    CAST({{weight_3d}} AS DOUBLE) AS weight_3d,
     {{limit_top_n}} AS top_results,
 
     -- REQUIRED (authorization + partition pruning)
@@ -93,7 +97,7 @@ forecast_item_plan AS (
   GROUP BY 1, 2
 ),
 
-t AS (
+t_base AS (
   SELECT
     pil.company_id,
     pil.inventory_id,
@@ -112,24 +116,14 @@ t AS (
     -- Revenue proxy used for ABCD classification.
     COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
 
-    CAST(
-      CASE p.sales_velocity
-        WHEN 'target' THEN COALESCE(pil.daily_unit_sales_target, 0)
-        WHEN 'current' THEN (
-          0.5 * COALESCE(pil.avg_units_30d, 0.0)
-          + 0.3 * COALESCE(pil.avg_units_7d, 0.0)
-          + 0.2 * COALESCE(pil.avg_units_3d, 0.0)
-        )
-        WHEN 'planned' THEN (
-          COALESCE(element_at(fp.plan_monthly_units, 1), 0.0) / 30.0
-        )
-        ELSE (
-          0.5 * COALESCE(pil.avg_units_30d, 0.0)
-          + 0.3 * COALESCE(pil.avg_units_7d, 0.0)
-          + 0.2 * COALESCE(pil.avg_units_3d, 0.0)
-        )
-      END
-    AS DOUBLE) AS sales_velocity,
+    p.sales_velocity AS selected_sales_velocity,
+    COALESCE(pil.daily_unit_sales_target, 0) AS target_units_per_day,
+    (
+      p.weight_30d * COALESCE(pil.avg_units_30d, 0.0)
+      + p.weight_7d * COALESCE(pil.avg_units_7d, 0.0)
+      + p.weight_3d * COALESCE(pil.avg_units_3d, 0.0)
+    ) AS current_units_per_day,
+    COALESCE(fp.plan_monthly_units, CAST(ARRAY[] AS ARRAY(DOUBLE))) AS plan_monthly_units,
 
     (pil.inbound + pil.available + pil.fc_transfer + pil.fc_processing) AS total_fba_available_units,
 
@@ -184,6 +178,63 @@ t AS (
       WHEN p.planning_base = 'planned only' AND fp.plan_monthly_units IS NOT NULL THEN TRUE
       ELSE FALSE
     END
+),
+
+-- Planned-velocity window, mirroring the QuickSight "60.0 Inventory Planning"
+-- ArrivalMonthIndex / EffectiveCoverageMonths fields:
+-- start the window at the month the replenishment arrives (FBA lead time), and
+-- average over (fba_lead_time + fba_safety_stock) months, clamped to the plan length.
+t_plan AS (
+  SELECT
+    b.*,
+    LEAST(
+      GREATEST(1, 1 + CAST(FLOOR((1.0 * b.fba_lead_time_days) / 30.0) AS INTEGER)),
+      GREATEST(1, cardinality(b.plan_monthly_units))
+    ) AS planned_arrival_month_index
+  FROM t_base b
+),
+
+t_window AS (
+  SELECT
+    tp.*,
+    GREATEST(
+      1,
+      LEAST(
+        CAST(ROUND((1.0 * (tp.fba_lead_time_days + tp.fba_safety_stock_days)) / 30.41) AS INTEGER),
+        cardinality(tp.plan_monthly_units) - tp.planned_arrival_month_index + 1
+      )
+    ) AS planned_window_months
+  FROM t_plan tp
+),
+
+t AS (
+  SELECT
+    tw.*,
+    -- sales_velocity semantics:
+    -- - current: weighted blend of realized daily averages (defaults 0.5*30d + 0.3*7d + 0.2*3d,
+    --   overridable via velocity_weighting)
+    -- - target: daily_unit_sales_target (already units/day)
+    -- - planned: avg units/day over the coverage window (fba lead+safety months)
+    --   starting at the arrival month (1 + floor(fba_lead_time_days/30))
+    CAST(
+      CASE tw.selected_sales_velocity
+        WHEN 'target' THEN tw.target_units_per_day
+        WHEN 'current' THEN tw.current_units_per_day
+        WHEN 'planned' THEN (
+          COALESCE(
+            reduce(
+              slice(tw.plan_monthly_units, tw.planned_arrival_month_index, tw.planned_window_months),
+              0.0,
+              (s, x) -> s + COALESCE(x, 0.0),
+              s -> s
+            ),
+            0.0
+          ) / (tw.planned_window_months * 30.41)
+        )
+        ELSE tw.current_units_per_day
+      END
+    AS DOUBLE) AS sales_velocity
+  FROM t_window tw
 ),
 
 t_classed AS (
@@ -352,7 +403,7 @@ SELECT
     ) <= CAST({{stockout_threshold_days}} AS BIGINT) THEN 'critical'
     ELSE 'high'
   END AS priority,
-  CAST('Based on buffer coverage: days_of_supply vs (lead_time + safety_stock + reorder cadence). reorder cadence = days_between_shipments. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon''s recommendation, use recommended_by_amazon_replenishment_quantity.' AS VARCHAR) AS reason
+  CAST('Based on buffer coverage: days_of_supply vs (lead_time + safety_stock + reorder cadence). reorder cadence = days_between_shipments. shipment_overdue_days > 0 means replenishment was due in the past. recommended_ship_units is computed from our planning params (not Amazon). If you need Amazon''s recommendation, use recommended_by_amazon_replenishment_quantity. planned sales_velocity averages the sales plan over the coverage window (fba_lead_time+fba_safety_stock months of ~30.41 days) starting at the arrival month (1+floor(fba_lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis. current sales_velocity = weighted blend of realized daily averages: {{weight_30d}}*avg_30d + {{weight_7d}}*avg_7d + {{weight_3d}}*avg_3d (override via velocity_weighting; use 1/0/0 to match the QuickSight 30-day average).' AS VARCHAR) AS reason
 
 FROM t_classed t
 CROSS JOIN params p

@@ -184,6 +184,33 @@ t_base AS (
     END
 ),
 
+-- Planned-velocity window, mirroring the QuickSight "60.0 Inventory Planning"
+-- ArrivalMonthIndex / EffectiveCoverageMonths fields:
+-- start the window at the month the replenishment arrives (lead time), and
+-- average over (lead_time + safety_stock) months, clamped to the plan length.
+t_plan AS (
+  SELECT
+    b.*,
+    LEAST(
+      GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)),
+      GREATEST(1, cardinality(b.plan_monthly_units))
+    ) AS planned_arrival_month_index
+  FROM t_base b
+),
+
+t_window AS (
+  SELECT
+    tp.*,
+    GREATEST(
+      1,
+      LEAST(
+        CAST(ROUND((1.0 * (tp.lead_time_days + tp.safety_stock_days)) / 30.41) AS INTEGER),
+        cardinality(tp.plan_monthly_units) - tp.planned_arrival_month_index + 1
+      )
+    ) AS planned_window_months
+  FROM t_plan tp
+),
+
 t AS (
   SELECT
     b.company_id,
@@ -207,59 +234,29 @@ t AS (
     b.safety_stock_days,
     b.target_coverage_days,
 
-    -- planned arrival month index (1-based for element_at), based on lead time.
-    LEAST(
-      GREATEST(
-        1,
-        1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)
-      ),
-      GREATEST(1, cardinality(b.plan_monthly_units))
-    ) AS planned_arrival_month_index,
-
-    -- planned daily velocity for the arrival month.
-    (COALESCE(element_at(b.plan_monthly_units, LEAST(GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)), GREATEST(1, cardinality(b.plan_monthly_units)))), 0.0) / 30.0)
-      AS planned_arrival_daily_units,
-
-    -- planned demand over the next target_coverage_days starting now.
-    -- Approximation: full months + fractional remainder month.
-    (
-      COALESCE(
-        reduce(
-          slice(
-            b.plan_monthly_units,
-            1,
-            CAST(FLOOR(CAST(b.target_coverage_days AS DOUBLE) / 30.0) AS INTEGER)
-          ),
-          0.0,
-          (s, x) -> s + x,
-          s -> s
-        ),
-        0.0
-      )
-      + (
-        (
-          CAST(b.target_coverage_days AS DOUBLE)
-          - (30.0 * CAST(FLOOR(CAST(b.target_coverage_days AS DOUBLE) / 30.0) AS INTEGER))
-        ) / 30.0
-      )
-      * COALESCE(
-        element_at(
-          b.plan_monthly_units,
-          1 + CAST(FLOOR(CAST(b.target_coverage_days AS DOUBLE) / 30.0) AS INTEGER)
-        ),
-        0.0
-      )
-    ) AS planned_window_units,
+    b.planned_arrival_month_index,
+    b.planned_window_months,
 
     -- sales_velocity semantics:
     -- - current: avg units/day over the last 30 days
     -- - target: daily_unit_sales_target (already units/day)
-    -- - planned: arrival-month units/day (arrival month = floor(lead_time_days/30))
+    -- - planned: avg units/day over the coverage window (lead+safety months)
+    --   starting at the arrival month (1 + floor(lead_time_days/30))
     CAST(
       CASE b.selected_sales_velocity
         WHEN 'target' THEN b.target_units_per_day
         WHEN 'current' THEN b.current_units_per_day
-        WHEN 'planned' THEN (COALESCE(element_at(b.plan_monthly_units, LEAST(GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)), GREATEST(1, cardinality(b.plan_monthly_units)))), 0.0) / 30.0)
+        WHEN 'planned' THEN (
+          COALESCE(
+            reduce(
+              slice(b.plan_monthly_units, b.planned_arrival_month_index, b.planned_window_months),
+              0.0,
+              (s, x) -> s + COALESCE(x, 0.0),
+              s -> s
+            ),
+            0.0
+          ) / (b.planned_window_months * 30.41)
+        )
         ELSE b.current_units_per_day
       END
     AS DOUBLE) AS sales_velocity,
@@ -267,30 +264,30 @@ t AS (
     -- Diagnostic fields for velocity calculation transparency
     b.selected_sales_velocity AS velocity_calculation_method,
     
-    -- For 'planned' mode: show which forecast month was used
-    CASE 
-      WHEN b.selected_sales_velocity = 'planned' THEN 
-        1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)
+    -- For 'planned' mode: show which forecast month the window starts at (arrival month)
+    CASE
+      WHEN b.selected_sales_velocity = 'planned' THEN
+        b.planned_arrival_month_index
       ELSE NULL
     END AS forecast_month_index,
-    
-    -- For 'planned' mode: show raw forecast units extracted before dividing by 30
-    CASE 
-      WHEN b.selected_sales_velocity = 'planned' THEN 
+
+    -- For 'planned' mode: total plan units summed over the coverage window,
+    -- before converting to units/day
+    CASE
+      WHEN b.selected_sales_velocity = 'planned' THEN
         COALESCE(
-          element_at(
-            b.plan_monthly_units, 
-            LEAST(
-              GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)), 
-              GREATEST(1, cardinality(b.plan_monthly_units))
-            )
-          ), 
+          reduce(
+            slice(b.plan_monthly_units, b.planned_arrival_month_index, b.planned_window_months),
+            0.0,
+            (s, x) -> s + COALESCE(x, 0.0),
+            s -> s
+          ),
           0.0
         )
       ELSE NULL
     END AS forecast_units_extracted
 
-  FROM t_base b
+  FROM t_window b
 ),
 
 t_classed AS (
@@ -429,21 +426,10 @@ SELECT
     ELSE NULL
   END AS po_due_date,
 
-  -- recommended_order_units semantics:
-  -- - planned: size the order to cover the full coverage window starting now, using summed monthly plan units
-  -- - other modes: size using daily velocity approximation
+  -- recommended_order_units: order-up-to level using the mode's daily velocity
+  -- over target_coverage_days (planned: arrival-anchored window average).
   CASE
     WHEN t.sales_velocity <= 0 THEN CAST(0 AS BIGINT)
-    WHEN t.selected_sales_velocity = 'planned' THEN (
-      CAST(
-        CEIL(
-          GREATEST(
-            0.0,
-            t.planned_window_units - CAST(t.total_available_inventory_units AS DOUBLE)
-          )
-        )
-      AS BIGINT)
-    )
     ELSE (
       CAST(
         GREATEST(
@@ -467,7 +453,7 @@ SELECT
     ELSE 'high'
   END AS priority,
   CAST(
-    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + total_ordered_quantity + available + (conditionally) wip_total_ordered_quantity. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity uses the arrival-month rate (month index=floor(lead_time_days/30)); planned recommended_order_units sums the sales plan across the full coverage window starting now.'
+    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + total_ordered_quantity + available + (conditionally) wip_total_ordered_quantity. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity averages the sales plan over the coverage window (lead_time+safety_stock months of ~30.41 days) starting at the arrival month (1+floor(lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis; recommended_order_units = target_coverage_days * sales_velocity - available_inventory_units in all modes.'
   AS VARCHAR) AS reason
 
 FROM t_classed t

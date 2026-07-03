@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_list_fba_replenishment_candidates",
-  "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage.\n\nIMPORTANT — flat input: pass all parameters at top level. Do NOT use nested query/filters/tool_specific wrappers.\n\nRequired: company_id (integer). Calls without company_id are rejected by schema.\n\nCRITICAL: FBA inventory columns:\n- inbound: Amazon-reported units in transit TO FBA.\n- fc_transfer: Amazon-reported units transferring BETWEEN FBA centers.\n- available: Amazon-reported sellable FBA units.\n- fba_quantity_in_transit: NeonPanel control metric to validate Amazon inbound reporting.\n\nDefaults and behavior:\n- sales_velocity default is 'current'.\n- planning_base is auto-defaulted if omitted based on selector fields and sales_velocity.\n- fba_on_hand includes inbound + available + fc_transfer + fc_processing for replenishment planning.",
+  "description": "List items needing FBA replenishment based on projected stockout risk and inbound coverage.\n\nIMPORTANT — flat input: pass all parameters at top level. Do NOT use nested query/filters/tool_specific wrappers.\n\nRequired: company_id (integer). Calls without company_id are rejected by schema.\n\nCRITICAL: FBA inventory columns:\n- inbound: Amazon-reported units in transit TO FBA.\n- fc_transfer: Amazon-reported units transferring BETWEEN FBA centers.\n- available: Amazon-reported sellable FBA units.\n- fba_quantity_in_transit: NeonPanel control metric to validate Amazon inbound reporting.\n\nVELOCITY MODES (sales_velocity, default: 'current'):\n  • 'current': weighted blend of realized daily averages — by default 0.5×avg_30d + 0.3×avg_7d + 0.2×avg_3d, so recent 7d/3d trends adjust the 30-day rate. Override via velocity_weighting (e.g. {\"weight_30d\":1,\"weight_7d\":0,\"weight_3d\":0} to match the QuickSight 60.0 Inventory Planning 30-day average). ALWAYS tell the user which weights were used (returned in meta.velocity_weighting_used) and that they can supply their own.\n  • 'planned': averages forecast units over the coverage window (fba_lead_time + fba_safety_stock months) starting at the arrival month.\n  • 'target': uses daily_unit_sales_target.\n\nDefaults and behavior:\n- sales_velocity default is 'current'.\n- planning_base is auto-defaulted if omitted based on selector fields and sales_velocity.\n- fba_on_hand includes inbound + available + fc_transfer + fc_processing for replenishment planning.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -120,6 +120,31 @@
           "planned"
         ],
         "default": "current"
+      },
+      "velocity_weighting": {
+        "type": "object",
+        "description": "Blend weights for 'current' sales_velocity over realized daily averages. Defaults: 0.5/0.3/0.2 (30d/7d/3d). Pass {\"weight_30d\":1,\"weight_7d\":0,\"weight_3d\":0} to reproduce the plain 30-day average used by the QuickSight dashboard.",
+        "properties": {
+          "weight_30d": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5
+          },
+          "weight_7d": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.3
+          },
+          "weight_3d": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.2
+          }
+        },
+        "additionalProperties": false
       },
       "use_seasonality": {
         "type": "boolean",

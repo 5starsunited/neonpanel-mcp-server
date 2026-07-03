@@ -66,6 +66,15 @@ const fbaListReplenishAsapInputSchema = z
     // Planning window + knobs
     time_window: timeWindowSchema,
     sales_velocity: z.enum(['current', 'target', 'planned']).default('current').optional(),
+    // Blend weights for 'current' velocity over realized daily averages.
+    // Defaults 0.5/0.3/0.2 (30d/7d/3d); pass 1/0/0 to match the QuickSight 30-day average.
+    velocity_weighting: z
+      .object({
+        weight_30d: z.coerce.number().min(0).max(1).default(0.5).optional(),
+        weight_7d: z.coerce.number().min(0).max(1).default(0.3).optional(),
+        weight_3d: z.coerce.number().min(0).max(1).default(0.2).optional(),
+      })
+      .optional(),
     use_seasonality: z.boolean().default(true).optional(),
     override_default: z.boolean().default(false).optional(),
     fba_lead_time_days_override: z.coerce.number().int().min(0).default(12).optional(),
@@ -94,6 +103,7 @@ const outputSchema = {
         selected_fields: { type: ['array', 'null'], items: { type: 'string' } },
         included_fields: { type: ['array', 'null'], items: { type: 'string' } },
         warnings: { type: ['array', 'null'], items: { type: 'string' } },
+        velocity_weighting_used: { type: ['object', 'null'], additionalProperties: true },
       },
       additionalProperties: true,
     },
@@ -261,6 +271,10 @@ async function executeSupplyChainListFbaReplenishmentCandidates(
     .map((v) => (typeof v === 'string' ? v.trim().toUpperCase() : ''))
     .filter((v): v is 'A' | 'B' | 'C' | 'D' => v === 'A' || v === 'B' || v === 'C' || v === 'D');
 
+  const weight30d = parsed.velocity_weighting?.weight_30d ?? 0.5;
+  const weight7d = parsed.velocity_weighting?.weight_7d ?? 0.3;
+  const weight3d = parsed.velocity_weighting?.weight_3d ?? 0.2;
+
   const sqlPath = path.join(__dirname, 'query.sql');
   const template = await loadTextFile(sqlPath);
   const query = renderSqlTemplate(template, {
@@ -271,6 +285,9 @@ async function executeSupplyChainListFbaReplenishmentCandidates(
     sales_forecast_table: salesForecastTable,
     // Athena UI SQL parameter equivalents
     sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'current'),
+    weight_30d: String(weight30d),
+    weight_7d: String(weight7d),
+    weight_3d: String(weight3d),
     planning_base_sql: planningBaseSql(parsed.planning_base),
     override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
     use_seasonality_sql: parsed.use_seasonality ? 'TRUE' : 'FALSE',
@@ -426,6 +443,12 @@ export function registerSupplyChainListFbaReplenishmentCandidatesTool(registry: 
           warnings: [],
           applied_sort: null,
           selected_fields: null,
+          velocity_weighting_used: {
+            weight_30d: parsed.velocity_weighting?.weight_30d ?? 0.5,
+            weight_7d: parsed.velocity_weighting?.weight_7d ?? 0.3,
+            weight_3d: parsed.velocity_weighting?.weight_3d ?? 0.2,
+            note: "Applies to sales_velocity='current' only. Defaults 0.5/0.3/0.2 blend recent 7d/3d trends into the 30d average; pass velocity_weighting {weight_30d:1, weight_7d:0, weight_3d:0} to match the QuickSight 30-day average.",
+          },
         },
       };
     },
