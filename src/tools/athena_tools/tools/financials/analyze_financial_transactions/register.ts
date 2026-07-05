@@ -59,14 +59,45 @@ const COUNTRY_MARKETPLACES: Record<string, [string, string]> = {
   AU: ['Amazon.com.au', 'A39IBJ37TRP1C6'],
 };
 
+// MCF (multi-channel fulfillment) twin marketplaces per country. Seller Central's unified
+// statement for a country INCLUDES MCF fulfillment fees (marketplace_name 'Non-Amazon <CC>'),
+// so a country/marketplace filter must include the MCF twin or FBA transaction fees under-count
+// (verified against the Jun-2026 5SU statement: -102.70 of MCF fees live on A2ZV50J4W1RKNI).
+const MCF_MARKETPLACES: Record<string, [string, string]> = {
+  US: ['Non-Amazon US', 'A2ZV50J4W1RKNI'],
+  CA: ['Non-Amazon CA', 'A1MQXOICRS2Z7M'],
+  UK: ['Non-Amazon UK', 'AZMDEXL2RVFNN'],
+  GB: ['Non-Amazon UK', 'AZMDEXL2RVFNN'],
+  DE: ['Non-Amazon DE', 'A38D8NSA03LJTC'],
+  FR: ['Non-Amazon FR', 'A1ZFFQZ3HTUKT9'],
+  IT: ['Non-Amazon IT', 'A62U237T8HV6N'],
+  ES: ['Non-Amazon ES', 'AFQLKURYRPEL8'],
+  JP: ['Non-Amazon JP', 'A1VN0HAN483KP2'],
+};
+
+// Reverse lookup: marketplace name or id -> country code (so raw values like 'Amazon.com'
+// or 'ATVPDKIKX0DER' also pull in their MCF twin).
+const COUNTRY_BY_MARKETPLACE: Record<string, string> = Object.fromEntries(
+  Object.entries(COUNTRY_MARKETPLACES).flatMap(([cc, [name, id]]) => [
+    [name.toLowerCase(), cc],
+    [id, cc],
+  ]),
+);
+
 function expandMarketplaces(values: string[]): string[] {
   const out = new Set<string>();
   for (const v of values) {
     out.add(v);
-    const mapped = COUNTRY_MARKETPLACES[v.toUpperCase()];
+    const cc = COUNTRY_MARKETPLACES[v.toUpperCase()] ? v.toUpperCase() : COUNTRY_BY_MARKETPLACE[v.toLowerCase()] ?? COUNTRY_BY_MARKETPLACE[v];
+    const mapped = COUNTRY_MARKETPLACES[cc ?? ''];
     if (mapped) {
       out.add(mapped[0]);
       out.add(mapped[1]);
+    }
+    const mcf = MCF_MARKETPLACES[cc ?? ''];
+    if (mcf) {
+      out.add(mcf[0]);
+      out.add(mcf[1]);
     }
   }
   return [...out];
@@ -135,7 +166,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
   registry.register({
     name: 'financials_analyze_financial_transactions',
     description:
-      'Analyzes Amazon SP-API financial transactions (neonpanel_iceberg.financial_transactions) into the same summary_class / summary_subclass structure used by monthly payment summary reports. Use this to reconcile a payment/summary report against financial_transactions instead of Amazon statement settlement data.',
+      'Analyzes Amazon SP-API financial transactions (neonpanel_iceberg.financial_transaction_lines_v1, the long/leaf-grain table) into the same summary_class / summary_subclass structure used by monthly payment summary reports. Use this to reconcile a payment/summary report against financial transactions instead of Amazon statement settlement data.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
