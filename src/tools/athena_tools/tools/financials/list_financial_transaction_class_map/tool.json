@@ -1,0 +1,49 @@
+{
+  "name": "financials_list_financial_transaction_class_map",
+  "description": "Explains how financial-transaction SERVICES map to SUMMARY CLASSES: returns the full classification rulebook from neonpanel_iceberg.financial_transaction_class_map -- one rule per (service_key, sign, fulfillment) -> summary_class / summary_subclass (+ display ordering) -- together with a plain-language 'classification_rules' section describing how the engine resolves rules.\n\nResolution model: a line's service_key is matched with its sign (POS = amount >= 0, NEG = amount < 0); the summary CLASS is usually constant per service while the SUBCLASS flips with sign (charge vs refund); a fulfillment-specific rule (AFN/MFN) beats the '*' wildcard (e.g. Commission NEG -> 'FBA selling fees' on AFN vs 'Seller fulfilled selling fees' on MFN); unmatched lines report as 'Unclassified' / 'Unmapped: <key>' so money is never dropped.\n\nThis taxonomy reproduces Amazon Seller Central 'Monthly Unified Summary' statement lines (reconciled line-by-line against a real Jun-2026 statement). class_order: 1=Income, 2=Expenses, 3=Tax, 4=Transfers.\n\nUse financials_list_financial_transaction_services to see which services actually occur in a specific company's data; use financials_analyze_financial_transactions for the money.\n\nKnowledge base: https://help.neonpanel.com",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "search": { "type": "string", "description": "Optional case-insensitive substring filter on service_key or summary_subclass." },
+              "summary_classes": { "type": "array", "items": { "type": "string" }, "description": "Optional filter: only rules for these summary classes (Income, Expenses, Tax, Transfers)." }
+            },
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 500 }
+        },
+        "additionalProperties": false
+      },
+      "filters": { "type": "object", "description": "Compatibility alias for query.filters. Prefer query.filters.", "additionalProperties": true },
+      "limit": { "type": "integer", "description": "Compatibility alias for query.limit. Prefer query.limit." }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "classification_rules": { "type": "array", "items": { "type": "string" } },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "service_key": { "type": "string" },
+            "sign": { "type": "string", "enum": ["POS", "NEG"] },
+            "fulfillment": { "type": "string", "description": "'AFN', 'MFN', or '*' wildcard" },
+            "summary_class": { "type": "string" },
+            "summary_subclass": { "type": "string" },
+            "class_order": { "type": "integer" },
+            "subclass_order": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

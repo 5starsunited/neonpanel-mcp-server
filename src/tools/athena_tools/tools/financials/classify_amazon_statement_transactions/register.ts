@@ -134,7 +134,7 @@ export function registerFinancialsClassifyAmazonStatementTransactionsTool(
   registry.register({
     name: 'financials_classify_amazon_statement_transactions',
     description:
-      'DEPRECATED for reconciliation (Amazon changed its report rules) — use financials_analyze_financial_transactions instead. Aggregates Amazon settlement transactions by classification. Supports two modes: default (CoA-based — maps service_name → accounts → account_types) and reference (NeonPanel class/subclass hierarchy).',
+      'CASH BOOKKEEPING METHOD ONLY: this tool reads Amazon STATEMENT (settlement/payout) data, which recognizes money on settlement/deposit dates. Companies using the ACCRUAL method must use financials_analyze_financial_transactions (posted financial transactions) instead. DEPRECATED for reconciliation (Amazon changed its report rules) — use financials_analyze_financial_transactions instead. Aggregates Amazon settlement transactions by classification. Supports two modes: default (CoA-based — maps service_name → accounts → account_types) and reference (NeonPanel class/subclass hierarchy).',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },

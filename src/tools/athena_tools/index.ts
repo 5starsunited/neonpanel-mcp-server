@@ -64,6 +64,8 @@ import { registerFinancialsAnalyzeProfitAndLossTool } from './tools/financials/a
 import { registerFinancialsListAmazonStatementsTool } from './tools/financials/list_amazon_statements/register';
 import { registerFinancialsAnalyzeAmazonStatementTool } from './tools/financials/analyze_amazon_statement/register';
 import { registerFinancialsAnalyzeFinancialTransactionsTool } from './tools/financials/analyze_financial_transactions/register';
+import { registerFinancialsListFinancialTransactionServicesTool } from './tools/financials/list_financial_transaction_services/register';
+import { registerFinancialsListFinancialTransactionClassMapTool } from './tools/financials/list_financial_transaction_class_map/register';
 import { registerFinancialsClassifyAmazonStatementTransactionsTool } from './tools/financials/classify_amazon_statement_transactions/register';
 import { registerFinancialsSaveAmazonStatementReconciliationResultTool } from './tools/financials/save_amazon_statement_reconciliation_result/register';
 import { registerFinancialsListAmazonStatementReconciliationResultsTool } from './tools/financials/list_amazon_statement_reconciliation_results/register';
@@ -135,6 +137,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerFinancialsListAmazonStatementsTool(registry);
   registerFinancialsAnalyzeAmazonStatementTool(registry);
   registerFinancialsAnalyzeFinancialTransactionsTool(registry);
+  registerFinancialsListFinancialTransactionServicesTool(registry);
+  registerFinancialsListFinancialTransactionClassMapTool(registry);
   registerFinancialsClassifyAmazonStatementTransactionsTool(registry);
   registerFinancialsSaveAmazonStatementReconciliationResultTool(registry);
   registerFinancialsListAmazonStatementReconciliationResultsTool(registry);

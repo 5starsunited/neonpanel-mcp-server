@@ -154,7 +154,7 @@ export function registerFinancialsAnalyzeAmazonStatementTool(registry: ToolRegis
   registry.register({
     name: 'financials_analyze_amazon_statement',
     description:
-      'DEPRECATED for reconciliation (Amazon changed its report rules) — use financials_analyze_financial_transactions instead. Analyzes Amazon settlement transaction details – filters and aggregates individual line items (revenue, fees, refunds, taxes) with currency conversion to the company\'s main currency. Supports grouping by company, marketplace, settlement, amount_type, amount_description, transaction_type, SKU, order, fulfillment, and time period.',
+      'CASH BOOKKEEPING METHOD ONLY: this tool reads Amazon STATEMENT (settlement/payout) data, which recognizes money on settlement/deposit dates. Companies using the ACCRUAL method must use financials_analyze_financial_transactions (posted financial transactions) instead. DEPRECATED for reconciliation (Amazon changed its report rules) — use financials_analyze_financial_transactions instead. Analyzes Amazon settlement transaction details – filters and aggregates individual line items (revenue, fees, refunds, taxes) with currency conversion to the company\'s main currency. Supports grouping by company, marketplace, settlement, amount_type, amount_description, transaction_type, SKU, order, fulfillment, and time period.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },

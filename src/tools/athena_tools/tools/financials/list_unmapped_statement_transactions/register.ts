@@ -103,7 +103,7 @@ export function registerFinancialsListUnmappedStatementTransactionsTool(
   registry.register({
     name: 'financials_list_unmapped_statement_transactions',
     description:
-      'Lists Amazon settlement transaction combos that lack classification mapping. Two modes: reference (missing settlement_flat_mapping rules) and coa (missing service → account links).',
+      'CASH BOOKKEEPING METHOD ONLY: this tool reads Amazon STATEMENT (settlement/payout) data, which recognizes money on settlement/deposit dates. Companies using the ACCRUAL method must use financials_analyze_financial_transactions (posted financial transactions) instead. Lists Amazon settlement transaction combos that lack classification mapping. Two modes: reference (missing settlement_flat_mapping rules) and coa (missing service → account links).',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },

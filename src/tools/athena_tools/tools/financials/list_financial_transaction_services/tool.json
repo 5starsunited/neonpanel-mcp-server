@@ -1,0 +1,63 @@
+{
+  "name": "financials_list_financial_transaction_services",
+  "description": "Catalogs the SERVICES (fee/charge line types) observed in a company's Amazon financial transactions (neonpanel_iceberg.financial_transaction_lines_v1).\n\nA SERVICE is one classification key (match_key): the verbatim Amazon breakdownType leaf from the fee breakdown tree (e.g. OurPricePrincipal, Commission, FBAStorageFee), a composite '<type>:<description>' key for context-dependent leaves (e.g. Base:AWDTransportationFee, FBADisposalFee:legacy), or 'TXN:<transactionType>' for transactions that carry no breakdowns (e.g. TXN:Transfer).\n\nEach returned row includes: service_key, line_kind (breakdown leaf vs transaction-level), origin_transaction_types + origin_descriptions (which Amazon transactions produce it), first/last month active, line & transaction counts, signs seen, the summary class/subclass each sign maps to, an is_unclassified flag, and a plain-language EXPLANATION of how the service arises from Amazon transaction data.\n\nUse cases: understanding what a fee is, auditing which services occur in a company's data, and finding unclassified (unmapped) services (filters.only_unclassified=true). Amounts are intentionally NOT returned -- use financials_analyze_financial_transactions for money. Use financials_list_financial_transaction_class_map for the full classification rulebook.\n\nKnowledge base: https://help.neonpanel.com",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "properties": {
+              "company_id": { "type": "integer", "minimum": 1, "description": "Numeric company identifier. Required." },
+              "report_months": { "type": "array", "items": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" }, "description": "Optional YYYY-MM months to restrict the catalog to (marketplace-local months)." },
+              "search": { "type": "string", "description": "Optional case-insensitive substring filter on service_key." },
+              "only_unclassified": { "type": "boolean", "description": "When true, return only services with at least one observed sign lacking a class-map rule." }
+            },
+            "required": ["company_id"],
+            "additionalProperties": false
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 200 }
+        },
+        "required": ["filters"],
+        "additionalProperties": false
+      },
+      "filters": { "type": "object", "description": "Compatibility alias for query.filters. Prefer query.filters.", "additionalProperties": true },
+      "limit": { "type": "integer", "description": "Compatibility alias for query.limit. Prefer query.limit." }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "service_key": { "type": "string" },
+            "line_kind": { "type": "string", "enum": ["breakdown", "txn"] },
+            "origin_transaction_types": { "type": "string" },
+            "origin_descriptions": { "type": "string" },
+            "first_month": { "type": "string" },
+            "last_month": { "type": "string" },
+            "line_count": { "type": "integer" },
+            "transaction_count": { "type": "integer" },
+            "signs_seen": { "type": "string" },
+            "fulfillment_networks": { "type": "string" },
+            "pos_summary_class": { "type": ["string", "null"] },
+            "pos_summary_subclass": { "type": ["string", "null"] },
+            "neg_summary_class": { "type": ["string", "null"] },
+            "neg_summary_subclass": { "type": ["string", "null"] },
+            "has_fulfillment_specific_rules": { "type": "integer" },
+            "is_unclassified": { "type": "integer" },
+            "explanation": { "type": "string" }
+          }
+        }
+      },
+      "model_notes": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

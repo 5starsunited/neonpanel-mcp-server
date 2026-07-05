@@ -102,7 +102,7 @@ export function registerFinancialsListAmazonStatementsTool(registry: ToolRegistr
   registry.register({
     name: 'financials_list_amazon_statements',
     description:
-      'Lists Amazon statements – one row per statement showing statement ID, date range, deposit date, total payout amount, currency, seller ID, marketplace, and company. Use this to browse, search, or filter statements before drilling into transaction details with financials_analyze_amazon_statement.',
+      'CASH BOOKKEEPING METHOD ONLY: this tool reads Amazon STATEMENT (settlement/payout) data, which recognizes money on settlement/deposit dates. Companies using the ACCRUAL method must use financials_analyze_financial_transactions (posted financial transactions) instead. Lists Amazon statements – one row per statement showing statement ID, date range, deposit date, total payout amount, currency, seller ID, marketplace, and company. Use this to browse, search, or filter statements before drilling into transaction details with financials_analyze_amazon_statement.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
