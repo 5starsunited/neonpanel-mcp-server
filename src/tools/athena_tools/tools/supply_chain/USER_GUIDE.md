@@ -167,6 +167,12 @@ default **30**) adds one reorder cycle of buffer. When `override_default=true`,
 the `*_override` inputs replace the per-item parameters and are used as-is
 (no multiplier).
 
+Items with missing/zero `lead_time_days` or `safety_stock_days` fall back to
+**90 / 60 day defaults** (the same constants the QuickSight 70.0 dataset uses).
+`lead_time_days_source` / `safety_stock_days_source` report which path was
+taken (`item`, `default_90`/`default_60`, `override`) — AI clients should tell
+the user when a default was applied so real values get configured.
+
 ### 3.3 Outputs
 
 ```

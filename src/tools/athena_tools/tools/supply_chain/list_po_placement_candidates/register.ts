@@ -382,6 +382,8 @@ async function executeSupplyChainListPoPlacementCandidates(
 
       recommended_order_units: toInt(getRowValue(record, 'recommended_order_units')) ?? undefined,
       moq: toInt(getRowValue(record, 'moq')) ?? undefined,
+      lead_time_days_source: (getRowValue(record, 'lead_time_days_source') ?? undefined) as string | undefined,
+      safety_stock_days_source: (getRowValue(record, 'safety_stock_days_source') ?? undefined) as string | undefined,
       priority,
       reason: (getRowValue(record, 'reason') ?? '') as string,
     };
