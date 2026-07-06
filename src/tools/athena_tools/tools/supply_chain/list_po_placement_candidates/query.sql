@@ -3,8 +3,9 @@
 --          (lead_time + safety_stock + PO cadence), using the latest snapshot partition.
 -- Notes:
 -- - company_id filtering is REQUIRED for authorization + partition pruning.
--- - available inventory = total_balance_quantity + total_ordered_quantity + available
---   (do NOT count inbound; inbound is represented in warehouse balances as "In Transfer").
+-- - available inventory = total_balance_quantity + available + wip_total_ordered_quantity
+--   (do NOT count inbound; inbound is represented in warehouse balances as "In Transfer".
+--    total_ordered_quantity is NOT added: WIP already covers every order in progress).
 -- - Plan data is sourced from the Iceberg forecast table so that writes via
 --   forecasting_write_sales_forecast are reflected immediately.
 
@@ -114,6 +115,7 @@ t_base AS (
     -- Revenue proxy used for ABCD classification.
     COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
 
+    pil.moq,
     COALESCE(pil.daily_unit_sales_target, 0) AS target_units_per_day,
     COALESCE(
       COALESCE(pil.avg_units_30d, 0.0),
@@ -124,9 +126,11 @@ t_base AS (
     -- Plan monthly units from the Iceberg forecast table (joined via forecast_item_plan).
     COALESCE(fp.plan_monthly_units, CAST(ARRAY[] AS ARRAY(DOUBLE))) AS plan_monthly_units,
 
+    -- Ordered quantity comes from wip_total_ordered_quantity alone:
+    -- total_ordered_quantity overlaps it in meaning (WIP already covers every
+    -- order being worked on), so summing both double-counts.
     (
       COALESCE(CAST(pil.total_balance_quantity AS DOUBLE), 0.0)
-      + COALESCE(CAST(pil.total_ordered_quantity AS DOUBLE), 0.0)
       + COALESCE(CAST(pil.available AS DOUBLE), 0.0)
       + CASE WHEN p.include_work_in_progress THEN COALESCE(CAST(pil.wip_total_ordered_quantity AS DOUBLE), 0.0) ELSE 0.0 END
     ) AS total_available_inventory_units,
@@ -226,6 +230,7 @@ t AS (
     b.product_name,
     b.revenue_30d,
     b.selected_sales_velocity,
+    b.moq,
     b.target_units_per_day,
     b.current_units_per_day,
     b.plan_monthly_units,
@@ -428,8 +433,21 @@ SELECT
 
   -- recommended_order_units: order-up-to level using the mode's daily velocity
   -- over target_coverage_days (planned: arrival-anchored window average).
+  -- When a positive quantity comes out below the supplier MOQ, it is bumped up
+  -- to the MOQ. Subsequent runs see the extra units in WIP, so follow-up
+  -- recommendations adjust automatically.
   CASE
     WHEN t.sales_velocity <= 0 THEN CAST(0 AS BIGINT)
+    WHEN CEIL(
+           (CAST(t.target_coverage_days AS DOUBLE) * t.sales_velocity)
+           - CAST(t.total_available_inventory_units AS DOUBLE)
+         ) > 0
+         AND t.moq IS NOT NULL
+         AND CEIL(
+           (CAST(t.target_coverage_days AS DOUBLE) * t.sales_velocity)
+           - CAST(t.total_available_inventory_units AS DOUBLE)
+         ) < t.moq
+      THEN CAST(t.moq AS BIGINT)
     ELSE (
       CAST(
         GREATEST(
@@ -443,6 +461,8 @@ SELECT
     )
   END AS recommended_order_units,
 
+  CAST(t.moq AS BIGINT) AS moq,
+
   -- priority/reason (draft)
   CASE
     WHEN t.sales_velocity <= 0 THEN 'low'
@@ -453,7 +473,7 @@ SELECT
     ELSE 'high'
   END AS priority,
   CAST(
-    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + total_ordered_quantity + available + (conditionally) wip_total_ordered_quantity. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity averages the sales plan over the coverage window (lead_time+safety_stock months of ~30.41 days) starting at the arrival month (1+floor(lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis; recommended_order_units = target_coverage_days * sales_velocity - available_inventory_units in all modes.'
+    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + available + (conditionally) wip_total_ordered_quantity; total_ordered_quantity is excluded because WIP already covers every order in progress. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity averages the sales plan over the coverage window (lead_time+safety_stock months of ~30.41 days) starting at the arrival month (1+floor(lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis; recommended_order_units = target_coverage_days * sales_velocity - available_inventory_units in all modes; positive quantities below the supplier MOQ are bumped up to the MOQ (excess lands in WIP, so later runs self-adjust).'
   AS VARCHAR) AS reason
 
 FROM t_classed t
