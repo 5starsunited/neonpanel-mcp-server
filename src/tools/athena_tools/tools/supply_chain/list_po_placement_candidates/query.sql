@@ -136,11 +136,18 @@ t_base AS (
     ) AS total_available_inventory_units,
 
     IF(p.override_default, p.lead_time_days_override, pil.lead_time_days) AS lead_time_days,
-    IF(p.override_default, p.safety_stock_days_override, pil.safety_stock_days) AS safety_stock_days,
+    -- effective safety stock = safety_stock_days * revenue-class multiplier
+    -- (ss_multiplier is resolved per item by the ETL from company class settings).
+    -- Explicit overrides are used as-is, without the multiplier.
+    IF(
+      p.override_default,
+      CAST(p.safety_stock_days_override AS DOUBLE),
+      pil.safety_stock_days * COALESCE(pil.ss_multiplier, 1.0)
+    ) AS safety_stock_days,
 
     CASE
       WHEN p.override_default THEN p.lead_time_days_override + p.safety_stock_days_override + p.days_between_pos
-      ELSE pil.lead_time_days + pil.safety_stock_days + p.days_between_pos
+      ELSE pil.lead_time_days + pil.safety_stock_days * COALESCE(pil.ss_multiplier, 1.0) + p.days_between_pos
     END AS target_coverage_days
 
   FROM "{{catalog}}"."{{database}}"."{{table}}" pil
@@ -473,7 +480,7 @@ SELECT
     ELSE 'high'
   END AS priority,
   CAST(
-    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + available + (conditionally) wip_total_ordered_quantity; total_ordered_quantity is excluded because WIP already covers every order in progress. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity averages the sales plan over the coverage window (lead_time+safety_stock months of ~30.41 days) starting at the arrival month (1+floor(lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis; recommended_order_units = target_coverage_days * sales_velocity - available_inventory_units in all modes; positive quantities below the supplier MOQ are bumped up to the MOQ (excess lands in WIP, so later runs self-adjust).'
+    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock*ss_multiplier + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + available + (conditionally) wip_total_ordered_quantity; total_ordered_quantity is excluded because WIP already covers every order in progress. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity averages the sales plan over the coverage window (lead_time+safety_stock months of ~30.41 days) starting at the arrival month (1+floor(lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis; recommended_order_units = target_coverage_days * sales_velocity - available_inventory_units in all modes; positive quantities below the supplier MOQ are bumped up to the MOQ (excess lands in WIP, so later runs self-adjust).'
   AS VARCHAR) AS reason
 
 FROM t_classed t

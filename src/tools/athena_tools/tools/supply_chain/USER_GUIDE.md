@@ -157,12 +157,15 @@ represented in warehouse balances as "In Transfer").
 ### 3.2 Coverage target
 
 ```
-target_coverage_days = lead_time_days + safety_stock_days + days_between_pos
+effective_safety_stock  = safety_stock_days * ss_multiplier   (class-based, default 1)
+target_coverage_days    = lead_time_days + effective_safety_stock + days_between_pos
 ```
 
-`days_between_pos` (PO cadence, default **30**) adds one reorder cycle of
-buffer. When `override_default=true`, the `*_override` inputs replace the
-per-item parameters.
+`ss_multiplier` is the revenue-class safety-stock multiplier (A/B/C/D) resolved
+per item by the ETL from company settings. `days_between_pos` (PO cadence,
+default **30**) adds one reorder cycle of buffer. When `override_default=true`,
+the `*_override` inputs replace the per-item parameters and are used as-is
+(no multiplier).
 
 ### 3.3 Outputs
 
