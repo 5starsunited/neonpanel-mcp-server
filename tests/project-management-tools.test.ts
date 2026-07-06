@@ -174,7 +174,7 @@ test('project management advertises bill documents as an array of typed referenc
   const documentsSchema = (tool.inputSchema.properties?.documents as any);
 
   assert.deepEqual(documentsSchema.type, ['array', 'null']);
-  assert.deepEqual(documentsSchema.items.properties.type.enum, ['InventoryOrder', 'AssemblyOrder', 'Shipment']);
+  assert.deepEqual(documentsSchema.items.properties.type.enum, ['InventoryOrder', 'AssemblyOrder', 'Shipment', 'Invoice']);
   assert.match(documentsSchema.description, /not a JSON string/);
 });
 

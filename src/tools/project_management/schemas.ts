@@ -84,7 +84,7 @@ export const billDetailInputSchema = z.object({
 });
 
 export const billDocumentInputSchema = z.object({
-  type: z.enum(['InventoryOrder', 'AssemblyOrder', 'Shipment']),
+  type: z.enum(['InventoryOrder', 'AssemblyOrder', 'Shipment', 'Invoice']),
   id: z.coerce.number().int().min(1),
 });
 

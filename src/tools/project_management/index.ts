@@ -56,7 +56,7 @@ function requireProjectCollectionPath(pathFactory: ((companyUuid: string) => str
   return pathFactory;
 }
 
-type BillDocumentType = 'InventoryOrder' | 'AssemblyOrder' | 'Shipment';
+type BillDocumentType = 'InventoryOrder' | 'AssemblyOrder' | 'Shipment' | 'Invoice';
 type BillDocumentLink = { type: BillDocumentType; id: number };
 type BillProjectPayload = { documents?: BillDocumentLink[] | null };
 
@@ -132,11 +132,11 @@ const billProjectJsonSchema = {
     payment_term_id: { type: ['integer', 'null'], minimum: 1, description: 'Payment term ID used to generate payment requests.' },
     documents: {
       type: ['array', 'null'],
-      description: 'Source documents linked to this bill. Send an array of {type,id} objects, not a JSON string. Supported types: InventoryOrder, Shipment, AssemblyOrder. NeonPanel accepts one document type per upstream request; this MCP tool automatically splits mixed-type bill updates into separate requests.',
+      description: 'Source documents linked to this bill. Send an array of {type,id} objects, not a JSON string. Supported types: InventoryOrder, Shipment, AssemblyOrder, Invoice. NeonPanel accepts one document type per upstream request; this MCP tool automatically splits mixed-type bill updates into separate requests.',
       items: {
         type: 'object',
         properties: {
-          type: { type: 'string', enum: ['InventoryOrder', 'AssemblyOrder', 'Shipment'], description: 'Short class name of the referenced document.' },
+          type: { type: 'string', enum: ['InventoryOrder', 'AssemblyOrder', 'Shipment', 'Invoice'], description: 'Short class name of the referenced document.' },
           id: { type: 'integer', minimum: 1, description: 'Primary key of the referenced document.' },
         },
         required: ['type', 'id'],
@@ -540,13 +540,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_create_bill',
-      description: 'Create a NeonPanel Bill. Details use service_id, quantity, and rate. Bills may link source documents with {type,id} for InventoryOrder, Shipment, or AssemblyOrder.',
+      description: 'Create a NeonPanel Bill. Details use service_id, quantity, and rate. Bills may link source documents with {type,id} for InventoryOrder, Shipment, AssemblyOrder, or Invoice.',
       isConsequential: true,
       inputSchema: createBillInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
         name: 'project_management_create_bill',
-        description: 'Create a NeonPanel Bill. Details use service_id, quantity, and rate. Bills may link source documents with {type,id} for InventoryOrder, Shipment, or AssemblyOrder.',
+        description: 'Create a NeonPanel Bill. Details use service_id, quantity, and rate. Bills may link source documents with {type,id} for InventoryOrder, Shipment, AssemblyOrder, or Invoice.',
         isConsequential: true,
         inputSchema: createBillInputJsonSchema,
         outputSchema: passthroughOutputSchema,
