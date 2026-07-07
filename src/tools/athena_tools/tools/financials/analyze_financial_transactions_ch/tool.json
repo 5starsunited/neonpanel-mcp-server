@@ -1,0 +1,295 @@
+{
+  "name": "financials_analyze_financial_transactions_ch",
+  "description": "ClickHouse PILOT twin of financials_analyze_financial_transactions - same analysis, filters, and output shape, served from the ClickHouse warehouse instead of Athena (sub-second vs multi-second). DATA FRESHNESS: reads a one-time snapshot loaded 2026-07-06 with transactions through 2026-07-04; for anything newer use financials_analyze_financial_transactions. Row-level results were verified identical between both engines on the same inputs.\n\nAnalyzes Amazon SP-API financial transactions from neonpanel_iceberg.financial_transactions into the same summary_class / summary_subclass label set used by Amazon payment summary reports (Date Range / Custom Unified Summary).\n\nUse this tool when the user wants to reconcile a payment/summary report against financial_transactions, or to summarize a company's Amazon money flows by Income / Expenses / Tax / Transfers.\n\nKEY FACTS the agent must respect:\n1. AMAZON REPORTS ARE PER-MARKETPLACE. Amazon publishes summary reports for ONE marketplace at a time, in that marketplace's LOCAL currency (Amazon.com -> USD, Amazon.ca -> CAD, Amazon.de -> EUR, ...). To reconcile a report, ALWAYS set filters.marketplaces to that single marketplace, e.g. ['US'].\n2. REPORT PERIODS ARE MARKETPLACE-LOCAL TIME. report_months / start_date / end_date filter on the marketplace-local calendar (US & CA = Pacific, UK = London, EU = CET, JP = Tokyo, AU = Sydney) and line up with Amazon's report periods. Note: a calendar month reconciles to ~99.8% (transactions straddling the month boundary land on different sides); a single day usually reconciles exactly; Transfers always reconcile exactly.\n3. CURRENCY. Every output row carries its local currency. Rows are grouped per (class, subclass, currency) - NEVER add debits/credits/net_amount across rows with DIFFERENT currency values; that mixes currencies. To aggregate across marketplaces/currencies, pass filters.consolidation_currency (3-letter ISO, e.g. 'USD'): each line is then also converted at its posted-day rate from neonpanel_iceberg.currency_rates (local -> USD -> target), returned as net_amount_consolidated, which IS safe to sum across all rows. Choosing the consolidation currency: use the company's main currency (account_list_companies returns currency per company) or ask the user which currency to consolidate in. If fx_missing_lines > 0 on any row, some lines had no FX rate for their currency/date (e.g. JPY may lack rates) - their amounts are EXCLUDED from net_amount_consolidated; tell the user instead of presenting the consolidated total as complete.\n\nReconciliation workflow (single marketplace report):\n1. Extract company_id, marketplace, and period from the uploaded report\n2. Call this tool with filters.company_id, filters.marketplaces (one marketplace, e.g. ['US']), and filters.report_months e.g. ['2026-03'] (or start_date/end_date for day ranges)\n3. Compare the report's Income / Expenses / Tax / Transfers lines against summary_class + summary_subclass totals (same local currency - no conversion needed)\n4. Persist the comparison with financials_save_financial_transaction_reconciliation_result using reconciliation_source='financial_transactions'\n\nMulti-marketplace / consolidated view workflow:\n1. Determine the consolidation currency (company main currency via account_list_companies, or ask the user)\n2. Call with filters.marketplaces listing the marketplaces (or omit for all) AND filters.consolidation_currency\n3. Sum net_amount_consolidated across rows (group by summary_class/subclass as needed); report per-currency local figures from the per-row currency column when detail is wanted\n\nOutput: one row per (summary_class, summary_subclass, currency). debits = sum of negative source amounts, credits = sum of positive source amounts, net_amount = debits + credits (LOCAL currency of that row), net_amount_consolidated = same lines converted to consolidation_currency (NULL when not requested), fx_missing_lines = lines excluded from conversion for lack of a rate, line_count = source lines in the row.\n\nKnowledge base: https://help.neonpanel.com\n\nBOOKKEEPING METHOD: this is the ACCRUAL-method source (transactions recognized on posted date). It is also correct for cash-method reporting of Amazon activity by posted period; statement-based tools (financials_analyze_amazon_statement, financials_list_amazon_statements, financials_classify_amazon_statement_transactions, financials_list_unmapped_statement_transactions) are for the CASH method only.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "filters": {
+        "type": "object",
+        "description": "Compatibility alias for query.filters. Prefer query.filters.",
+        "additionalProperties": true
+      },
+      "sort": {
+        "type": "object",
+        "description": "Compatibility alias for query.sort. Prefer query.sort.",
+        "additionalProperties": true
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "description": "Compatibility alias for query.limit. Prefer query.limit."
+      },
+      "query": {
+        "type": "object",
+        "description": "Query envelope for financial transactions reconciliation analysis.",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Filters for the query. company_id is required; report_months is strongly recommended for reconciliation.",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Numeric company identifier. Required."
+              },
+              "report_months": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}$"
+                },
+                "description": "Monthly partitions to include, YYYY-MM, in the MARKETPLACE-LOCAL report timezone (US/CA=Pacific, UK=London, EU=CET, JP=Tokyo, AU=Sydney). Use one value for a monthly report, e.g. ['2026-03']. Matches Amazon's monthly summary period."
+              },
+              "marketplaces": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional filter by marketplace. Accepts a country code (US, CA, MX, UK, DE, FR, IT, ES, NL, SE, PL, BE, TR, EG, SA, AE, IN, SG, JP, AU), a marketplace_name ('Amazon.com', 'Amazon.co.uk'), or a marketplace_id ('ATVPDKIKX0DER'). Amazon's unified reports are per-marketplace, so set this to scope to a country report, e.g. ['US']."
+              },
+              "marketplace_codes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional alias for marketplaces. Accepts country codes, marketplace names, or marketplace IDs just like marketplaces."
+              },
+              "start_date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "Optional inclusive start day (YYYY-MM-DD) filtered on posted_date_day (marketplace-local calendar day). Use with end_date for a day-range/daily report, e.g. start_date=end_date='2026-05-01'."
+              },
+              "end_date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "Optional inclusive end day (YYYY-MM-DD) filtered on posted_date_day (marketplace-local calendar day)."
+              },
+              "consolidation_currency": {
+                "type": "string",
+                "pattern": "^[A-Za-z]{3}$",
+                "description": "Optional 3-letter ISO currency (e.g. 'USD', 'EUR'). When set, each line is also converted at its posted-day FX rate (neonpanel_iceberg.currency_rates, USD-base) and returned as net_amount_consolidated - the only figure safe to sum across rows with different currencies. Pick the company's main currency (see account_list_companies) or ask the user. Required for meaningful multi-marketplace totals."
+              },
+              "summary_classes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional filter by summary class: Income, Expenses, Tax, Transfers. Case-insensitive exact match."
+              },
+              "summary_subclasses": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional substring filter by summary subclass, e.g. 'FBA transaction fees' or 'Product sales'. Case-insensitive."
+              }
+            },
+            "required": [
+              "company_id"
+            ],
+            "additionalProperties": false
+          },
+          "sort": {
+            "type": "object",
+            "description": "Controls ordering of results.",
+            "properties": {
+              "field": {
+                "type": "string",
+                "enum": [
+                  "class_order",
+                  "subclass_order",
+                  "summary_class",
+                  "summary_subclass",
+                  "debits",
+                  "credits",
+                  "net_amount",
+                  "line_count"
+                ],
+                "default": "class_order",
+                "description": "Column to sort by. Default preserves the payment summary report order."
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ],
+                "default": "asc",
+                "description": "Sort direction. Default: asc."
+              }
+            },
+            "additionalProperties": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 200,
+            "description": "Maximum rows to return (default 200, max 500)."
+          }
+        },
+        "required": [
+          "filters"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "class_order": {
+              "type": "integer",
+              "description": "Display order of the top-level summary class."
+            },
+            "subclass_order": {
+              "type": "integer",
+              "description": "Display order within the summary class."
+            },
+            "summary_class": {
+              "type": "string",
+              "description": "Summary class: Income, Expenses, Tax, or Transfers."
+            },
+            "summary_subclass": {
+              "type": "string",
+              "description": "Summary report line label / subclass."
+            },
+            "currency": {
+              "type": "string",
+              "description": "Local (marketplace) currency of this row. Rows are grouped per currency - NEVER sum debits/credits/net_amount across rows with different currency values."
+            },
+            "debits": {
+              "type": "number",
+              "description": "Sum of negative source amounts for this subclass, in the row's local currency."
+            },
+            "credits": {
+              "type": "number",
+              "description": "Sum of positive source amounts for this subclass, in the row's local currency."
+            },
+            "net_amount": {
+              "type": "number",
+              "description": "Net amount (debits + credits) in the row's LOCAL currency. Only comparable/summable within the same currency."
+            },
+            "consolidation_currency": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Echo of filters.consolidation_currency (null when not requested)."
+            },
+            "net_amount_consolidated": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "Net amount converted line-by-line to consolidation_currency at each line's posted-day FX rate. Safe to sum across ALL rows regardless of local currency. Null when consolidation_currency was not requested."
+            },
+            "fx_missing_lines": {
+              "type": "integer",
+              "description": "Lines excluded from net_amount_consolidated because no FX rate existed for their currency/date. If > 0, the consolidated total is incomplete - tell the user."
+            },
+            "line_count": {
+              "type": "integer",
+              "description": "Number of source rows contributing to this subclass."
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "required": [
+      "items"
+    ],
+    "additionalProperties": true
+  },
+  "examples": [
+    {
+      "title": "Reconcile a US monthly summary report",
+      "description": "Amazon summary reports are per-marketplace and in local currency, so scope to ONE marketplace. Totals come back in USD (Amazon.com's local currency) - compare directly against the report's Income/Expenses/Tax/Transfers lines.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 103,
+            "marketplaces": [
+              "US"
+            ],
+            "report_months": [
+              "2026-03"
+            ]
+          },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "Reconcile a single-day report",
+      "description": "Day filters use the marketplace-local calendar (posted_date_day), matching Amazon's daily report window exactly.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 103,
+            "marketplaces": [
+              "US"
+            ],
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-01"
+          },
+          "limit": 200
+        }
+      }
+    },
+    {
+      "title": "All marketplaces consolidated to one currency",
+      "description": "Multi-marketplace data mixes currencies (USD, CAD, EUR, ...). Pass consolidation_currency - the company's main currency from account_list_companies, or ask the user - and sum net_amount_consolidated across rows. Local figures stay per-currency in each row. Check fx_missing_lines = 0 before presenting the total as complete.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 103,
+            "report_months": [
+              "2026-03"
+            ],
+            "consolidation_currency": "USD"
+          },
+          "limit": 300
+        }
+      }
+    },
+    {
+      "title": "Only fee lines for one marketplace",
+      "description": "Return only expense subclasses containing 'fee' in the label.",
+      "request": {
+        "query": {
+          "filters": {
+            "company_id": 103,
+            "marketplaces": [
+              "US"
+            ],
+            "report_months": [
+              "2026-04"
+            ],
+            "summary_classes": [
+              "Expenses"
+            ],
+            "summary_subclasses": [
+              "fee"
+            ]
+          },
+          "sort": {
+            "field": "net_amount",
+            "direction": "asc"
+          },
+          "limit": 50
+        }
+      }
+    }
+  ]
+}

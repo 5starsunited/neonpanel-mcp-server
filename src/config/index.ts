@@ -58,6 +58,13 @@ const RawConfigSchema = z.object({
   ATHENA_TABLE_SALES_FORECAST_WRITES: z.string().default('fc_sales_forecast_iceberg'),
   ATHENA_ASSUME_ROLE_ARN: z.string().optional(),
   ATHENA_ASSUME_ROLE_SESSION_NAME: z.string().default('neonpanel-mcp-athena'),
+
+  // ClickHouse (optional; required only for ClickHouse-backed tools).
+  // Credentials live in AWS Secrets Manager (clickhouse/cloud) and are injected as env vars.
+  CLICKHOUSE_URL: z.string().optional(), // e.g. https://<id>.us-east-1.aws.clickhouse.cloud:8443
+  CLICKHOUSE_USER: z.string().default('bi_service'),
+  CLICKHOUSE_PASSWORD: z.string().optional(),
+  CLICKHOUSE_DATABASE: z.string().default('staging'),
 });
 
 export type AppConfig = ReturnType<typeof buildConfig>;
@@ -120,6 +127,12 @@ function buildConfig() {
       },
       assumeRoleArn: parsed.ATHENA_ASSUME_ROLE_ARN,
       assumeRoleSessionName: parsed.ATHENA_ASSUME_ROLE_SESSION_NAME,
+    },
+    clickhouse: {
+      url: parsed.CLICKHOUSE_URL,
+      user: parsed.CLICKHOUSE_USER,
+      password: parsed.CLICKHOUSE_PASSWORD,
+      database: parsed.CLICKHOUSE_DATABASE,
     },
   } as const;
 }
