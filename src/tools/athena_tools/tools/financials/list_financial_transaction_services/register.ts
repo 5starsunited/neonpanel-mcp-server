@@ -160,11 +160,7 @@ export function registerFinancialsListFinancialTransactionServicesTool(registry:
         parsed.query ?? { filters: parsed.filters, limit: parsed.limit },
       ) as QueryInput;
 
-      const permissions = [
-        'view:quicksight_group.bookkeeping',
-        'view:quicksight_group.audit_and_comliance_new',
-        'view:quicksight_group.finance-new',
-      ];
+      const permissions = ['view:quicksight_group.finance-new'];
 
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {

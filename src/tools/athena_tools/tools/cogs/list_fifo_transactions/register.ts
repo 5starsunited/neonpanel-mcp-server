@@ -60,12 +60,7 @@ function sqlBigintArrayExpr(values: number[] | undefined): string {
 }
 
 async function getAllowedCompanyIds(inputCompanyIds: number[], context: ToolExecutionContext): Promise<number[]> {
-  const permissions = [
-    'view:quicksight_group.inventory_management_new',
-    'view:quicksight_group.finance-new',
-    'view:quicksight_group.bookkeeping',
-    'view:quicksight_group.audit_and_comliance_new',
-  ];
+  const permissions = ['view:quicksight_group.finance-new'];
 
   const allPermittedCompanyIds = new Set<number>();
   for (const permission of permissions) {

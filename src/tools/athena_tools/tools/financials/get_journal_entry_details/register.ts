@@ -89,11 +89,7 @@ export function registerFinancialsGetJournalEntryDetailsTool(registry: ToolRegis
       const query = parsed.query as QueryInput;
 
       // ── Permission check – user needs at least ONE of these permissions ──
-      const permissions = [
-        'view:quicksight_group.bookkeeping',
-        'view:quicksight_group.audit_and_comliance_new',
-        'view:quicksight_group.finance-new',
-      ];
+      const permissions = ['view:quicksight_group.finance-new'];
 
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {

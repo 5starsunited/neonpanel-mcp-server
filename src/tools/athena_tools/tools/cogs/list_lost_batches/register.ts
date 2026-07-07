@@ -66,12 +66,7 @@ export function registerCogsListLostBatchesTool(registry: ToolRegistry) {
       const { filters, limit } = input.query;
 
       // Permission check - user needs at least ONE of these permissions
-      const permissions = [
-        'view:quicksight_group.inventory_management_new',
-        'view:quicksight_group.finance-new',
-        'view:quicksight_group.bookkeeping',
-        'view:quicksight_group.audit_and_comliance_new',
-      ];
+      const permissions = ['view:quicksight_group.finance-new'];
 
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {

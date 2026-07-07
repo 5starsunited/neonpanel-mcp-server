@@ -86,11 +86,7 @@ export function registerFinancialsListFinancialTransactionClassMapTool(registry:
 
       // The class map is org-level configuration (no tenant data), but access still requires
       // membership in at least one finance/bookkeeping-permitted company.
-      const permissions = [
-        'view:quicksight_group.bookkeeping',
-        'view:quicksight_group.audit_and_comliance_new',
-        'view:quicksight_group.finance-new',
-      ];
+      const permissions = ['view:quicksight_group.finance-new'];
       let hasAnyPermission = false;
       for (const permission of permissions) {
         try {

@@ -115,11 +115,7 @@ export function registerFinancialsListUnmappedStatementTransactionsTool(
       const mode = query.mode ?? 'coa';
 
       // ── Permission check ──────────────────────────────────────────────
-      const permissions = [
-        'view:quicksight_group.bookkeeping',
-        'view:quicksight_group.audit_and_comliance_new',
-        'view:quicksight_group.finance-new',
-      ];
+      const permissions = ['view:quicksight_group.finance-new'];
 
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {

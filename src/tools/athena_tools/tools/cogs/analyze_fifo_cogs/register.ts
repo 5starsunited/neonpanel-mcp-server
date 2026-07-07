@@ -186,12 +186,7 @@ async function executeCogsAnalyzeFifoCogs(
   context: ToolExecutionContext,
 ): Promise<{ items: unknown[]; meta: Record<string, unknown> }> {
   // Permission gate - user needs at least ONE of these permissions
-  const permissions = [
-    'view:quicksight_group.inventory_management_new',
-    'view:quicksight_group.finance-new',
-    'view:quicksight_group.bookkeeping',
-    'view:quicksight_group.audit_and_comliance_new',
-  ];
+  const permissions = ['view:quicksight_group.finance-new'];
 
   // Fetch permitted companies from both permissions
   const allPermittedCompanyIds = new Set<number>();
