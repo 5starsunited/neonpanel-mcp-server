@@ -6,6 +6,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import { Construct } from 'constructs';
 
@@ -33,6 +34,15 @@ export class NeonpanelMcpStack extends cdk.Stack {
       this,
       'ApiCertificate',
       'arn:aws:acm:us-east-1:303498144074:certificate/a38e88c3-526f-44c2-a76c-a5cef1222a64'
+    );
+
+    // ClickHouse Cloud bi_service credentials (created out-of-band; see clickhouse_etl repo docs).
+    // Reached via PrivateLink endpoint vpce-04cd1afac96d1f27d in this VPC — the private DNS
+    // hostname in CLICKHOUSE_URL only resolves inside the VPC.
+    const clickhouseSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ClickhouseSecret',
+      'neonpanel-mcp/clickhouse',
     );
 
     const service = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'NeonpanelMcpService', {
@@ -65,7 +75,15 @@ export class NeonpanelMcpStack extends cdk.Stack {
           // ATHENA_OUTPUT_LOCATION: 's3://your-athena-results-prefix/',
           // Optional: cross-account access (e.g. assume role in aap-prod-administrator account)
           ATHENA_ASSUME_ROLE_ARN: 'arn:aws:iam::451729026804:role/NeonpanelMcpAthenaReadRole',
-          BUILD_VERSION: 'v3.1.1' // Dynamic MCP with fresh API capabilities
+          // ClickHouse-backed pilot tools (financials_*_ch). URL is the PrivateLink
+          // private DNS name — resolves only inside this VPC.
+          CLICKHOUSE_URL: 'https://ixux5u39tf.us-east-1.vpce.aws.clickhouse.cloud:8443',
+          CLICKHOUSE_USER: 'bi_service',
+          CLICKHOUSE_DATABASE: 'staging',
+          BUILD_VERSION: 'v3.2.0' // ClickHouse pilot tool (financials_analyze_financial_transactions_ch)
+        },
+        secrets: {
+          CLICKHOUSE_PASSWORD: ecs.Secret.fromSecretsManager(clickhouseSecret, 'password'),
         },
         logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'neonpanel-mcp', logGroup }),
       },
