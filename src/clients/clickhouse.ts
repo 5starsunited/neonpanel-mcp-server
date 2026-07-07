@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { AppError } from '../lib/errors';
+import { logger } from '../logging/logger';
 
 export type ClickHouseQueryOptions = {
   query: string;
@@ -39,6 +40,7 @@ export async function runClickHouseQuery(
   // Emit UInt64/Int64 as JSON numbers (COUNT(*) etc); our values stay well below 2^53.
   endpoint.searchParams.set('output_format_json_quote_64bit_integers', '0');
 
+  const t0 = Date.now();
   let response: Response;
   try {
     response = await fetch(endpoint, {
@@ -67,7 +69,27 @@ export async function runClickHouseQuery(
     });
   }
 
+  // Time-to-headers (DNS + TCP + TLS + query exec + TTFB). Compared against the
+  // server-reported query time below, this isolates connection/network cost.
+  const headersMs = Date.now() - t0;
   const payload = (await response.json()) as ClickHouseJsonPayload;
+  const totalMs = Date.now() - t0;
+  const serverElapsedSec = payload.statistics?.elapsed;
+
+  // If headersMs >> serverElapsedSec, the time is in connection/network/event-loop
+  // scheduling (e.g. DNS on a saturated libuv threadpool under concurrency), NOT the query.
+  logger.info(
+    {
+      clickhouse: {
+        headersMs,
+        bodyMs: totalMs - headersMs,
+        totalMs,
+        serverElapsedMs: serverElapsedSec !== undefined ? Math.round(serverElapsedSec * 1000) : undefined,
+        rows: payload.data?.length ?? 0,
+      },
+    },
+    'ClickHouse query timing',
+  );
 
   return {
     query: options.query,

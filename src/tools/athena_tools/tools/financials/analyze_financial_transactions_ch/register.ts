@@ -7,6 +7,7 @@ import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { logger } from '../../../../../logging/logger';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -175,6 +176,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
 
       const permissions = ['view:quicksight_group.finance-new'];
 
+      const permStart = Date.now();
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {
         try {
@@ -198,6 +200,8 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
           // Continue if one permission check fails.
         }
       }
+
+      const permissionMs = Date.now() - permStart;
 
       const companyId = Math.trunc(query.filters.company_id);
       if (!allPermittedCompanyIds.has(companyId)) {
@@ -237,7 +241,14 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
         sort_direction: sortDirection.toUpperCase(),
       });
 
+      const queryStart = Date.now();
       const result = await runClickHouseQuery({ query: rendered });
+      const queryMs = Date.now() - queryStart;
+
+      logger.info(
+        { tool: 'financials_analyze_financial_transactions_ch', permissionMs, queryMs, rows: result.rows?.length ?? 0 },
+        'ch tool phase timing',
+      );
 
       return { items: result.rows ?? [] };
     },
