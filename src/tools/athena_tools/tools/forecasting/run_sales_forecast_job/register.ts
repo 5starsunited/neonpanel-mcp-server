@@ -7,6 +7,7 @@ import { runAthenaQuery } from '../../../../../clients/athena';
 import { config } from '../../../../../config';
 import { resolveCompanyUuid } from '../../../../neonpanel-common';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
+import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,14 +30,6 @@ const HARDCODED_ARGS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type CompaniesWithPermissionResponse = {
-  companies?: Array<{
-    company_id?: number;
-    companyId?: number;
-    id?: number;
-  }>;
-};
 
 type ForecastingSettingsResponse = {
   default_scenario_id?: number | null;
@@ -147,14 +140,7 @@ export function registerForecastingRunSalesForecastJobTool(registry: ToolRegistr
 
       // ---- Authorization: require the forecasting permission ----
       const permission = 'view:quicksight_group.sales_and_marketing_new';
-      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
-
-      const permittedCompanyIds = (permissionResponse.companies ?? [])
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+      const permittedCompanyIds = Array.from(await getPermittedCompanyIds(context.userToken, [permission]));
 
       if (permittedCompanyIds.length === 0) {
         return {

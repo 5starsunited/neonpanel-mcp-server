@@ -2,15 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
-import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-
-type CompaniesWithPermissionResponse = {
-  companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
-};
+import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
 
 function sqlEscape(v: string): string {
   return v.replace(/'/g, "''");
@@ -59,21 +55,8 @@ async function isAuthorizedForCompany(companyId: number, context: ToolExecutionC
     'view:quicksight_group.sales_and_marketing_new',
     'view:quicksight_group.marketing',
   ];
-  for (const permission of permissions) {
-    try {
-      const resp = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
-      const ids = (resp.companies ?? [])
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-      if (ids.includes(companyId)) return true;
-    } catch {
-      // continue
-    }
-  }
-  return false;
+  const permitted = await getPermittedCompanyIds(context.userToken, permissions);
+  return permitted.has(companyId);
 }
 
 function buildWritesValuesSql(

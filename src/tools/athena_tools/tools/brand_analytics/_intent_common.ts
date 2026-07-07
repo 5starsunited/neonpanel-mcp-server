@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { neonPanelRequest } from '../../../../clients/neonpanel-api';
 import type { ToolExecutionContext } from '../../../types';
+import { getPermittedCompanyIds } from '../../../../lib/permitted-companies';
 
 /**
  * Shared helpers for the intent-clustering tools:
@@ -8,10 +8,6 @@ import type { ToolExecutionContext } from '../../../types';
  *   - brand_analytics_create_user_intent_cluster
  *   - brand_analytics_list_user_intent_clusters
  */
-
-type CompaniesWithPermissionResponse = {
-  companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
-};
 
 /**
  * App-side surrogate BIGINT id. Monotonic-ish:
@@ -170,19 +166,6 @@ export async function isAuthorizedForCompany(
     'view:quicksight_group.sales_and_marketing_new',
     'view:quicksight_group.marketing',
   ];
-  for (const permission of permissions) {
-    try {
-      const resp = await neonPanelRequest<CompaniesWithPermissionResponse>({
-        token: context.userToken,
-        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-      });
-      const ids = (resp.companies ?? [])
-        .map((c) => c.company_id ?? c.companyId ?? c.id)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-      if (ids.includes(companyId)) return true;
-    } catch {
-      // continue
-    }
-  }
-  return false;
+  const permitted = await getPermittedCompanyIds(context.userToken, permissions);
+  return permitted.has(companyId);
 }

@@ -2,19 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
-import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-
-type CompaniesWithPermissionResponse = {
-  companies?: Array<{
-    company_id?: number;
-    companyId?: number;
-    id?: number;
-  }>;
-};
+import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -95,35 +87,12 @@ const inputSchema = z
 
 const fallbackOutputSchema = { type: 'object', additionalProperties: true } as const;
 
-async function getPermittedCompanyIds(context: ToolExecutionContext): Promise<number[]> {
-  try {
-    const permissions = [
-      'view:quicksight_group.inventory_management_new',
-      'view:quicksight_group.finance-new',
-    ];
-
-    const allPermittedCompanyIds = new Set<number>();
-    for (const permission of permissions) {
-      try {
-        const response = await neonPanelRequest<CompaniesWithPermissionResponse>({
-          token: context.userToken,
-          path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
-        });
-        const companies = response.companies ?? [];
-        companies.forEach((c) => {
-          const id = c.company_id ?? c.companyId ?? c.id;
-          if (typeof id === 'number' && id > 0) {
-            allPermittedCompanyIds.add(id);
-          }
-        });
-      } catch {
-        // Continue if one permission check fails
-      }
-    }
-    return Array.from(allPermittedCompanyIds);
-  } catch {
-    return [];
-  }
+async function permittedCompanyIdsFor(context: ToolExecutionContext): Promise<number[]> {
+  const permissions = [
+    'view:quicksight_group.inventory_management_new',
+    'view:quicksight_group.finance-new',
+  ];
+  return Array.from(await getPermittedCompanyIds(context.userToken, permissions));
 }
 
 function parseJsonField(value: unknown): unknown {
@@ -179,7 +148,7 @@ export function registerSupplyChainListStockReplenishmentRiskItemsTool(registry:
         // Parse and validate input
         const parsed = inputSchema.parse(args);
 
-        const permittedCompanyIds = await getPermittedCompanyIds(context);
+        const permittedCompanyIds = await permittedCompanyIdsFor(context);
         if (!permittedCompanyIds.includes(parsed.company_id)) {
           return {
             items: [],
