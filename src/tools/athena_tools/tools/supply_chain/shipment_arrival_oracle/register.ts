@@ -2,11 +2,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
+
+type CompaniesWithPermissionResponse = {
+  companies?: Array<{
+    company_id?: number;
+    companyId?: number;
+    id?: number;
+    uuid?: string;
+    name?: string;
+    short_name?: string;
+  }>;
+};
 
 const inputSchema = z
   .object({
@@ -75,7 +86,25 @@ export function registerShipmentArrivalOracle(registry: ToolRegistry): void {
         'view:quicksight_group.finance-new',
       ];
 
-      const allPermittedCompanyIds = await getPermittedCompanyIds(context.userToken, permissions);
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const companiesResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+
+          const companies = companiesResponse.companies || [];
+          companies.forEach((c: { company_id?: number; companyId?: number; id?: number }) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch (err) {
+          // Continue if one permission check fails
+        }
+      }
 
       const hasPermission = allPermittedCompanyIds.has(companyId);
 

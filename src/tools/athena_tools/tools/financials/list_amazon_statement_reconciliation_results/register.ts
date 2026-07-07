@@ -2,11 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
+
+type CompaniesWithPermissionResponse = {
+  companies?: Array<{
+    company_id?: number;
+    companyId?: number;
+    id?: number;
+  }>;
+};
 
 // ── SQL helpers ────────────────────────────────────────────────────────────────
 
@@ -96,7 +104,29 @@ export function registerFinancialsListAmazonStatementReconciliationResultsTool(
         'view:quicksight_group.finance-new',
       ];
 
-      const allPermittedCompanyIds = await getPermittedCompanyIds(context.userToken, permissions);
+      const allPermittedCompanyIds = new Set<number>();
+      for (const permission of permissions) {
+        try {
+          const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+
+          const permittedCompanies = (permissionResponse.companies ?? []).filter(
+            (c): c is { company_id?: number; companyId?: number; id?: number } =>
+              c !== null && typeof c === 'object',
+          );
+
+          permittedCompanies.forEach((c) => {
+            const id = c.company_id ?? c.companyId ?? c.id;
+            if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+              allPermittedCompanyIds.add(id);
+            }
+          });
+        } catch {
+          // Continue if one permission check fails
+        }
+      }
 
       const companyId = query.filters.company_id;
       if (!allPermittedCompanyIds.has(companyId)) {

@@ -2,11 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
+
+type CompaniesWithPermissionResponse = {
+  companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
+};
 
 function sqlEscapeString(value: string): string {
   return value.replace(/'/g, "''");
@@ -87,8 +91,22 @@ export function registerFinancialsListFinancialTransactionClassMapTool(registry:
         'view:quicksight_group.audit_and_comliance_new',
         'view:quicksight_group.finance-new',
       ];
-      const permittedCompanyIds = await getPermittedCompanyIds(context.userToken, permissions);
-      if (permittedCompanyIds.size === 0) {
+      let hasAnyPermission = false;
+      for (const permission of permissions) {
+        try {
+          const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+            token: context.userToken,
+            path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+          });
+          if ((permissionResponse.companies ?? []).length > 0) {
+            hasAnyPermission = true;
+            break;
+          }
+        } catch {
+          // Continue if one permission check fails.
+        }
+      }
+      if (!hasAnyPermission) {
         return { items: [] };
       }
 

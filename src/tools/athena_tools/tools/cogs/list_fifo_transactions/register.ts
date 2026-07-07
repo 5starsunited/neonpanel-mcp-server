@@ -2,11 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
+import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { getPermittedCompanyIds } from '../../../../../lib/permitted-companies';
+
+type CompaniesWithPermissionResponse = {
+  companies?: Array<{
+    company_id?: number;
+    companyId?: number;
+    id?: number;
+  }>;
+};
 
 const inputSchema = z.object({
   query: z.object({
@@ -59,7 +67,24 @@ async function getAllowedCompanyIds(inputCompanyIds: number[], context: ToolExec
     'view:quicksight_group.audit_and_comliance_new',
   ];
 
-  const allPermittedCompanyIds = await getPermittedCompanyIds(context.userToken, permissions);
+  const allPermittedCompanyIds = new Set<number>();
+  for (const permission of permissions) {
+    try {
+      const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
+        token: context.userToken,
+        path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
+      });
+
+      for (const company of permissionResponse.companies ?? []) {
+        const id = company.company_id ?? company.companyId ?? company.id;
+        if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
+          allPermittedCompanyIds.add(id);
+        }
+      }
+    } catch {
+      // Keep trying other permissions; one working permission is enough.
+    }
+  }
 
   return inputCompanyIds.filter((id) => allPermittedCompanyIds.has(id));
 }
