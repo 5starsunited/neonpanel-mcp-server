@@ -61,6 +61,10 @@ export class NeonpanelMcpStack extends cdk.Stack {
           NODE_ENV: 'production',
           PORT: '3030',
           AWS_REGION: 'us-east-1',
+          // libuv threadpool handles DNS getaddrinfo + crypto; default 4 lets a
+          // busy Athena tool starve the ClickHouse connection's DNS lookup under
+          // concurrency. 16 gives headroom for concurrent tool calls.
+          UV_THREADPOOL_SIZE: '16',
           NEONPANEL_API_BASE: 'https://my.neonpanel.com',
           NEONPANEL_OPENAPI_URL: 'https://my.neonpanel.com/api/v1/scheme/3.1.0',
           NEONPANEL_OAUTH_ISSUER: 'https://my.neonpanel.com',
