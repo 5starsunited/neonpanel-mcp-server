@@ -5,6 +5,14 @@ const RawConfigSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   BUILD_VERSION: z.string().default('dev'),
   MCP_PROTOCOL_VERSION: z.string().default('2025-03-26'),
+  // Lean tools/list: omit outputSchema + examples and cap description length to
+  // shrink the per-turn tool-schema payload the model ingests. Set to 'false' to
+  // restore the full payload if tool-selection quality regresses.
+  MCP_LEAN_TOOL_LIST: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  MCP_TOOL_DESCRIPTION_MAX_CHARS: z.coerce.number().int().min(120).default(700),
   LOG_LEVEL: z.string().default('info'),
   SSE_HEARTBEAT_MS: z.coerce.number().int().min(1000).default(15000),
   SSE_MAX_CONNECTIONS: z.coerce.number().int().min(1).default(1000),
@@ -79,6 +87,8 @@ function buildConfig() {
     mcp: {
       serverName: 'neonpanel-mcp',
       protocolVersion: parsed.MCP_PROTOCOL_VERSION,
+      leanToolList: parsed.MCP_LEAN_TOOL_LIST,
+      toolDescriptionMaxChars: parsed.MCP_TOOL_DESCRIPTION_MAX_CHARS,
     },
     logging: {
       level: parsed.LOG_LEVEL,

@@ -88,7 +88,10 @@ export interface ToolListEntry {
   isConsequential?: boolean;
   'x-openai-isConsequential'?: boolean;
   inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
+  // Omitted from tools/list in lean mode (config.mcp.leanToolList) to cut the
+  // per-turn tool-schema payload the model must ingest. The server still knows
+  // each tool's outputSchema internally for tools/call structured output.
+  outputSchema?: Record<string, unknown>;
   examples?: ToolExample[];
 }
 
@@ -178,6 +181,21 @@ export class ToolRegistry {
     return this;
   }
 
+  // In lean mode, cap long descriptions at a sentence/word boundary near the
+  // configured max so a few very verbose tools don't dominate the payload.
+  // Selection-relevant text lives in the opening sentences; deep usage guidance
+  // (workflows, KB links) is what gets trimmed.
+  private trimDescription(description: string): string {
+    if (!config.mcp.leanToolList) return description;
+    const max = config.mcp.toolDescriptionMaxChars;
+    if (description.length <= max) return description;
+    const head = description.slice(0, max);
+    // Prefer to cut at the last sentence end, else last space, within the head.
+    const lastStop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('.\n'));
+    const cut = lastStop >= max * 0.6 ? lastStop + 1 : (head.lastIndexOf(' ') > 0 ? head.lastIndexOf(' ') : max);
+    return description.slice(0, cut).trimEnd() + ' …';
+  }
+
   list(): ToolListEntry[] {
     return Array.from(this.tools.values()).map((tool) => {
       const spec = tool.specJson;
@@ -209,10 +227,11 @@ export class ToolRegistry {
       const isConsequential =
         spec?.isConsequential ?? tool.isConsequential ?? this.inferConsequentiality(tool.name);
       const oauthScopes = getAdvertisedOauthScopes();
-      
-      return {
+      const lean = config.mcp.leanToolList;
+
+      const entry: ToolListEntry = {
         name: tool.name,
-        description: spec?.description ?? tool.description,
+        description: this.trimDescription(spec?.description ?? tool.description),
         _meta: {
           'openai/visibility': isConsequential ? 'private' : 'public',
           securitySchemes: [{ type: 'oauth2', scopes: oauthScopes }],
@@ -228,9 +247,17 @@ export class ToolRegistry {
         isConsequential,
         'x-openai-isConsequential': isConsequential,
         inputSchema,
-        outputSchema: spec?.outputSchema ?? tool.outputSchema,
-        examples: spec?.examples ?? tool.examples,
       };
+
+      // Lean mode: outputSchema and examples aren't used for tool selection, so
+      // omit them from tools/list to shrink the per-turn payload. tools/call
+      // still uses the internal outputSchema for structured output.
+      if (!lean) {
+        entry.outputSchema = spec?.outputSchema ?? tool.outputSchema;
+        entry.examples = spec?.examples ?? tool.examples;
+      }
+
+      return entry;
     });
   }
 
