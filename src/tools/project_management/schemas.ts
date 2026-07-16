@@ -10,6 +10,8 @@ const companyScopedBaseSchema = z.object({
 });
 
 export const listInventoryOrdersInputSchema = companyScopedBaseSchema.extend({
+  page: z.coerce.number().int().min(1).optional(),
+  per_page: z.coerce.number().int().min(1).max(500).optional(),
   search: z.string().optional(),
   warehouses: z.array(z.coerce.number().int().min(1)).optional(),
   vendors: z.array(z.coerce.number().int().min(1)).optional(),

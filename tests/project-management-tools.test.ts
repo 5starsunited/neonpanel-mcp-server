@@ -7,6 +7,7 @@ import {
   createInvoiceInputSchema,
   createShipmentInputSchema,
   listAssemblyOrdersInputSchema,
+  listInventoryOrdersInputSchema,
   recordPaymentInputSchema,
   updateAdjustmentInputSchema,
   updateBillInputSchema,
@@ -99,6 +100,25 @@ test('project management invoice list tool exposes documented filters', () => {
   assert.equal(tool.inputSchema.properties?.start_date?.type, 'string');
   assert.equal(tool.inputSchema.properties?.end_date?.$ref, '#/definitions/project_management_list_invoicesInput/properties/start_date');
   assert.match(tool.description, /transaction date range/);
+});
+
+test('project management inventory order list exposes pagination controls', () => {
+  const parsed = listInventoryOrdersInputSchema.parse({
+    company_id: 230,
+    page: '3',
+    per_page: '50',
+  });
+
+  assert.equal(parsed.page, 3);
+  assert.equal(parsed.per_page, 50);
+
+  const registry = new ToolRegistry();
+  registerProjectManagementTools(registry);
+  const tool = registry.list().find((entry) => entry.name === 'project_management_list_inventory_orders');
+  assert.ok(tool);
+  assert.equal(tool.inputSchema.properties?.page?.type, 'integer');
+  assert.equal(tool.inputSchema.properties?.per_page?.type, 'integer');
+  assert.match(tool.description, /current_page reaches last_page/);
 });
 
 test('project management accepts bill project payloads', () => {

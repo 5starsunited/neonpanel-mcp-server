@@ -294,6 +294,8 @@ const updateShipmentInputJsonSchema = projectInputJsonSchema(shipmentProjectJson
 
 type CompanyScopedArgs = { company_id?: number; companyUuid?: string };
 type ProjectListArgs = CompanyScopedArgs & {
+  page?: number;
+  per_page?: number;
   search?: string;
   warehouses?: number[];
   vendors?: number[];
@@ -311,6 +313,8 @@ function projectBodyFromArgs(args: Record<string, unknown>, idProperty?: string)
 
 function projectListQuery(args: ProjectListArgs) {
   return {
+    page: args.page,
+    per_page: args.per_page,
     search: args.search,
     warehouses: args.warehouses,
     vendors: args.vendors,
@@ -399,7 +403,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
   registry
     .register({
       name: 'project_management_list_inventory_orders',
-      description: 'List NeonPanel Inventory Orders / Purchase Orders for a company (NeonPanel: GET /api/v1/companies/{uuid}/inventory-orders). Optional filters: search, warehouses, vendors, and date range (start_date, end_date). Use company_id when available; companyUuid is also accepted.',
+      description: 'List NeonPanel Inventory Orders / Purchase Orders for a company (NeonPanel: GET /api/v1/companies/{uuid}/inventory-orders). Supports pagination with page and per_page, plus optional filters: search, warehouses, vendors, and date range (start_date, end_date). The response includes current_page, per_page, and last_page; request subsequent pages until current_page reaches last_page. Use company_id when available; companyUuid is also accepted.',
       isConsequential: false,
       inputSchema: listInventoryOrdersInputSchema,
       outputSchema: passthroughOutputSchema,
@@ -409,6 +413,8 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
           arguments: {
             company_id: 230,
             search: 'PO-2024',
+            page: 1,
+            per_page: 50,
           },
         },
       ],
