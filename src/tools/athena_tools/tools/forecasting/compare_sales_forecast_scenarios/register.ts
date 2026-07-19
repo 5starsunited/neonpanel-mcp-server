@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -17,7 +16,7 @@ type CompaniesWithPermissionResponse = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function sqlStringLiteral(value: string): string {
@@ -25,27 +24,27 @@ function sqlStringLiteral(value: string): string {
 }
 
 function sqlNullableStringExpr(value: string | null | undefined): string {
-  if (value === null || value === undefined) return 'CAST(NULL AS VARCHAR)';
+  if (value === null || value === undefined) return 'CAST(NULL AS Nullable(String))';
   const trimmed = String(value).trim();
-  if (trimmed.length === 0) return 'CAST(NULL AS VARCHAR)';
+  if (trimmed.length === 0) return 'CAST(NULL AS Nullable(String))';
   return sqlStringLiteral(trimmed);
 }
 
 function sqlNullableTimestampExpr(iso: string | null | undefined): string {
-  if (!iso) return 'CAST(NULL AS TIMESTAMP)';
+  if (!iso) return 'CAST(NULL AS Nullable(DateTime64(3)))';
   const trimmed = iso.trim();
-  if (trimmed.length === 0) return 'CAST(NULL AS TIMESTAMP)';
-  return `from_iso8601_timestamp(${sqlStringLiteral(trimmed)})`;
+  if (trimmed.length === 0) return 'CAST(NULL AS Nullable(DateTime64(3)))';
+  return `parseDateTime64BestEffortOrNull(${sqlStringLiteral(trimmed)}, 3)`;
 }
 
 function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+  if (values.length === 0) return "CAST([], 'Array(String)')";
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return "CAST([], 'Array(UInt64)')";
+  return `[${values.map((n) => String(Math.trunc(n))).join(',')}]`;
 }
 
 function sqlBooleanLiteral(value: boolean): string {
@@ -381,25 +380,17 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
 
       // ---- Common template variables ----
       const commonTemplateVars: Record<string, string | number> = {
-        catalog: config.athena.catalog,
-        database: config.athena.database,
-        table: config.athena.tables.inventoryPlanningSnapshot,
-
-        forecast_catalog: config.athena.catalog,
-        forecast_database: config.athena.tables.forecastingDatabase,
-        forecast_table_sales_forecast: config.athena.tables.salesForecast,
-
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
 
         inventory_ids_array: sqlCompanyIdArrayExpr(inventoryIds),
         sku_array: sqlVarcharArrayExpr(skuList),
         sku_lower_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.toLowerCase())),
         sku_normalized_array: sqlVarcharArrayExpr(skuList.map((s: string) => s.trim().toLowerCase())),
-        marketplace_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS VARCHAR)',
+        marketplace_sql: countryCodeRaw.length > 0 ? sqlStringLiteral(countryCodeRaw) : 'CAST(NULL AS Nullable(String))',
         marketplace_lower_sql:
           countryCodeRaw.length > 0
             ? sqlStringLiteral(countryCodeRaw.trim().toLowerCase())
-            : 'CAST(NULL AS VARCHAR)',
+            : 'CAST(NULL AS Nullable(String))',
         parent_asins_array: sqlVarcharArrayExpr(parentAsins),
         parent_asins_lower_array: sqlVarcharArrayExpr(parentAsins.map((s: string) => s.toLowerCase())),
         product_families_array: sqlVarcharArrayExpr(productFamilies),
@@ -457,15 +448,9 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         renderedQuery = renderSqlTemplate(template, commonTemplateVars);
       }
 
-      const athenaResult = await runAthenaQuery({
-        query: renderedQuery,
-        database: config.athena.database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows,
-      });
+      const clickHouseResult = await runClickHouseQuery({ query: renderedQuery });
 
-      const rows = (athenaResult.rows ?? []) as Array<Record<string, any>>;
+      const rows = clickHouseResult.rows.slice(0, maxRows) as Array<Record<string, any>>;
 
       // Defensive: enforce company_id filter client-side.
       const filteredRows = companyId

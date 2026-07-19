@@ -1,13 +1,5 @@
 -- Tool: supply_chain_list_po_placement_candidates
--- Purpose: decide when a purchase order (PO) is due to maintain coverage through
---          (lead_time + safety_stock + PO cadence), using the latest snapshot partition.
--- Notes:
--- - company_id filtering is REQUIRED for authorization + partition pruning.
--- - available inventory = total_balance_quantity + available + wip_total_ordered_quantity
---   (do NOT count inbound; inbound is represented in warehouse balances as "In Transfer".
---    total_ordered_quantity is NOT added: WIP already covers every order in progress).
--- - Plan data is sourced from the Iceberg forecast table so that writes via
---   forecasting_write_sales_forecast are reflected immediately.
+-- Sources: ClickHouse analytics.sales_forecast and etl.inventory_planning_snapshot.
 
 WITH params AS (
   SELECT
@@ -18,14 +10,9 @@ WITH params AS (
     {{lead_time_days_override}} AS lead_time_days_override,
     {{safety_stock_days_override}} AS safety_stock_days_override,
     {{days_between_pos}} AS days_between_pos,
-    CAST({{active_sold_min_units_per_day}} AS DOUBLE) AS active_sold_min_units_per_day,
-    {{limit_top_n}} AS top_results,
+    toFloat64({{active_sold_min_units_per_day}}) AS active_sold_min_units_per_day,
     {{include_work_in_progress}} AS include_work_in_progress,
-
-    -- REQUIRED (authorization + partition pruning)
     {{company_ids_array}} AS company_ids,
-
-    -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
     {{inventory_ids_array}} AS inventory_ids,
     {{asins_array}} AS asins,
@@ -35,358 +22,258 @@ WITH params AS (
     {{countries_array}} AS countries,
     {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
-
 latest_snapshot AS (
-  SELECT pil.year, pil.month, pil.day
-  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-  CROSS JOIN params p
-  WHERE contains(p.company_ids, pil.company_id)
-  GROUP BY 1, 2, 3
-  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  SELECT pil.year AS year, pil.month AS month, pil.day AS day
+  FROM etl.inventory_planning_snapshot AS pil
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, toUInt64(pil.company_id))
+  GROUP BY pil.year, pil.month, pil.day
+  ORDER BY toInt32(pil.year) DESC, toInt32(pil.month) DESC, toInt32(pil.day) DESC
   LIMIT 1
 ),
-
--- ---- Forecast plan from Iceberg table ----
-forecast_latest_key AS (
+forecast_run_candidates AS (
   SELECT
-    company_id,
-    inventory_id,
-    calc_period,
-    updated_at
-  FROM (
-    SELECT
-      f.company_id,
-      f.inventory_id,
-      f.calc_period,
-      f.updated_at,
-      row_number() OVER (
-        PARTITION BY f.company_id, f.inventory_id
-        ORDER BY f.calc_period DESC, f.updated_at DESC
-      ) AS rn
-    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-    CROSS JOIN params p
-    WHERE contains(p.company_ids, f.company_id)
-      AND f.dataset <> 'actual'
-  ) ranked
-  WHERE rn = 1
+    f.company_id AS company_id,
+    f.inventory_id AS inventory_id,
+    f.scenario_uuid AS scenario_uuid,
+    f.calc_period AS calc_period,
+    max(f.updated_at) AS run_updated_at
+  FROM analytics.sales_forecast AS f FINAL
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, f.company_id) AND f.dataset != 'actual'
+  GROUP BY f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period
 ),
-
+forecast_selected_run AS (
+  SELECT
+    runs.company_id AS company_id,
+    runs.inventory_id AS inventory_id,
+    runs.scenario_uuid AS scenario_uuid,
+    runs.calc_period AS calc_period
+  FROM forecast_run_candidates AS runs
+  QUALIFY row_number() OVER (
+    PARTITION BY runs.company_id, runs.inventory_id
+    ORDER BY runs.calc_period DESC, runs.run_updated_at DESC
+  ) = 1
+),
 forecast_latest_rows AS (
   SELECT
-    f.company_id,
-    f.inventory_id,
-    f.forecast_period,
-    f.units_sold
-  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-  INNER JOIN forecast_latest_key k
-    ON k.company_id = f.company_id
-    AND k.inventory_id = f.inventory_id
-    AND k.calc_period = f.calc_period
-    AND k.updated_at = f.updated_at
+    f.company_id AS company_id,
+    f.inventory_id AS inventory_id,
+    f.forecast_period AS forecast_period,
+    coalesce(toFloat64(f.units_sold), 0.0) AS units_sold
+  FROM analytics.sales_forecast AS f FINAL
+  INNER JOIN forecast_selected_run AS selected
+    ON selected.company_id = f.company_id
+    AND selected.inventory_id = f.inventory_id
+    AND selected.scenario_uuid = f.scenario_uuid
+    AND selected.calc_period = f.calc_period
+  WHERE f.dataset != 'actual'
+  QUALIFY row_number() OVER (
+    PARTITION BY f.company_id, f.inventory_id, f.forecast_period,
+      coalesce(f.amazon_marketplace_id, ''), coalesce(f.sales_channel, ''), coalesce(f.country_code, '')
+    ORDER BY f.updated_at DESC
+  ) = 1
 ),
-
+forecast_item_periods AS (
+  SELECT
+    rows.company_id AS company_id,
+    rows.inventory_id AS inventory_id,
+    rows.forecast_period AS forecast_period,
+    sum(rows.units_sold) AS units_sold
+  FROM forecast_latest_rows AS rows
+  GROUP BY rows.company_id, rows.inventory_id, rows.forecast_period
+),
 forecast_item_plan AS (
   SELECT
-    fr.company_id,
-    fr.inventory_id,
-    slice(
-      array_agg(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0) ORDER BY fr.forecast_period),
-      1, 12
+    periods.company_id AS company_id,
+    periods.inventory_id AS inventory_id,
+    arraySlice(
+      arrayMap(entry -> entry.2, arraySort(entry -> entry.1, groupArray((toString(periods.forecast_period), periods.units_sold)))),
+      1,
+      12
     ) AS plan_monthly_units
-  FROM forecast_latest_rows fr
-  GROUP BY 1, 2
+  FROM forecast_item_periods AS periods
+  GROUP BY periods.company_id, periods.inventory_id
 ),
-
+snapshot_rows AS (
+  SELECT
+    toUInt64(pil.company_id) AS company_id,
+    toUInt64(pil.inventory_id) AS inventory_id,
+    pil.sku AS sku,
+    pil.country AS country,
+    pil.country_code AS country_code,
+    pil.child_asin AS child_asin,
+    pil.parent_asin AS parent_asin,
+    pil.brand AS brand,
+    pil.product_family AS product_family,
+    pil.asin_img_path AS asin_img_path,
+    pil.product_name AS product_name,
+    coalesce(toFloat64(pil.sales_last_30_days), 0.0) AS revenue_30d,
+    pil.moq AS moq,
+    coalesce(toFloat64(pil.daily_unit_sales_target), 0.0) AS target_units_per_day,
+    coalesce(toFloat64(pil.avg_units_30d), coalesce(toFloat64(pil.units_sold_last_30_days), 0.0) / 30.0, 0.0)
+      AS current_units_per_day,
+    coalesce(toFloat64(pil.total_balance_quantity), 0.0) + coalesce(toFloat64(pil.available), 0.0)
+      + if(p.include_work_in_progress, coalesce(toFloat64(pil.wip_total_ordered_quantity), 0.0), 0.0)
+      AS total_available_inventory_units,
+    pil.lead_time_days AS item_lead_time_days,
+    pil.safety_stock_days AS item_safety_stock_days,
+    coalesce(toFloat64(pil.ss_multiplier), 1.0) AS ss_multiplier
+  FROM etl.inventory_planning_snapshot AS pil
+  CROSS JOIN params AS p
+  CROSS JOIN latest_snapshot AS snapshot
+  WHERE has(p.company_ids, toUInt64(pil.company_id))
+    AND pil.year = snapshot.year AND pil.month = snapshot.month AND pil.day = snapshot.day
+    AND (empty(p.skus) OR has(p.skus, pil.sku))
+    AND (empty(p.inventory_ids) OR has(p.inventory_ids, toUInt64(pil.inventory_id)))
+    AND (empty(p.asins) OR has(p.asins, pil.child_asin))
+    AND (empty(p.parent_asins) OR has(p.parent_asins, pil.parent_asin))
+    AND (empty(p.brands) OR has(p.brands, pil.brand))
+    AND (empty(p.product_families) OR has(p.product_families, pil.product_family))
+    AND (empty(p.countries) OR has(p.countries, pil.country) OR has(p.countries, pil.country_code))
+),
 t_base AS (
   SELECT
+    snapshot.company_id AS company_id,
+    snapshot.inventory_id AS inventory_id,
+    snapshot.* EXCEPT (company_id, inventory_id),
     p.sales_velocity AS selected_sales_velocity,
-    pil.company_id,
-    pil.inventory_id,
-    pil.sku,
-    pil.country,
-    pil.country_code,
-    pil.child_asin,
-    pil.parent_asin,
-    pil.brand,
-    pil.product_family,
-    pil.asin_img_path,
-    pil.product_name,
-
-    -- Revenue proxy used for ABCD classification.
-    COALESCE(CAST(pil.sales_last_30_days AS DOUBLE), 0.0) AS revenue_30d,
-
-    pil.moq,
-    COALESCE(pil.daily_unit_sales_target, 0) AS target_units_per_day,
-    COALESCE(
-      COALESCE(pil.avg_units_30d, 0.0),
-      (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
-      0.0
-    ) AS current_units_per_day,
-
-    -- Plan monthly units from the Iceberg forecast table (joined via forecast_item_plan).
-    COALESCE(fp.plan_monthly_units, CAST(ARRAY[] AS ARRAY(DOUBLE))) AS plan_monthly_units,
-
-    -- Ordered quantity comes from wip_total_ordered_quantity alone:
-    -- total_ordered_quantity overlaps it in meaning (WIP already covers every
-    -- order being worked on), so summing both double-counts.
-    (
-      COALESCE(CAST(pil.total_balance_quantity AS DOUBLE), 0.0)
-      + COALESCE(CAST(pil.available AS DOUBLE), 0.0)
-      + CASE WHEN p.include_work_in_progress THEN COALESCE(CAST(pil.wip_total_ordered_quantity AS DOUBLE), 0.0) ELSE 0.0 END
-    ) AS total_available_inventory_units,
-
-    -- Missing/zero item params fall back to defaults (90 lead / 60 safety,
-    -- same constants the QuickSight 70.0 dataset materializes with). The
-    -- *_source columns report which path was used so clients can tell the user.
-    IF(
+    coalesce(plan.plan_monthly_units, CAST([], 'Array(Float64)')) AS plan_monthly_units,
+    if(p.override_default, toFloat64(p.lead_time_days_override),
+  toFloat64(coalesce(nullIf(snapshot.item_lead_time_days, 0), 90))) AS lead_time_days,
+    if(p.override_default, 'override',
+      if(snapshot.item_lead_time_days IS NULL OR snapshot.item_lead_time_days = 0, 'default_90', 'item'))
+      AS lead_time_days_source,
+    if(p.override_default, toFloat64(p.safety_stock_days_override),
+      toFloat64(coalesce(nullIf(snapshot.item_safety_stock_days, 0), 60)) * snapshot.ss_multiplier)
+      AS safety_stock_days,
+    if(p.override_default, 'override',
+      if(snapshot.item_safety_stock_days IS NULL OR snapshot.item_safety_stock_days = 0, 'default_60', 'item'))
+      AS safety_stock_days_source,
+    if(
       p.override_default,
-      CAST(p.lead_time_days_override AS DOUBLE),
-      COALESCE(NULLIF(pil.lead_time_days, 0), 90) * 1.0
-    ) AS lead_time_days,
-    CASE
-      WHEN p.override_default THEN 'override'
-      WHEN pil.lead_time_days IS NULL OR pil.lead_time_days = 0 THEN 'default_90'
-      ELSE 'item'
-    END AS lead_time_days_source,
-
-    -- effective safety stock = safety_stock_days * revenue-class multiplier
-    -- (ss_multiplier is resolved per item by the ETL from company class settings).
-    -- Explicit overrides are used as-is, without the multiplier.
-    IF(
-      p.override_default,
-      CAST(p.safety_stock_days_override AS DOUBLE),
-      COALESCE(NULLIF(pil.safety_stock_days, 0), 60) * COALESCE(pil.ss_multiplier, 1.0)
-    ) AS safety_stock_days,
-    CASE
-      WHEN p.override_default THEN 'override'
-      WHEN pil.safety_stock_days IS NULL OR pil.safety_stock_days = 0 THEN 'default_60'
-      ELSE 'item'
-    END AS safety_stock_days_source,
-
-    CASE
-      WHEN p.override_default THEN p.lead_time_days_override + p.safety_stock_days_override + p.days_between_pos
-      ELSE COALESCE(NULLIF(pil.lead_time_days, 0), 90)
-           + COALESCE(NULLIF(pil.safety_stock_days, 0), 60) * COALESCE(pil.ss_multiplier, 1.0)
-           + p.days_between_pos
-    END AS target_coverage_days
-
-  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-
-  CROSS JOIN params p
-  CROSS JOIN latest_snapshot s
-
-  LEFT JOIN forecast_item_plan fp
-    ON fp.company_id = pil.company_id
-    AND fp.inventory_id = pil.inventory_id
-
+      p.lead_time_days_override + p.safety_stock_days_override + p.days_between_pos,
+      coalesce(nullIf(snapshot.item_lead_time_days, 0), 90)
+        + coalesce(nullIf(snapshot.item_safety_stock_days, 0), 60) * snapshot.ss_multiplier
+        + p.days_between_pos
+    ) AS target_coverage_days
+  FROM snapshot_rows AS snapshot
+  CROSS JOIN params AS p
+  LEFT JOIN forecast_item_plan AS plan
+    ON plan.company_id = snapshot.company_id AND plan.inventory_id = snapshot.inventory_id
   WHERE
-    -- REQUIRED company filter
-    contains(p.company_ids, pil.company_id)
-
-    -- REQUIRED snapshot filter (partition pruning)
-    AND pil.year = s.year
-    AND pil.month = s.month
-    AND pil.day = s.day
-
-    -- OPTIONAL filters
-    AND (cardinality(p.skus) = 0 OR contains(p.skus, pil.sku))
-    AND (cardinality(p.inventory_ids) = 0 OR contains(p.inventory_ids, pil.inventory_id))
-    AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
-    AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
-    AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
-    AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
-    AND (
-      cardinality(p.countries) = 0
-      OR contains(p.countries, pil.country)
-      OR contains(p.countries, pil.country_code)
-    )
-
-    -- planning_base behavior
-    AND CASE
-      WHEN p.planning_base = 'all' THEN TRUE
-      WHEN p.planning_base = 'targeted only' AND pil.daily_unit_sales_target > 0 THEN TRUE
-      WHEN p.planning_base = 'actively sold only' AND COALESCE(
-        COALESCE(pil.avg_units_30d, 0.0),
-        (COALESCE(pil.units_sold_last_30_days, 0) * 1.0 / 30.0),
-        0.0
-      ) >= p.active_sold_min_units_per_day THEN TRUE
-      WHEN p.planning_base = 'planned only' AND fp.plan_monthly_units IS NOT NULL THEN TRUE
-      ELSE FALSE
-    END
+    p.planning_base = 'all'
+    OR (p.planning_base = 'targeted only' AND snapshot.target_units_per_day > 0)
+    OR (p.planning_base = 'actively sold only'
+      AND snapshot.current_units_per_day >= p.active_sold_min_units_per_day)
+    OR (p.planning_base = 'planned only' AND plan.plan_monthly_units IS NOT NULL)
 ),
-
--- Planned-velocity window, mirroring the QuickSight "60.0 Inventory Planning"
--- ArrivalMonthIndex / EffectiveCoverageMonths fields:
--- start the window at the month the replenishment arrives (lead time), and
--- average over (lead_time + safety_stock) months, clamped to the plan length.
 t_plan AS (
   SELECT
-    b.*,
-    LEAST(
-      GREATEST(1, 1 + CAST(FLOOR((1.0 * b.lead_time_days) / 30.0) AS INTEGER)),
-      GREATEST(1, cardinality(b.plan_monthly_units))
+    base.*,
+    least(
+      greatest(toInt64(1), toInt64(1) + toInt64(floor(base.lead_time_days / 30.0))),
+      greatest(toInt64(1), toInt64(length(base.plan_monthly_units)))
     ) AS planned_arrival_month_index
-  FROM t_base b
+  FROM t_base AS base
 ),
-
 t_window AS (
   SELECT
-    tp.*,
-    GREATEST(
-      1,
-      LEAST(
-        CAST(ROUND((1.0 * (tp.lead_time_days + tp.safety_stock_days)) / 30.41) AS INTEGER),
-        cardinality(tp.plan_monthly_units) - tp.planned_arrival_month_index + 1
+    plan.*,
+    greatest(
+      toInt64(1),
+      least(
+        toInt64(round((plan.lead_time_days + plan.safety_stock_days) / 30.41)),
+        toInt64(length(plan.plan_monthly_units)) - plan.planned_arrival_month_index + toInt64(1)
       )
     ) AS planned_window_months
-  FROM t_plan tp
+  FROM t_plan AS plan
 ),
-
-t AS (
+t_velocity AS (
   SELECT
-    b.company_id,
-    b.inventory_id,
-    b.sku,
-    b.country,
-    b.country_code,
-    b.child_asin,
-    b.parent_asin,
-    b.brand,
-    b.product_family,
-    b.asin_img_path,
-    b.product_name,
-    b.revenue_30d,
-    b.selected_sales_velocity,
-    b.moq,
-    b.target_units_per_day,
-    b.current_units_per_day,
-    b.plan_monthly_units,
-    b.total_available_inventory_units,
-    b.lead_time_days,
-    b.lead_time_days_source,
-    b.safety_stock_days,
-    b.safety_stock_days_source,
-    b.target_coverage_days,
-
-    b.planned_arrival_month_index,
-    b.planned_window_months,
-
-    -- sales_velocity semantics:
-    -- - current: avg units/day over the last 30 days
-    -- - target: daily_unit_sales_target (already units/day)
-    -- - planned: avg units/day over the coverage window (lead+safety months)
-    --   starting at the arrival month (1 + floor(lead_time_days/30))
-    CAST(
-      CASE b.selected_sales_velocity
-        WHEN 'target' THEN b.target_units_per_day
-        WHEN 'current' THEN b.current_units_per_day
-        WHEN 'planned' THEN (
-          COALESCE(
-            reduce(
-              slice(b.plan_monthly_units, b.planned_arrival_month_index, b.planned_window_months),
-              0.0,
-              (s, x) -> s + COALESCE(x, 0.0),
-              s -> s
-            ),
-            0.0
-          ) / (b.planned_window_months * 30.41)
-        )
-        ELSE b.current_units_per_day
-      END
-    AS DOUBLE) AS sales_velocity,
-
-    -- Diagnostic fields for velocity calculation transparency
-    b.selected_sales_velocity AS velocity_calculation_method,
-    
-    -- For 'planned' mode: show which forecast month the window starts at (arrival month)
-    CASE
-      WHEN b.selected_sales_velocity = 'planned' THEN
-        b.planned_arrival_month_index
-      ELSE NULL
-    END AS forecast_month_index,
-
-    -- For 'planned' mode: total plan units summed over the coverage window,
-    -- before converting to units/day
-    CASE
-      WHEN b.selected_sales_velocity = 'planned' THEN
-        COALESCE(
-          reduce(
-            slice(b.plan_monthly_units, b.planned_arrival_month_index, b.planned_window_months),
-            0.0,
-            (s, x) -> s + COALESCE(x, 0.0),
-            s -> s
-          ),
-          0.0
-        )
-      ELSE NULL
-    END AS forecast_units_extracted
-
-  FROM t_window b
+    windowed.company_id AS company_id,
+    windowed.inventory_id AS inventory_id,
+    windowed.sku AS sku,
+    windowed.country_code AS country_code,
+    windowed.child_asin AS child_asin,
+    windowed.parent_asin AS parent_asin,
+    windowed.brand AS brand,
+    windowed.product_family AS product_family,
+    windowed.asin_img_path AS asin_img_path,
+    windowed.product_name AS product_name,
+    windowed.revenue_30d AS revenue_30d,
+    windowed.moq AS moq,
+    windowed.target_units_per_day AS target_units_per_day,
+    windowed.current_units_per_day AS current_units_per_day,
+    windowed.plan_monthly_units AS plan_monthly_units,
+    ifNotFinite(toFloat64(windowed.total_available_inventory_units), 0.0)
+      AS total_available_inventory_units,
+    windowed.lead_time_days AS lead_time_days,
+    windowed.lead_time_days_source AS lead_time_days_source,
+    windowed.safety_stock_days AS safety_stock_days,
+    windowed.safety_stock_days_source AS safety_stock_days_source,
+    windowed.target_coverage_days AS target_coverage_days,
+    windowed.selected_sales_velocity AS selected_sales_velocity,
+    windowed.planned_arrival_month_index AS planned_arrival_month_index,
+    windowed.planned_window_months AS planned_window_months,
+    ifNotFinite(toFloat64(CASE windowed.selected_sales_velocity
+      WHEN 'target' THEN windowed.target_units_per_day
+      WHEN 'current' THEN windowed.current_units_per_day
+      WHEN 'planned' THEN arraySum(arraySlice(
+        windowed.plan_monthly_units,
+        windowed.planned_arrival_month_index,
+        windowed.planned_window_months
+      )) / (windowed.planned_window_months * 30.41)
+      ELSE windowed.current_units_per_day
+    END), 0.0) AS sales_velocity,
+    windowed.selected_sales_velocity AS velocity_calculation_method,
+    if(windowed.selected_sales_velocity = 'planned',
+      CAST(windowed.planned_arrival_month_index, 'Nullable(Int64)'), NULL) AS forecast_month_index,
+    if(windowed.selected_sales_velocity = 'planned',
+      CAST(arraySum(arraySlice(windowed.plan_monthly_units, windowed.planned_arrival_month_index,
+        windowed.planned_window_months)), 'Nullable(Float64)'), NULL) AS forecast_units_extracted
+  FROM t_window AS windowed
 ),
-
 t_classed AS (
   SELECT
-    t.*,
+    velocity.*,
     CASE
-      WHEN SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code) <= 0 THEN 'D'
-      WHEN (
-        SUM(t.revenue_30d) OVER (
-          PARTITION BY t.company_id, t.country_code
-          ORDER BY t.revenue_30d DESC
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )
-        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
-      ) <= 0.80 THEN 'A'
-      WHEN (
-        SUM(t.revenue_30d) OVER (
-          PARTITION BY t.company_id, t.country_code
-          ORDER BY t.revenue_30d DESC
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )
-        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
-      ) <= 0.95 THEN 'B'
-      WHEN (
-        SUM(t.revenue_30d) OVER (
-          PARTITION BY t.company_id, t.country_code
-          ORDER BY t.revenue_30d DESC
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )
-        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
-      ) <= 0.99 THEN 'C'
+      WHEN sum(revenue_30d) OVER (PARTITION BY company_id, country_code) <= 0 THEN 'D'
+      WHEN sum(revenue_30d) OVER (
+        PARTITION BY company_id, country_code ORDER BY revenue_30d DESC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) / nullIf(sum(revenue_30d) OVER (PARTITION BY company_id, country_code), 0) <= 0.80 THEN 'A'
+      WHEN sum(revenue_30d) OVER (
+        PARTITION BY company_id, country_code ORDER BY revenue_30d DESC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) / nullIf(sum(revenue_30d) OVER (PARTITION BY company_id, country_code), 0) <= 0.95 THEN 'B'
+      WHEN sum(revenue_30d) OVER (
+        PARTITION BY company_id, country_code ORDER BY revenue_30d DESC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) / nullIf(sum(revenue_30d) OVER (PARTITION BY company_id, country_code), 0) <= 0.99 THEN 'C'
       ELSE 'D'
-    END AS revenue_abcd_class
-    ,
+    END AS revenue_abcd_class,
     CASE
-      WHEN SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code) <= 0 THEN 'C'
-      WHEN (
-        SUM(t.revenue_30d) OVER (
-          PARTITION BY t.company_id, t.country_code
-          ORDER BY t.revenue_30d DESC
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )
-        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
-      ) <= 0.80 THEN 'A'
-      WHEN (
-        SUM(t.revenue_30d) OVER (
-          PARTITION BY t.company_id, t.country_code
-          ORDER BY t.revenue_30d DESC
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )
-        / NULLIF(SUM(t.revenue_30d) OVER (PARTITION BY t.company_id, t.country_code), 0)
-      ) <= 0.95 THEN 'B'
+      WHEN sum(revenue_30d) OVER (PARTITION BY company_id, country_code) <= 0 THEN 'C'
+      WHEN sum(revenue_30d) OVER (
+        PARTITION BY company_id, country_code ORDER BY revenue_30d DESC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) / nullIf(sum(revenue_30d) OVER (PARTITION BY company_id, country_code), 0) <= 0.80 THEN 'A'
+      WHEN sum(revenue_30d) OVER (
+        PARTITION BY company_id, country_code ORDER BY revenue_30d DESC
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) / nullIf(sum(revenue_30d) OVER (PARTITION BY company_id, country_code), 0) <= 0.95 THEN 'B'
       ELSE 'C'
     END AS pareto_abc_class
-  FROM t
+  FROM t_velocity AS velocity
 )
-
 SELECT
-  -- company
   t.company_id AS company_id,
   t.revenue_abcd_class AS revenue_abcd_class,
   CASE t.revenue_abcd_class
     WHEN 'A' THEN 'Top 80% of 30d revenue (cumulative)'
-    WHEN 'B' THEN 'Next 15% of 30d revenue (80%–95% cumulative)'
-    WHEN 'C' THEN 'Next 4% of 30d revenue (95%–99% cumulative)'
+    WHEN 'B' THEN 'Next 15% of 30d revenue (80%-95% cumulative)'
+    WHEN 'C' THEN 'Next 4% of 30d revenue (95%-99% cumulative)'
     ELSE 'Remaining / no revenue (bottom 1%+ or zero)'
   END AS revenue_abcd_class_description,
   t.pareto_abc_class AS pareto_abc_class,
@@ -394,124 +281,55 @@ SELECT
   t.parent_asin AS parent_asin,
   t.brand AS brand,
   t.product_family AS product_family,
-
-  -- item_ref
   t.inventory_id AS item_ref_inventory_id,
   t.sku AS item_ref_sku,
   t.child_asin AS item_ref_asin,
   t.country_code AS item_ref_marketplace,
   t.product_name AS item_ref_item_name,
   t.asin_img_path AS item_ref_item_icon_url,
-
-  -- metrics
   t.sales_velocity AS sales_velocity,
+  if(t.sales_velocity > 0, toInt64OrNull(toString(round(
+    t.total_available_inventory_units / nullIf(t.sales_velocity, 0.0)))), NULL)
+    AS po_days_of_supply,
+  toInt64(round(t.total_available_inventory_units)) AS available_inventory_units,
+  toInt64(t.lead_time_days) AS lead_time_days,
+  toString(t.lead_time_days_source) AS lead_time_days_source,
+  toInt64(t.safety_stock_days) AS safety_stock_days,
+  toString(t.safety_stock_days_source) AS safety_stock_days_source,
+  toInt64(t.target_coverage_days) AS target_coverage_days,
+  toString(t.velocity_calculation_method) AS velocity_calculation_method,
+  toFloat64(t.sales_velocity) AS velocity_units_per_day,
+  t.forecast_month_index AS forecast_month_index,
+  t.forecast_units_extracted AS forecast_units_extracted,
+  if(t.sales_velocity > 0, toInt64OrNull(toString(round(
+    t.total_available_inventory_units / nullIf(t.sales_velocity, 0.0))))
+    - toInt64(t.target_coverage_days), NULL) AS po_due_in_days,
+  if(t.sales_velocity > 0, greatest(toInt64(0), -(toInt64OrNull(toString(round(
+    t.total_available_inventory_units / nullIf(t.sales_velocity, 0.0))))
+    - toInt64(t.target_coverage_days))), NULL) AS po_overdue_days,
+  if(t.sales_velocity > 0, addDays(today(), greatest(toInt64(0),
+    toInt64OrNull(toString(round(t.total_available_inventory_units / nullIf(t.sales_velocity, 0.0))))
+      - toInt64(t.target_coverage_days))), NULL)
+    AS po_due_date,
   CASE
-    WHEN t.sales_velocity > 0 THEN CAST(ROUND(t.total_available_inventory_units * 1.0 / t.sales_velocity) AS BIGINT)
-    ELSE NULL
-  END AS po_days_of_supply,
-
-  CAST(ROUND(t.total_available_inventory_units) AS BIGINT) AS available_inventory_units,
-
-  CAST(t.lead_time_days AS BIGINT) AS lead_time_days,
-  CAST(t.lead_time_days_source AS VARCHAR) AS lead_time_days_source,
-  CAST(t.safety_stock_days AS BIGINT) AS safety_stock_days,
-  CAST(t.safety_stock_days_source AS VARCHAR) AS safety_stock_days_source,
-  CAST(t.target_coverage_days AS BIGINT) AS target_coverage_days,
-
-  -- Velocity calculation transparency fields
-  CAST(t.velocity_calculation_method AS VARCHAR) AS velocity_calculation_method,
-  CAST(t.sales_velocity AS DOUBLE) AS velocity_units_per_day,
-  CAST(t.forecast_month_index AS BIGINT) AS forecast_month_index,
-  CAST(t.forecast_units_extracted AS DOUBLE) AS forecast_units_extracted,
-
-  -- po_due_in_days: when you should place a PO next to maintain lead_time+safety_stock buffer + PO cadence.
-  -- negative => overdue, positive => due in future.
-  CASE
-    WHEN t.sales_velocity > 0 THEN (
-      CAST(ROUND(t.total_available_inventory_units * 1.0 / t.sales_velocity) AS BIGINT)
-      - CAST(t.target_coverage_days AS BIGINT)
-    )
-    ELSE NULL
-  END AS po_due_in_days,
-
-  -- po_overdue_days: positive days overdue, else 0.
-  CASE
-    WHEN t.sales_velocity > 0 THEN GREATEST(
-      CAST(0 AS BIGINT),
-      -(
-        CAST(ROUND(t.total_available_inventory_units * 1.0 / t.sales_velocity) AS BIGINT)
-        - CAST(t.target_coverage_days AS BIGINT)
-      )
-    )
-    ELSE NULL
-  END AS po_overdue_days,
-
-  -- po_due_date: clamped to today if overdue.
-  CASE
-    WHEN t.sales_velocity > 0 THEN date_add(
-      'day',
-      GREATEST(
-        CAST(0 AS BIGINT),
-        (
-          CAST(ROUND(t.total_available_inventory_units * 1.0 / t.sales_velocity) AS BIGINT)
-          - CAST(t.target_coverage_days AS BIGINT)
-        )
-      ),
-      CURRENT_DATE
-    )
-    ELSE NULL
-  END AS po_due_date,
-
-  -- recommended_order_units: order-up-to level using the mode's daily velocity
-  -- over target_coverage_days (planned: arrival-anchored window average).
-  -- When a positive quantity comes out below the supplier MOQ, it is bumped up
-  -- to the MOQ. Subsequent runs see the extra units in WIP, so follow-up
-  -- recommendations adjust automatically.
-  CASE
-    WHEN t.sales_velocity <= 0 THEN CAST(0 AS BIGINT)
-    WHEN CEIL(
-           (CAST(t.target_coverage_days AS DOUBLE) * t.sales_velocity)
-           - CAST(t.total_available_inventory_units AS DOUBLE)
-         ) > 0
-         AND t.moq IS NOT NULL
-         AND CEIL(
-           (CAST(t.target_coverage_days AS DOUBLE) * t.sales_velocity)
-           - CAST(t.total_available_inventory_units AS DOUBLE)
-         ) < t.moq
-      THEN CAST(t.moq AS BIGINT)
-    ELSE (
-      CAST(
-        GREATEST(
-          0.0,
-          CEIL(
-            (CAST(t.target_coverage_days AS DOUBLE) * t.sales_velocity)
-            - CAST(t.total_available_inventory_units AS DOUBLE)
-          )
-        )
-      AS BIGINT)
-    )
+    WHEN t.sales_velocity <= 0 THEN toInt64(0)
+    WHEN ceil(toFloat64(t.target_coverage_days) * t.sales_velocity - t.total_available_inventory_units) > 0
+      AND t.moq IS NOT NULL
+      AND ceil(toFloat64(t.target_coverage_days) * t.sales_velocity - t.total_available_inventory_units) < t.moq
+      THEN toInt64(t.moq)
+    ELSE toInt64(greatest(0.0,
+      ceil(toFloat64(t.target_coverage_days) * t.sales_velocity - t.total_available_inventory_units)))
   END AS recommended_order_units,
-
-  CAST(t.moq AS BIGINT) AS moq,
-
-  -- priority/reason (draft)
+  toInt64(t.moq) AS moq,
   CASE
     WHEN t.sales_velocity <= 0 THEN 'low'
-    WHEN (
-      CAST(ROUND(t.total_available_inventory_units * 1.0 / t.sales_velocity) AS BIGINT)
-      - CAST(t.target_coverage_days AS BIGINT)
-    ) <= CAST({{stockout_threshold_days}} AS BIGINT) THEN 'critical'
+    WHEN toInt64OrNull(toString(round(t.total_available_inventory_units / nullIf(t.sales_velocity, 0.0))))
+      - toInt64(t.target_coverage_days) <= toInt64({{stockout_threshold_days}}) THEN 'critical'
     ELSE 'high'
   END AS priority,
-  CAST(
-    'Based on PO buffer coverage: days_of_supply vs (lead_time + safety_stock*ss_multiplier + PO cadence). PO cadence = days_between_pos. po_overdue_days > 0 means the PO was due in the past. available_inventory_units = total_balance_quantity + available + (conditionally) wip_total_ordered_quantity; total_ordered_quantity is excluded because WIP already covers every order in progress. WIP orders are included by default (include_work_in_progress=true) to prevent double-ordering. Amazon FBA warehouses are excluded from warehouse_balance_details_json to prevent double-counting with available field (from Amazon Restock Report). planned sales_velocity averages the sales plan over the coverage window (lead_time+safety_stock months of ~30.41 days) starting at the arrival month (1+floor(lead_time_days/30)), matching the 60.0 Inventory Planning QuickSight analysis; recommended_order_units = target_coverage_days * sales_velocity - available_inventory_units in all modes; positive quantities below the supplier MOQ are bumped up to the MOQ (excess lands in WIP, so later runs self-adjust). Items missing lead_time_days/safety_stock_days fall back to 90/60-day defaults - check lead_time_days_source/safety_stock_days_source (item | default_90/default_60 | override) and tell the user when defaults were applied.'
-  AS VARCHAR) AS reason
-
-FROM t_classed t
-CROSS JOIN params p
-
-WHERE
-  (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, t.revenue_abcd_class))
-
+  'Based on PO buffer coverage: days_of_supply vs lead time, safety stock, and PO cadence.' AS reason
+FROM t_classed AS t
+CROSS JOIN params AS p
+WHERE empty(p.revenue_abcd_classes) OR has(p.revenue_abcd_classes, t.revenue_abcd_class)
 ORDER BY po_overdue_days DESC
-LIMIT {{limit_top_n}};
+LIMIT {{limit_top_n}}

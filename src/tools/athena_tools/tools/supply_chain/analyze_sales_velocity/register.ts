@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -34,12 +33,18 @@ function toNumber(value: unknown): number | null {
   return n;
 }
 
+function sumNumbers(values: number[]): number {
+  let total = 0;
+  for (const value of values) total += value;
+  return total;
+}
+
 function getRowValue(row: Record<string, unknown>, key: string): unknown {
   return row[key];
 }
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function sqlStringLiteral(value: string): string {
@@ -47,13 +52,13 @@ function sqlStringLiteral(value: string): string {
 }
 
 function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+  if (values.length === 0) return "CAST([], 'Array(String)')";
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return "CAST([], 'Array(UInt64)')";
+  return `[${values.map((n) => String(Math.trunc(n))).join(',')}]`;
 }
 
 type OutputMode = 'detail_only' | 'total_only' | 'detail_plus_total';
@@ -150,7 +155,7 @@ function computeIssues(row: {
 
   // high disagreement across realized sources
   const realized = [traffic3, traffic7, traffic30].filter((v) => Number.isFinite(v));
-  const realizedMean = realized.length ? realized.reduce((s, v) => s + v, 0) / realized.length : 0;
+  const realizedMean = realized.length ? sumNumbers(realized) / realized.length : 0;
   const realizedRange = realized.length ? Math.max(...realized) - Math.min(...realized) : 0;
   if (realizedMean > 0 && realizedRange / realizedMean > 0.8) {
     issues.push({
@@ -293,12 +298,6 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
         return { items: [], meta: { warnings } };
       }
 
-      const catalog = config.athena.catalog;
-      const database = config.athena.database;
-      const table = config.athena.tables.inventoryPlanningSnapshot;
-      const forecastingDatabase = config.athena.tables.forecastingDatabase;
-      const salesForecastTable = config.athena.tables.salesForecast;
-
       const limit = parsed.limit ?? 200;
 
       const skus = (parsed.sku ?? []).filter((v: unknown): v is string => typeof v === 'string' && v.trim().length > 0).map((v: string) => v.trim());
@@ -352,12 +351,6 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
 
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
-        catalog,
-        database,
-        table,
-        forecasting_database: forecastingDatabase,
-        sales_forecast_table: salesForecastTable,
-
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
         skus_array: sqlVarcharArrayExpr(skus),
         asins_array: sqlVarcharArrayExpr(asins),
@@ -370,20 +363,13 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
         traffic_weight_3d: weights.w3,
         traffic_weight_7d: weights.w7,
         traffic_weight_30d: weights.w30,
-        coverage_days_override_sql: coverageOverride ? String(Math.trunc(coverageOverride)) : 'CAST(NULL AS INTEGER)',
+        coverage_days_override_sql: coverageOverride ? String(Math.trunc(coverageOverride)) : 'CAST(NULL AS Nullable(Int32))',
 
         limit_top_n: Number(limit),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: Math.min(5000, limit),
-      });
-
-      const rows = (athenaResult.rows ?? []) as Array<Record<string, unknown>>;
+      const clickHouseResult = await runClickHouseQuery({ query });
+      const rows = clickHouseResult.rows.slice(0, Math.min(5000, limit)) as Array<Record<string, unknown>>;
 
       const items = rows.map((r) => {
         const item_ref = {
@@ -537,7 +523,7 @@ export function registerSupplyChainAnalyzeSalesVelocityTool(registry: ToolRegist
           item_count: items.length,
           alert_counts_by_severity: severityCounts,
           high_risk_item_count: highRisk,
-          plan_vs_actual_ratio_avg: ratios.length ? ratios.reduce((s, v) => s + v, 0) / ratios.length : null,
+          plan_vs_actual_ratio_avg: ratios.length ? sumNumbers(ratios) / ratios.length : null,
           plan_vs_actual_ratio_median: calculateMedian(ratios),
           avg_confidence: {
             fba_replenishment: items.length ? fbaConfSum / items.length : null,

@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -17,7 +16,7 @@ type CompaniesWithPermissionResponse = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function sqlStringLiteral(value: string): string {
@@ -25,19 +24,19 @@ function sqlStringLiteral(value: string): string {
 }
 
 function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+  if (values.length === 0) return "CAST([], 'Array(String)')";
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return "CAST([], 'Array(UInt64)')";
+  return `[${values.map((n) => String(Math.trunc(n))).join(',')}]`;
 }
 
 function sqlNullableStringExpr(value: string | null | undefined): string {
-  if (value === null || value === undefined) return 'CAST(NULL AS VARCHAR)';
+  if (value === null || value === undefined) return 'CAST(NULL AS Nullable(String))';
   const trimmed = String(value).trim();
-  if (trimmed.length === 0) return 'CAST(NULL AS VARCHAR)';
+  if (trimmed.length === 0) return 'CAST(NULL AS Nullable(String))';
   return sqlStringLiteral(trimmed);
 }
 
@@ -281,13 +280,6 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
         };
       }
 
-      // ---- Athena config ----
-      const catalog = config.athena.catalog;
-      const database = config.athena.database;
-      const table = config.athena.tables.inventoryPlanningSnapshot;
-      const forecastingDatabase = config.athena.tables.forecastingDatabase;
-      const salesForecastTable = config.athena.tables.salesForecast;
-
       const limit = Math.min(2000, query.limit ?? 50);
       const skuList = Array.isArray(filters.sku)
         ? filters.sku.map((s: any) => String(s).trim()).filter((s: string) => s.length > 0)
@@ -299,12 +291,6 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
 
       // Common template variables shared by both detail and grouped SQL paths.
       const commonTemplateVars: Record<string, string | number> = {
-        catalog,
-        database,
-        table,
-        forecasting_database: forecastingDatabase,
-        sales_forecast_table: salesForecastTable,
-
         limit_top_n: Number(limitTopN),
         horizon_months: Number(toolSpecific.horizon_months ?? 24),
         include_plan_series_sql: toolSpecific.include_plan_series ? 'TRUE' : 'FALSE',
@@ -337,15 +323,9 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
         const template = await loadTextFile(sqlPath);
         const rendered = renderSqlTemplate(template, { ...commonTemplateVars, ...groupVars });
 
-        const athenaResult = await runAthenaQuery({
-          query: rendered,
-          database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: groupedMaxRows,
-        });
+        const clickHouseResult = await runClickHouseQuery({ query: rendered });
 
-        const items = (athenaResult.rows ?? []).map((row) => row as Record<string, unknown>);
+        const items = clickHouseResult.rows.slice(0, groupedMaxRows);
 
         // Defensive: enforce company_id filter client-side.
         const filtered = companyId
@@ -373,15 +353,9 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
         include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows,
-      });
+      const clickHouseResult = await runClickHouseQuery({ query: rendered });
 
-      const items = (athenaResult.rows ?? []).map((row) => row as Record<string, unknown>);
+      const items = clickHouseResult.rows.slice(0, maxRows);
 
       // If no rows returned for a single-SKU request, run a lightweight debug probe.
       if (items.length === 0 && skuList.length === 1) {
@@ -389,9 +363,9 @@ export function registerForecastingGetSalesForecastDetailsTool(registry: ToolReg
         const debugSql = `
 WITH latest_snapshot AS (
   SELECT pil.year, pil.month, pil.day
-  FROM "${catalog}"."${database}"."${table}" pil
-  WHERE pil.company_id = ${companyId}
-  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  FROM etl.inventory_planning_snapshot pil
+  WHERE has(${sqlCompanyIdArrayExpr(allowedCompanyIds)}, pil.company_id)
+  ORDER BY toInt32(pil.year) DESC, toInt32(pil.month) DESC, toInt32(pil.day) DESC
   LIMIT 1
 )
 SELECT
@@ -401,8 +375,8 @@ SELECT
   lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)) AS coalesced_sku_lower,
   ${sqlStringLiteral(requestedSku)} AS requested_sku,
   lower(${sqlStringLiteral(requestedSku)}) AS requested_sku_lower,
-  contains(array[${sqlStringLiteral(requestedSku)}], COALESCE(pil.sku, pil.merchant_sku, fp.sku)) AS match_exact,
-  contains(array[lower(${sqlStringLiteral(requestedSku)})], lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku))) AS match_lower,
+  has([${sqlStringLiteral(requestedSku)}], COALESCE(pil.sku, pil.merchant_sku, fp.sku)) AS match_exact,
+  has([lower(${sqlStringLiteral(requestedSku)})], lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku))) AS match_lower,
   pil.sku AS raw_sku,
   pil.merchant_sku AS raw_merchant_sku,
   fp.sku AS fp_sku,
@@ -412,26 +386,20 @@ SELECT
   pil.year,
   pil.month,
   pil.day
-FROM "${catalog}"."${database}"."${table}" pil
-LEFT JOIN "${catalog}"."${forecastingDatabase}"."${salesForecastTable}" fp
+FROM etl.inventory_planning_snapshot pil
+LEFT JOIN analytics.sales_forecast AS fp FINAL
   ON fp.company_id = pil.company_id
   AND fp.inventory_id = pil.inventory_id
 CROSS JOIN latest_snapshot s
-WHERE pil.company_id = ${companyId}
+WHERE has(${sqlCompanyIdArrayExpr(allowedCompanyIds)}, pil.company_id)
   AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
   AND (
     lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)) = lower(${sqlStringLiteral(requestedSku)})
     OR COALESCE(pil.sku, pil.merchant_sku, fp.sku) = ${sqlStringLiteral(requestedSku)}
   )
-LIMIT 25;`;
+LIMIT 25`;
 
-        const debugResult = await runAthenaQuery({
-          query: debugSql,
-          database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 25,
-        });
+  const debugResult = await runClickHouseQuery({ query: debugSql });
 
         // Retry main query with a slightly higher limit to avoid over-pruning.
         const retryRendered = renderSqlTemplate(template, {
@@ -440,15 +408,9 @@ LIMIT 25;`;
           include_sales_history_signals_sql: toolSpecific.include_sales_history_signals ? 'TRUE' : 'FALSE',
         });
 
-        const retryResult = await runAthenaQuery({
-          query: retryRendered,
-          database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: Math.min(50, Math.max(10, limit * 5)),
-        });
+        const retryResult = await runClickHouseQuery({ query: retryRendered });
 
-        const retryItems = (retryResult.rows ?? []).map((row) => row as Record<string, unknown>);
+        const retryItems = retryResult.rows.slice(0, Math.min(50, Math.max(10, limit * 5)));
 
         if (retryItems.length > 0) {
           const filtered = companyId

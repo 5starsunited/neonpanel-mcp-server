@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -116,7 +115,7 @@ const outputSchema = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function sqlStringLiteral(value: string): string {
@@ -124,19 +123,18 @@ function sqlStringLiteral(value: string): string {
 }
 
 function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+  if (values.length === 0) return "CAST([], 'Array(String)')";
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return "CAST([], 'Array(UInt64)')";
+  return `[${values.map((n) => String(Math.trunc(n))).join(',')}]`;
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  // Iceberg snapshot uses BIGINT company_id, so filter using ARRAY(BIGINT).
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return "CAST([], 'Array(UInt64)')";
+  return `[${values.map((n) => String(Math.trunc(n))).join(',')}]`;
 }
 
 function planningBaseSql(value: 'all' | 'targeted_only' | 'actively_sold_only' | 'planned_only'): string {
@@ -234,12 +232,6 @@ async function executeSupplyChainListPoPlacementCandidates(
     return { items: [] };
   }
 
-  const catalog = config.athena.catalog;
-  const database = config.athena.database;
-  const table = config.athena.tables.inventoryPlanningSnapshot;
-  const forecastingDatabase = config.athena.tables.forecastingDatabase;
-  const salesForecastTable = config.athena.tables.salesForecast;
-
   const limit = parsed.limit ?? 200;
 
   const skus = parsed.target_skus ?? [];
@@ -278,12 +270,6 @@ async function executeSupplyChainListPoPlacementCandidates(
   const sqlPath = path.join(__dirname, 'query.sql');
   const template = await loadTextFile(sqlPath);
   const query = renderSqlTemplate(template, {
-    catalog,
-    database,
-    table,
-    forecasting_database: forecastingDatabase,
-    sales_forecast_table: salesForecastTable,
-    // Athena UI SQL parameter equivalents
     sales_velocity_sql: sqlStringLiteral(parsed.sales_velocity ?? 'planned'),
     planning_base_sql: planningBaseSql(parsed.planning_base),
     override_default_sql: parsed.override_default ? 'TRUE' : 'FALSE',
@@ -306,21 +292,11 @@ async function executeSupplyChainListPoPlacementCandidates(
     countries_array: sqlVarcharArrayExpr(countries),
     revenue_abcd_classes_array: sqlVarcharArrayExpr(revenueAbcdClasses),
 
-    // Back-compat for older draft templates
-    companyIdsSql: allowedCompanyIds.map((id) => sqlStringLiteral(String(id))).join(', '),
-    limit: Number(limit),
-    topN: Number(limit),
   });
 
-  const athenaResult = await runAthenaQuery({
-    query,
-    database,
-    workGroup: config.athena.workgroup,
-    outputLocation: config.athena.outputLocation,
-    maxRows: Math.min(2000, limit),
-  });
+  const clickHouseResult = await runClickHouseQuery({ query });
 
-  const items = (athenaResult.rows ?? []).map((row) => {
+  const items = clickHouseResult.rows.slice(0, Math.min(2000, limit)).map((row) => {
     const record = row;
 
     const company_id = toInt(getRowValue(record, 'company_id')) ?? undefined;

@@ -1,27 +1,15 @@
--- Tool: forecasting_get_sales_forecast_details (grouped/aggregated mode)
--- Purpose: aggregated view of forecast plan, grouped by caller-specified dimensions.
--- Notes:
--- - Dimensions are injected via template variables (group_select_base, group_by_clause_base, etc.).
--- - company_id is always included in GROUP BY for authorization.
--- - "actual" dataset is explicitly EXCLUDED from forecast evaluation.
--- - When scenario_uuid + calc_period are provided, returns that specific run; else auto-latest.
--- - Forecast and actuals series are summed per period within each group, then re-serialised to JSON.
+-- Tool: forecasting_get_sales_forecast_details (grouped mode)
+-- Sources: ClickHouse analytics.sales_forecast and etl.inventory_planning_snapshot.
 
 WITH params AS (
   SELECT
-    {{limit_top_n}} AS top_results,
-    CAST({{horizon_months}} AS INTEGER) AS horizon_months,
+    toUInt32({{limit_top_n}}) AS top_results,
+    toUInt32({{horizon_months}}) AS horizon_months,
     {{include_plan_series_sql}} AS include_plan_series,
     {{include_actuals_sql}} AS include_actuals,
-
-    -- REQUIRED (authorization + partition pruning)
     {{company_ids_array}} AS company_ids,
-
-    -- OPTIONAL: pin to a specific forecast run (NULL = auto-latest)
     {{run_scenario_uuid_sql}} AS run_scenario_uuid,
     {{run_calc_period_sql}} AS run_calc_period,
-
-    -- OPTIONAL filters (empty array => no filter)
     {{skus_array}} AS skus,
     {{skus_lower_array}} AS skus_lower,
     {{asins_array}} AS asins,
@@ -33,417 +21,147 @@ WITH params AS (
     {{country_codes_array}} AS country_codes,
     {{revenue_abcd_classes_array}} AS revenue_abcd_classes
 ),
-
 latest_snapshot AS (
-  SELECT pil.year, pil.month, pil.day
-  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-  CROSS JOIN params p
-  WHERE contains(p.company_ids, pil.company_id)
-  GROUP BY 1, 2, 3
-  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
+  SELECT year, month, day
+  FROM etl.inventory_planning_snapshot AS pil
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, pil.company_id)
+  GROUP BY year, month, day
+  ORDER BY toInt32(year) DESC, toInt32(month) DESC, toInt32(day) DESC
   LIMIT 1
 ),
-
--- Run selection: pick ONE (scenario_uuid, calc_period) run per item BEFORE pulling
--- any forecast_period rows. Resolving "latest" independently per forecast_period
--- (the previous approach) let rows from different scenarios or different calc_period
--- runs for the same item get summed together into a single blended series whenever
--- the caller didn't pin scenario_uuid/calc_period.
 item_run_candidates AS (
-  SELECT
-    f.company_id,
-    f.inventory_id,
-    f.scenario_uuid,
-    f.calc_period,
-    MAX(f.updated_at) AS run_updated_at
-  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-  CROSS JOIN params p
-  WHERE contains(p.company_ids, f.company_id)
-    AND f.dataset <> 'actual'
+  SELECT f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period, max(f.updated_at) AS run_updated_at
+  FROM analytics.sales_forecast AS f FINAL
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, f.company_id) AND f.dataset != 'actual'
     AND (p.run_scenario_uuid IS NULL OR f.scenario_uuid = p.run_scenario_uuid)
     AND (p.run_calc_period IS NULL OR f.calc_period = p.run_calc_period)
-    AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
-    AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
+    AND (empty(p.sales_channels) OR has(p.sales_channels, lower(trim(coalesce(f.sales_channel, '')))))
+    AND (empty(p.country_codes) OR has(p.country_codes, lower(trim(coalesce(f.country_code, '')))))
   GROUP BY f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period
 ),
-
 item_selected_run AS (
-  SELECT company_id, inventory_id, scenario_uuid, calc_period
+  SELECT ranked_runs.company_id, ranked_runs.inventory_id, ranked_runs.scenario_uuid, ranked_runs.calc_period
   FROM (
-    SELECT
-      company_id, inventory_id, scenario_uuid, calc_period,
-      ROW_NUMBER() OVER (
-        PARTITION BY company_id, inventory_id
-        ORDER BY calc_period DESC, run_updated_at DESC
-      ) AS rn
+    SELECT *, row_number() OVER (PARTITION BY company_id, inventory_id ORDER BY calc_period DESC, run_updated_at DESC) AS run_rank
     FROM item_run_candidates
-  )
-  WHERE rn = 1
+  ) AS ranked_runs
+  WHERE ranked_runs.run_rank = 1
 ),
-
--- Rows belonging to the single selected run per item, deduplicated per segment
--- (marketplace/channel/country) in case of double-writes within that same run.
 forecast_latest_rows AS (
   SELECT
-    ranked.company_id,
-    ranked.inventory_id,
-    ranked.calc_period AS run_calc_period,
-    ranked.updated_at AS run_updated_at,
-    ranked.forecast_period,
-    ranked.units_sold,
-    ranked.sales_amount,
-    ranked.dataset,
-    ranked.scenario_uuid,
-    ranked.currency,
-    ranked.amazon_marketplace_id,
-    ranked.sku
-  FROM (
-    SELECT
-      f.*,
-      row_number() OVER (
-        PARTITION BY
-          f.company_id,
-          f.inventory_id,
-          f.forecast_period,
-          COALESCE(f.amazon_marketplace_id, ''),
-          COALESCE(f.sales_channel, ''),
-          COALESCE(f.country_code, '')
-        ORDER BY f.updated_at DESC
-      ) AS rn
-    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-    JOIN item_selected_run r
-      ON r.company_id = f.company_id
-      AND r.inventory_id = f.inventory_id
-      AND r.scenario_uuid = f.scenario_uuid
-      AND r.calc_period = f.calc_period
-    CROSS JOIN params p
-    WHERE f.dataset <> 'actual'
-      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
-      AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
-  ) ranked
-  WHERE rn = 1
+    f.company_id AS company_id, f.inventory_id AS inventory_id, f.forecast_period AS forecast_period,
+    f.units_sold AS units_sold, f.sales_amount AS sales_amount
+  FROM analytics.sales_forecast AS f FINAL
+  INNER JOIN item_selected_run AS r
+    ON r.company_id = f.company_id AND r.inventory_id = f.inventory_id
+    AND r.scenario_uuid = f.scenario_uuid AND r.calc_period = f.calc_period
+  CROSS JOIN params AS p
+  WHERE f.dataset != 'actual'
+    AND (empty(p.sales_channels) OR has(p.sales_channels, lower(trim(coalesce(f.sales_channel, '')))))
+    AND (empty(p.country_codes) OR has(p.country_codes, lower(trim(coalesce(f.country_code, '')))))
+  QUALIFY row_number() OVER (
+    PARTITION BY f.company_id, f.inventory_id, f.forecast_period,
+      coalesce(f.amazon_marketplace_id, ''), coalesce(f.sales_channel, ''), coalesce(f.country_code, '')
+    ORDER BY f.updated_at DESC
+  ) = 1
 ),
-
 forecast_item_periods AS (
-  SELECT
-    fr.company_id,
-    fr.inventory_id,
-    MAX(fr.run_calc_period) AS run_calc_period,
-    MAX(fr.run_updated_at) AS run_updated_at,
-    MAX(fr.dataset) AS dataset,
-    MAX(fr.scenario_uuid) AS scenario_uuid,
-    MAX(fr.currency) AS currency,
-    MAX(fr.amazon_marketplace_id) AS marketplace_id,
-    MAX(fr.sku) AS sku,
-    fr.forecast_period,
-    SUM(COALESCE(CAST(fr.units_sold AS DOUBLE), 0.0)) AS units_sold,
-    SUM(COALESCE(CAST(fr.sales_amount AS DOUBLE), 0.0)) AS sales_amount
-  FROM forecast_latest_rows fr
-  GROUP BY fr.company_id, fr.inventory_id, fr.forecast_period
+  SELECT company_id, inventory_id, forecast_period,
+    sum(coalesce(toFloat64(units_sold), 0.0)) AS units_sold,
+    sum(coalesce(toFloat64(sales_amount), 0.0)) AS sales_amount,
+    row_number() OVER (PARTITION BY company_id, inventory_id ORDER BY forecast_period) AS period_rank,
+    toUInt32({{horizon_months}}) AS horizon_months
+  FROM forecast_latest_rows
+  GROUP BY company_id, inventory_id, forecast_period
 ),
-
-forecast_item_plan AS (
-  SELECT
-    fr.company_id,
-    fr.inventory_id,
-    MAX(fr.run_calc_period) AS run_calc_period,
-    MAX(fr.run_updated_at) AS run_updated_at,
-    MAX(fr.dataset) AS dataset,
-    MAX(fr.scenario_uuid) AS scenario_uuid,
-    MAX(fr.currency) AS currency,
-    MAX(fr.marketplace_id) AS marketplace_id,
-    MAX(fr.sku) AS sku,
-
-    slice(
-      array_agg(CAST(fr.forecast_period AS VARCHAR) ORDER BY fr.forecast_period),
-      1, MAX(p.horizon_months)
-    ) AS forecast_plan_periods_array,
-    slice(
-      array_agg(fr.units_sold ORDER BY fr.forecast_period),
-      1, MAX(p.horizon_months)
-    ) AS forecast_plan_units_array,
-    slice(
-      array_agg(fr.sales_amount ORDER BY fr.forecast_period),
-      1, MAX(p.horizon_months)
-    ) AS forecast_plan_sales_array,
-    slice(
-      array_agg(COALESCE(CAST(fr.currency AS VARCHAR), '') ORDER BY fr.forecast_period),
-      1, MAX(p.horizon_months)
-    ) AS forecast_plan_currency_array
-
-  FROM forecast_item_periods fr
-  CROSS JOIN params p
-  GROUP BY 1, 2
-),
-
--- Actual (historical) data from the same forecast table where dataset='actual'
--- Same segment-preserving deduplication pattern, followed by item/period summation.
 actual_latest_rows AS (
   SELECT
-    ranked.company_id,
-    ranked.inventory_id,
-    ranked.forecast_period,
-    ranked.units_sold,
-    ranked.sales_amount,
-    ranked.currency
-  FROM (
-    SELECT
-      f.company_id,
-      f.inventory_id,
-      f.forecast_period,
-      f.units_sold,
-      f.sales_amount,
-      f.currency,
-      row_number() OVER (
-        PARTITION BY
-          f.company_id,
-          f.inventory_id,
-          f.forecast_period,
-          COALESCE(f.scenario_uuid, ''),
-          COALESCE(f.amazon_marketplace_id, ''),
-          COALESCE(f.sales_channel, ''),
-          COALESCE(f.country_code, '')
-        ORDER BY f.calc_period DESC, f.updated_at DESC
-      ) AS rn
-    FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
-    CROSS JOIN params p
-    WHERE contains(p.company_ids, f.company_id)
-      AND f.dataset = 'actual'
-      AND p.include_actuals
-      AND (cardinality(p.sales_channels) = 0 OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, '')))))
-      AND (cardinality(p.country_codes) = 0 OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, '')))))
-  ) ranked
-  WHERE rn = 1
+    f.company_id AS company_id, f.inventory_id AS inventory_id, f.forecast_period AS forecast_period,
+    f.units_sold AS units_sold, f.sales_amount AS sales_amount
+  FROM analytics.sales_forecast AS f FINAL
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, f.company_id) AND f.dataset = 'actual' AND p.include_actuals
+    AND (empty(p.sales_channels) OR has(p.sales_channels, lower(trim(coalesce(f.sales_channel, '')))))
+    AND (empty(p.country_codes) OR has(p.country_codes, lower(trim(coalesce(f.country_code, '')))))
+  QUALIFY row_number() OVER (
+    PARTITION BY f.company_id, f.inventory_id, f.forecast_period, coalesce(f.scenario_uuid, ''),
+      coalesce(f.amazon_marketplace_id, ''), coalesce(f.sales_channel, ''), coalesce(f.country_code, '')
+    ORDER BY f.calc_period DESC, f.updated_at DESC
+  ) = 1
 ),
-
 actual_item_periods AS (
-  SELECT
-    ar.company_id,
-    ar.inventory_id,
-    ar.forecast_period,
-    SUM(COALESCE(CAST(ar.units_sold AS DOUBLE), 0.0)) AS units_sold,
-    SUM(COALESCE(CAST(ar.sales_amount AS DOUBLE), 0.0)) AS sales_amount
-  FROM actual_latest_rows ar
-  GROUP BY 1, 2, 3
+  SELECT company_id, inventory_id, forecast_period,
+    sum(coalesce(toFloat64(units_sold), 0.0)) AS units_sold,
+    sum(coalesce(toFloat64(sales_amount), 0.0)) AS sales_amount
+  FROM actual_latest_rows GROUP BY company_id, inventory_id, forecast_period
 ),
-
-actual_item_series AS (
-  SELECT
-    ar.company_id,
-    ar.inventory_id,
-    array_agg(CAST(ar.forecast_period AS VARCHAR) ORDER BY ar.forecast_period) AS actual_periods_array,
-    array_agg(COALESCE(CAST(ar.units_sold AS DOUBLE), 0.0) ORDER BY ar.forecast_period) AS actual_units_array,
-    array_agg(COALESCE(CAST(ar.sales_amount AS DOUBLE), 0.0) ORDER BY ar.forecast_period) AS actual_sales_array
-  FROM actual_item_periods ar
-  GROUP BY 1, 2
-),
-
--- Base item rows: snapshot + forecast + actuals, with all filters applied.
 t_base AS (
   SELECT
-    pil.company_id,
-    pil.company_name,
-    pil.company_short_name,
-    pil.company_uuid,
-
-    pil.inventory_id,
-    COALESCE(pil.sku, pil.merchant_sku, fp.sku) AS sku,
-    pil.country,
-    pil.country_code,
-
-    pil.child_asin,
-    pil.parent_asin,
-    pil.asin,
-    pil.fnsku,
-    pil.merchant_sku,
-
-    pil.brand,
-    pil.product_family,
-
-    pil.revenue_abcd_class,
-
-    -- recent sales signals
-    pil.sales_last_30_days,
-    pil.units_sold_last_30_days,
-    pil.revenue_30d,
-    pil.units_30d,
-
-    -- plan series for latest forecast run
-    fp.forecast_plan_periods_array,
-    fp.forecast_plan_units_array,
-    fp.forecast_plan_sales_array,
-    fp.forecast_plan_currency_array,
-
-    -- actual (historical) series
-    ap.actual_periods_array,
-    ap.actual_units_array,
-    ap.actual_sales_array,
-
-    concat(
-      CAST(pil.year AS VARCHAR),
-      '-',
-      lpad(CAST(pil.month AS VARCHAR), 2, '0'),
-      '-',
-      lpad(CAST(pil.day AS VARCHAR), 2, '0')
-    ) AS snapshot_date
-
-  FROM "{{catalog}}"."{{database}}"."{{table}}" pil
-  CROSS JOIN params p
-  CROSS JOIN latest_snapshot s
-  LEFT JOIN forecast_item_plan fp
-    ON fp.company_id = pil.company_id
-    AND fp.inventory_id = pil.inventory_id
-  LEFT JOIN actual_item_series ap
-    ON ap.company_id = pil.company_id
-    AND ap.inventory_id = pil.inventory_id
-
-  WHERE
-    contains(p.company_ids, pil.company_id)
-    AND pil.year = s.year
-    AND pil.month = s.month
-    AND pil.day = s.day
-
-    AND (
-      cardinality(p.skus) = 0
-      OR contains(p.skus, COALESCE(pil.sku, pil.merchant_sku, fp.sku))
-      OR contains(p.skus_lower, lower(COALESCE(pil.sku, pil.merchant_sku, fp.sku)))
-    )
-    AND (cardinality(p.asins) = 0 OR contains(p.asins, pil.child_asin))
-    AND (cardinality(p.parent_asins) = 0 OR contains(p.parent_asins, pil.parent_asin))
-    AND (cardinality(p.brands) = 0 OR contains(p.brands, pil.brand))
-    AND (cardinality(p.product_families) = 0 OR contains(p.product_families, pil.product_family))
-    AND (cardinality(p.marketplaces) = 0 OR contains(p.marketplaces, lower(trim(pil.country_code))))
-    AND (cardinality(p.revenue_abcd_classes) = 0 OR contains(p.revenue_abcd_classes, pil.revenue_abcd_class))
+    toUInt64(pil.company_id) AS company_id, pil.company_name,
+    toUInt64(pil.inventory_id) AS inventory_id, coalesce(pil.sku, pil.merchant_sku) AS sku,
+    pil.country_code, pil.country, pil.child_asin, pil.parent_asin, pil.brand, pil.product_family,
+    pil.sales_last_30_days, pil.units_sold_last_30_days, pil.revenue_30d, pil.units_30d,
+    concat(toString(pil.year), '-', leftPad(toString(pil.month), 2, '0'), '-', leftPad(toString(pil.day), 2, '0')) AS snapshot_date
+  FROM etl.inventory_planning_snapshot AS pil
+  CROSS JOIN params AS p CROSS JOIN latest_snapshot AS s
+  WHERE has(p.company_ids, pil.company_id)
+    AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
+    AND (empty(p.skus) OR has(p.skus, coalesce(pil.sku, pil.merchant_sku)) OR has(p.skus_lower, lower(coalesce(pil.sku, pil.merchant_sku))))
+    AND (empty(p.asins) OR has(p.asins, pil.child_asin))
+    AND (empty(p.parent_asins) OR has(p.parent_asins, pil.parent_asin))
+    AND (empty(p.brands) OR has(p.brands, pil.brand))
+    AND (empty(p.product_families) OR has(p.product_families, pil.product_family))
+    AND (empty(p.marketplaces) OR has(p.marketplaces, lower(trim(pil.country_code))))
+    AND (empty(p.revenue_abcd_classes) OR has(p.revenue_abcd_classes, pil.revenue_abcd_class))
 ),
-
--- ====================================================================
--- AGGREGATION SECTION
--- group_by dimensions are injected via template variables.
--- ====================================================================
-
--- Expand per-item forecast plan into (dimension, period, value) rows for GROUP BY summation.
-t_plan_expanded AS (
-  SELECT
-    {{group_select_base}},
-    period AS forecast_period,
-    CAST(idx AS INTEGER) AS month_index,
-    COALESCE(CAST(element_at(t.forecast_plan_units_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS units,
-    COALESCE(CAST(element_at(t.forecast_plan_sales_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS sales_amount
-  FROM t_base t
-  CROSS JOIN UNNEST(t.forecast_plan_periods_array) WITH ORDINALITY AS e(period, idx)
-  WHERE t.forecast_plan_periods_array IS NOT NULL
-    AND cardinality(t.forecast_plan_periods_array) > 0
-),
-
--- Expand per-item actuals into (dimension, period, value) rows.
-t_actuals_expanded AS (
-  SELECT
-    {{group_select_base}},
-    period AS actual_period,
-    CAST(idx AS INTEGER) AS month_index,
-    COALESCE(CAST(element_at(t.actual_units_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS units,
-    COALESCE(CAST(element_at(t.actual_sales_array, CAST(idx AS INTEGER)) AS DOUBLE), 0.0) AS sales_amount
-  FROM t_base t
-  CROSS JOIN UNNEST(t.actual_periods_array) WITH ORDINALITY AS e(period, idx)
-  WHERE t.actual_periods_array IS NOT NULL
-    AND cardinality(t.actual_periods_array) > 0
-),
-
--- Main grouping: aggregate KPIs per dimension combination.
 t_grouped AS (
-  SELECT
-    {{group_select_base}},
-
-    COUNT(DISTINCT t.inventory_id) AS inventory_count,
-    COUNT(DISTINCT t.sku) AS sku_count,
-
-    SUM(COALESCE(CAST(t.sales_last_30_days AS DOUBLE), 0.0)) AS sales_last_30_days,
-    SUM(COALESCE(CAST(t.units_sold_last_30_days AS DOUBLE), 0.0)) AS units_sold_last_30_days,
-    SUM(COALESCE(CAST(t.revenue_30d AS DOUBLE), 0.0)) AS revenue_30d,
-    SUM(COALESCE(CAST(t.units_30d AS DOUBLE), 0.0)) AS units_30d,
-
-    MIN(t.snapshot_date) AS snapshot_date,
-    CAST(MAX((SELECT horizon_months FROM params)) AS INTEGER) AS forecast_horizon_months
-
-  FROM t_base t
+  SELECT {{group_select_base}},
+    uniqExact(t.inventory_id) AS inventory_count, uniqExact(t.sku) AS sku_count,
+    sum(coalesce(toFloat64(t.sales_last_30_days), 0.0)) AS sales_last_30_days,
+    sum(coalesce(toFloat64(t.units_sold_last_30_days), 0.0)) AS units_sold_last_30_days,
+    sum(coalesce(toFloat64(t.revenue_30d), 0.0)) AS revenue_30d,
+    sum(coalesce(toFloat64(t.units_30d), 0.0)) AS units_30d,
+    min(t.snapshot_date) AS snapshot_date, any(p.horizon_months) AS forecast_horizon_months
+  FROM t_base AS t CROSS JOIN params AS p
   GROUP BY {{group_by_clause_base}}
 ),
-
 t_grouped_limited AS (
-  SELECT *
-  FROM t_grouped
-  ORDER BY
-    sales_last_30_days DESC,
-    units_sold_last_30_days DESC
-  LIMIT {{limit_top_n}}
+  SELECT * FROM t_grouped ORDER BY sales_last_30_days DESC, units_sold_last_30_days DESC LIMIT {{limit_top_n}}
 ),
-
--- Sum forecast values per (group, period), preserving flat period rows instead of JSON blobs.
--- NOTE: group by forecast_period only (not month_index) so items with the same period
--- but different array positions (different forecast start dates) are summed together correctly.
 t_group_plan_periods AS (
-  SELECT
-    {{group_select_raw}},
-    forecast_period AS period,
-    SUM(units) AS units_sold,
-    SUM(sales_amount) AS sales_amount
-  FROM t_plan_expanded
-  GROUP BY {{group_by_clause_raw}}, forecast_period
+  SELECT {{group_select_base}}, toString(fp.forecast_period) AS period,
+    sum(fp.units_sold) AS units_sold, sum(fp.sales_amount) AS sales_amount
+  FROM t_base AS t
+  INNER JOIN forecast_item_periods AS fp ON fp.company_id = t.company_id AND fp.inventory_id = t.inventory_id
+  WHERE fp.period_rank <= fp.horizon_months
+  GROUP BY {{group_by_clause_base}}, fp.forecast_period
 ),
-
--- Sum actuals per (group, period), same reasoning.
 t_group_actual_periods AS (
-  SELECT
-    {{group_select_raw}},
-    actual_period AS period,
-    SUM(units) AS units_sold,
-    SUM(sales_amount) AS sales_amount
-  FROM t_actuals_expanded
-  GROUP BY {{group_by_clause_raw}}, actual_period
+  SELECT {{group_select_base}}, toString(ap.forecast_period) AS period,
+    sum(ap.units_sold) AS units_sold, sum(ap.sales_amount) AS sales_amount
+  FROM t_base AS t
+  INNER JOIN actual_item_periods AS ap ON ap.company_id = t.company_id AND ap.inventory_id = t.inventory_id
+  GROUP BY {{group_by_clause_base}}, ap.forecast_period
 )
-
--- Final aggregated output: one row per group + period + series type.
-SELECT
-  g.*,
-  CAST('forecast' AS VARCHAR) AS series_type,
-  CAST(pe.period AS VARCHAR) AS period,
-  CAST(ROUND(pe.units_sold, 0) AS BIGINT) AS units_sold,
-  ROUND(pe.sales_amount, 2) AS sales_amount,
-  ROUND(IF(pe.units_sold > 0, pe.sales_amount / pe.units_sold, CAST(NULL AS DOUBLE)), 3) AS unit_price
-FROM t_grouped_limited g
-LEFT JOIN t_group_plan_periods pe
-  ON {{group_plan_join_condition}}
-WHERE (SELECT include_plan_series FROM params)
-
+SELECT g.*, 'forecast' AS series_type, pe.period,
+  toInt64(round(pe.units_sold, 0)) AS units_sold, round(pe.sales_amount, 2) AS sales_amount,
+  if(pe.units_sold > 0, round(pe.sales_amount / pe.units_sold, 3), CAST(NULL, 'Nullable(Float64)')) AS unit_price
+FROM t_grouped_limited AS g
+INNER JOIN t_group_plan_periods AS pe ON {{group_plan_join_condition}}
+CROSS JOIN params AS p WHERE p.include_plan_series
 UNION ALL
-
-SELECT
-  g.*,
-  CAST('actual' AS VARCHAR) AS series_type,
-  CAST(ae.period AS VARCHAR) AS period,
-  CAST(ROUND(ae.units_sold, 0) AS BIGINT) AS units_sold,
-  ROUND(ae.sales_amount, 2) AS sales_amount,
-  ROUND(IF(ae.units_sold > 0, ae.sales_amount / ae.units_sold, CAST(NULL AS DOUBLE)), 3) AS unit_price
-FROM t_grouped_limited g
-LEFT JOIN t_group_actual_periods ae
-  ON {{group_actuals_join_condition}}
-WHERE (SELECT include_actuals FROM params)
-
+SELECT g.*, 'actual' AS series_type, ae.period,
+  toInt64(round(ae.units_sold, 0)) AS units_sold, round(ae.sales_amount, 2) AS sales_amount,
+  if(ae.units_sold > 0, round(ae.sales_amount / ae.units_sold, 3), CAST(NULL, 'Nullable(Float64)')) AS unit_price
+FROM t_grouped_limited AS g
+INNER JOIN t_group_actual_periods AS ae ON {{group_actuals_join_condition}}
+CROSS JOIN params AS p WHERE p.include_actuals
 UNION ALL
-
-SELECT
-  g.*,
-  CAST(NULL AS VARCHAR) AS series_type,
-  CAST(NULL AS VARCHAR) AS period,
-  CAST(NULL AS BIGINT) AS units_sold,
-  CAST(NULL AS DOUBLE) AS sales_amount,
-  CAST(NULL AS DOUBLE) AS unit_price
-FROM t_grouped_limited g
-WHERE NOT (SELECT include_plan_series FROM params)
-  AND NOT (SELECT include_actuals FROM params)
-
-ORDER BY
-  company_id,
-  company_name,
-  series_type,
-  period
+SELECT g.*, CAST(NULL, 'Nullable(String)') AS series_type, CAST(NULL, 'Nullable(String)') AS period,
+  CAST(NULL, 'Nullable(Int64)') AS units_sold, CAST(NULL, 'Nullable(Float64)') AS sales_amount,
+  CAST(NULL, 'Nullable(Float64)') AS unit_price
+FROM t_grouped_limited AS g CROSS JOIN params AS p
+WHERE NOT p.include_plan_series AND NOT p.include_actuals
+ORDER BY company_id, company_name, series_type, period
