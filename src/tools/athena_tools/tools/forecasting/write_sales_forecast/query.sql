@@ -65,10 +65,12 @@ normalized AS (
     p.company_id,
 
     p.created_at,
+    p.created_at AS updated_at,
 
     -- Interpret marketplace as either country_code (e.g., US) or amazon marketplace id.
     COALESCE(m.amazon_marketplace_id, NULLIF(TRIM(w.marketplace), '')) AS amazon_marketplace_id,
     NULLIF(TRIM(w.marketplace), '') AS marketplace,
+    COALESCE(m.code, NULLIF(TRIM(w.marketplace), '')) AS country_code,
 
     w.inventory_id,
     NULLIF(TRIM(w.sku), '') AS sku,
@@ -84,6 +86,11 @@ normalized AS (
     w.units_sold,
     w.sales_amount,
     NULLIF(TRIM(w.currency), '') AS currency,
+    COALESCE(NULLIF(TRIM(w.sales_channel), ''), 'Amazon') AS sales_channel,
+
+    {{dataset_sql}} AS dataset,
+    {{data_type_sql}} AS data_type,
+    CAST(date_format(current_date, '%Y-%m') AS VARCHAR) AS calc_period,
 
     NULLIF(TRIM(w.note), '') AS note,
 
@@ -111,6 +118,7 @@ SELECT
   -- audit envelope
   dry_run,
   created_at,
+  updated_at,
   company_id,
   author_type,
   author_name,
@@ -122,6 +130,8 @@ SELECT
   inventory_id,
   sku,
   marketplace,
+  amazon_marketplace_id,
+  country_code,
   sku_key,
 
   -- scenario + period
@@ -134,6 +144,10 @@ SELECT
   units_sold,
   sales_amount,
   currency,
+  sales_channel,
+  dataset,
+  data_type,
+  calc_period,
   note,
 
   -- basic validation flags (server can hard-fail if any are false)

@@ -19,6 +19,13 @@ export type ClickHouseQueryResult = {
   };
 };
 
+export type ClickHouseInsertOptions = {
+  table: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  timeoutMs?: number;
+};
+
 type ClickHouseJsonPayload = {
   meta?: Array<{ name: string; type?: string }>;
   data?: Array<Record<string, unknown>>;
@@ -130,4 +137,67 @@ export async function runClickHouseQuery(
         }
       : undefined,
   };
+}
+
+export async function insertClickHouseJsonEachRow(
+  options: ClickHouseInsertOptions,
+): Promise<void> {
+  const { url, user, password } = config.clickhouse;
+  if (!url || !password) {
+    throw new AppError('ClickHouse is not configured (CLICKHOUSE_URL / CLICKHOUSE_PASSWORD).', {
+      status: 500,
+      code: 'clickhouse_not_configured',
+    });
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(options.table)) {
+    throw new AppError('Invalid ClickHouse insert table.', {
+      status: 500,
+      code: 'clickhouse_invalid_insert_target',
+    });
+  }
+  if (options.columns.length === 0 || options.columns.some((column) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(column))) {
+    throw new AppError('Invalid ClickHouse insert columns.', {
+      status: 500,
+      code: 'clickhouse_invalid_insert_target',
+    });
+  }
+  if (options.rows.length === 0) return;
+
+  const endpoint = new URL(url);
+  endpoint.searchParams.set(
+    'query',
+    `INSERT INTO ${options.table} (${options.columns.join(', ')}) FORMAT JSONEachRow`,
+  );
+  endpoint.searchParams.set('date_time_input_format', 'best_effort');
+
+  const body = `${options.rows.map((row) => JSON.stringify(row)).join('\n')}\n`;
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  try {
+    const response = await getPool(endpoint.origin).request({
+      path: `${endpoint.pathname}${endpoint.search}`,
+      method: 'POST',
+      headers: {
+        'X-ClickHouse-User': user,
+        'X-ClickHouse-Key': password,
+      },
+      body,
+      headersTimeout: timeoutMs,
+      bodyTimeout: timeoutMs,
+    });
+    const responseBody = await response.body.text();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new AppError(`ClickHouse insert failed (HTTP ${response.statusCode}).`, {
+        status: 502,
+        code: 'clickhouse_insert_failed',
+        details: { body: responseBody.slice(0, 1000) },
+      });
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('ClickHouse insert failed (network/timeout).', {
+      status: 504,
+      code: 'clickhouse_unreachable',
+      details: { message: error instanceof Error ? error.message : String(error) },
+    });
+  }
 }

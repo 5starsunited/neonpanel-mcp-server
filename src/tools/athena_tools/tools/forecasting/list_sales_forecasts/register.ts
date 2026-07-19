@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -25,21 +24,21 @@ type CompaniesWithPermissionResponse = {
 // ---------------------------------------------------------------------------
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
 
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+function sqlStringArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST([], \'Array(String)\')';
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 function sqlCompanyIdArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return 'CAST([], \'Array(UInt64)\')';
+  return `[${values.map((n) => String(Math.trunc(n))).join(',')}]`;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,63 +175,22 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
       const limit = Math.min(500, parsed.query.limit ?? 50);
 
       // ---- SQL ----
-      const catalog = config.athena.catalog;
-      const forecastingDatabase = config.athena.tables.forecastingDatabase;
-      const salesForecastTable = config.athena.tables.salesForecast;
-
       const template = await loadTextFile(sqlPath);
       const query = renderSqlTemplate(template, {
-        catalog,
-        forecasting_database: forecastingDatabase,
-        sales_forecast_table: salesForecastTable,
-
         company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-        datasets_array: sqlVarcharArrayExpr(datasets),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        sales_channels_array: sqlVarcharArrayExpr(salesChannels),
-        country_codes_array: sqlVarcharArrayExpr(countryCodes),
-        calc_periods_array: sqlVarcharArrayExpr(calcPeriods),
+        datasets_array: sqlStringArrayExpr(datasets),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        sales_channels_array: sqlStringArrayExpr(salesChannels),
+        country_codes_array: sqlStringArrayExpr(countryCodes),
+        calc_periods_array: sqlStringArrayExpr(calcPeriods),
         limit_top_n: Number(limit),
       });
 
       // ---- Execute ----
-      const athenaResult = await runAthenaQuery({
-        query,
-        database: forecastingDatabase,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: Math.min(5000, limit),
-      });
-
-      const rows = (athenaResult.rows ?? []) as Array<Record<string, unknown>>;
+      const clickHouseResult = await runClickHouseQuery({ query });
+      const rows = clickHouseResult.rows;
 
       const items = rows.map((r) => {
-        // Parse JSON arrays back into native arrays
-        let marketplaceIds: string[] = [];
-        let currencies: string[] = [];
-        let salesChannels: string[] = [];
-        let countryCodes: string[] = [];
-        try {
-          if (typeof r.marketplace_ids === 'string') {
-            marketplaceIds = JSON.parse(r.marketplace_ids);
-          }
-        } catch { /* ignore */ }
-        try {
-          if (typeof r.currencies === 'string') {
-            currencies = JSON.parse(r.currencies);
-          }
-        } catch { /* ignore */ }
-        try {
-          if (typeof r.sales_channels === 'string') {
-            salesChannels = JSON.parse(r.sales_channels);
-          }
-        } catch { /* ignore */ }
-        try {
-          if (typeof r.country_codes === 'string') {
-            countryCodes = JSON.parse(r.country_codes);
-          }
-        } catch { /* ignore */ }
-
         return {
           company_id: r.company_id != null ? Number(r.company_id) : undefined,
           calc_period: r.calc_period as string | undefined,
@@ -246,10 +204,10 @@ export function registerForecastingListSalesForecastsTool(registry: ToolRegistry
           total_rows: r.total_rows != null ? Number(r.total_rows) : undefined,
           total_units: r.total_units != null ? Number(r.total_units) : undefined,
           total_sales_amount: r.total_sales_amount != null ? Number(r.total_sales_amount) : undefined,
-          marketplace_ids: marketplaceIds,
-          currencies,
-          sales_channels: salesChannels,
-          country_codes: countryCodes,
+          marketplace_ids: Array.isArray(r.marketplace_ids) ? r.marketplace_ids.map(String) : [],
+          currencies: Array.isArray(r.currencies) ? r.currencies.map(String) : [],
+          sales_channels: Array.isArray(r.sales_channels) ? r.sales_channels.map(String) : [],
+          country_codes: Array.isArray(r.country_codes) ? r.country_codes.map(String) : [],
           sku_count: r.sku_count != null ? Number(r.sku_count) : undefined,
         };
       });

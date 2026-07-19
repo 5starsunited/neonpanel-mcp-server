@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
+import { insertClickHouseJsonEachRow } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
@@ -207,6 +208,46 @@ function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): s
 function truncateForDebug(value: string, maxLen: number): string {
   if (value.length <= maxLen) return value;
   return `${value.slice(0, maxLen)}\n-- [truncated]`;
+}
+
+const CLICKHOUSE_FORECAST_COLUMNS = [
+  'amazon_marketplace_id',
+  'currency',
+  'sku',
+  'company_id',
+  'inventory_id',
+  'forecast_period',
+  'units_sold',
+  'sales_amount',
+  'dataset',
+  'scenario_uuid',
+  'calc_period',
+  'data_type',
+  'author_name',
+  'updated_at',
+  'sales_channel',
+  'country_code',
+] as const;
+
+function buildClickHouseForecastRows(rows: Array<Record<string, unknown>>) {
+  return rows.map((row) => ({
+    amazon_marketplace_id: String(row.amazon_marketplace_id),
+    currency: row.currency == null ? null : String(row.currency),
+    sku: String(row.sku),
+    company_id: Number(row.company_id),
+    inventory_id: Number(row.inventory_id),
+    forecast_period: String(row.forecast_period),
+    units_sold: Number(row.units_sold),
+    sales_amount: Number(row.sales_amount),
+    dataset: String(row.dataset),
+    scenario_uuid: String(row.scenario_uuid),
+    calc_period: String(row.calc_period),
+    data_type: String(row.data_type),
+    author_name: row.author_name == null ? null : String(row.author_name),
+    updated_at: String(row.updated_at),
+    sales_channel: row.sales_channel == null ? null : String(row.sales_channel),
+    country_code: row.country_code == null ? null : String(row.country_code),
+  }));
 }
 
 async function resolveSkuAndMarketplaceFromSnapshot(
@@ -656,6 +697,35 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
               ...(debugSql
                 ? { debug: { rendered_sql: rendered, insert_rendered_sql: insertRendered } }
                 : {}),
+            },
+          };
+        }
+
+        try {
+          await insertClickHouseJsonEachRow({
+            table: 'analytics.sales_forecast',
+            columns: [...CLICKHOUSE_FORECAST_COLUMNS],
+            rows: buildClickHouseForecastRows(previewRows),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown ClickHouse error.';
+          const details = isAppError(error)
+            ? { code: error.code, details: error.details }
+            : undefined;
+          return {
+            dry_run: false,
+            accepted,
+            written: writableRows,
+            items,
+            meta: {
+              warnings: [
+                ...warnings,
+                'Iceberg write succeeded, but ClickHouse publication failed. Retry or run reconciliation before relying on Direct Query.',
+              ],
+              error: {
+                message,
+                ...(details ? { details } : {}),
+              },
             },
           };
         }

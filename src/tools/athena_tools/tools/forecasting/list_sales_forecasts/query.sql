@@ -2,10 +2,7 @@
 -- Purpose: Catalog/index of all forecast runs available for a company.
 --   Each row = one distinct forecast run (company_id, calc_period, updated_at, dataset).
 --   Use this to discover what forecasts exist before comparing or reviewing them.
--- Notes:
--- - company_id is REQUIRED for authorization.
--- - Default sort: calc_period DESC, updated_at DESC (most recent first).
--- - Use limit=1 to get only the latest forecast run.
+-- Source: ClickHouse analytics.sales_forecast.
 
 WITH params AS (
   SELECT
@@ -15,7 +12,7 @@ WITH params AS (
     {{sales_channels_array}} AS sales_channels,
     {{country_codes_array}} AS country_codes,
     {{calc_periods_array}} AS calc_periods,
-    CAST({{limit_top_n}} AS INTEGER) AS top_results
+    toUInt32({{limit_top_n}}) AS top_results
 ),
 
 -- Aggregate each forecast run into a summary row
@@ -27,39 +24,38 @@ forecast_runs AS (
     f.dataset,
     f.scenario_uuid,
 
-    COUNT(DISTINCT f.inventory_id) AS item_count,
-    COUNT(DISTINCT f.forecast_period) AS period_count,
+    uniqExact(f.inventory_id) AS item_count,
+    uniqExact(f.forecast_period) AS period_count,
     MIN(f.forecast_period) AS period_start,
     MAX(f.forecast_period) AS period_end,
     COUNT(*) AS total_rows,
 
-    SUM(COALESCE(f.units_sold, 0.0)) AS total_units,
-    SUM(COALESCE(f.sales_amount, 0.0)) AS total_sales_amount,
+    sum(coalesce(f.units_sold, 0.0)) AS total_units,
+    sum(coalesce(f.sales_amount, 0.0)) AS total_sales_amount,
 
-    -- Collect distinct marketplaces and currencies
-    array_distinct(array_agg(COALESCE(f.amazon_marketplace_id, 'UNKNOWN'))) AS marketplace_ids,
-    array_distinct(array_agg(COALESCE(f.currency, 'UNKNOWN'))) AS currencies,
-    array_distinct(array_agg(COALESCE(f.sales_channel, 'UNKNOWN'))) AS sales_channels,
-    array_distinct(array_agg(COALESCE(f.country_code, 'UNKNOWN'))) AS country_codes,
-    array_distinct(array_agg(COALESCE(f.sku, 'UNKNOWN'))) AS skus
+    groupUniqArray(coalesce(f.amazon_marketplace_id, 'UNKNOWN')) AS marketplace_ids,
+    groupUniqArray(coalesce(f.currency, 'UNKNOWN')) AS currencies,
+    groupUniqArray(coalesce(f.sales_channel, 'UNKNOWN')) AS sales_channels,
+    groupUniqArray(coalesce(f.country_code, 'UNKNOWN')) AS country_codes,
+    uniqExact(f.sku) AS sku_count
 
-  FROM "{{catalog}}"."{{forecasting_database}}"."{{sales_forecast_table}}" f
+  FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params p
   WHERE
-    contains(p.company_ids, f.company_id)
-    AND (cardinality(p.datasets) = 0 OR contains(p.datasets, f.dataset))
-    AND (cardinality(p.calc_periods) = 0 OR contains(p.calc_periods, f.calc_period))
+    has(p.company_ids, f.company_id)
+    AND (empty(p.datasets) OR has(p.datasets, f.dataset))
+    AND (empty(p.calc_periods) OR has(p.calc_periods, f.calc_period))
     AND (
-      cardinality(p.marketplaces) = 0
-      OR contains(p.marketplaces, lower(trim(COALESCE(f.amazon_marketplace_id, ''))))
+      empty(p.marketplaces)
+      OR has(p.marketplaces, lower(trim(coalesce(f.amazon_marketplace_id, ''))))
     )
     AND (
-      cardinality(p.sales_channels) = 0
-      OR contains(p.sales_channels, lower(trim(COALESCE(f.sales_channel, ''))))
+      empty(p.sales_channels)
+      OR has(p.sales_channels, lower(trim(coalesce(f.sales_channel, ''))))
     )
     AND (
-      cardinality(p.country_codes) = 0
-      OR contains(p.country_codes, lower(trim(COALESCE(f.country_code, ''))))
+      empty(p.country_codes)
+      OR has(p.country_codes, lower(trim(coalesce(f.country_code, ''))))
     )
   GROUP BY
     f.company_id,
@@ -71,25 +67,25 @@ forecast_runs AS (
 
 SELECT
   fr.company_id,
-  CAST(fr.calc_period AS VARCHAR) AS calc_period,
+  fr.calc_period,
   fr.updated_at,
   fr.dataset,
   fr.scenario_uuid,
 
   fr.item_count,
   fr.period_count,
-  CAST(fr.period_start AS VARCHAR) AS period_start,
-  CAST(fr.period_end AS VARCHAR) AS period_end,
+  fr.period_start,
+  fr.period_end,
   fr.total_rows,
 
-  ROUND(fr.total_units, 0) AS total_units,
-  ROUND(fr.total_sales_amount, 2) AS total_sales_amount,
+  round(fr.total_units, 0) AS total_units,
+  round(fr.total_sales_amount, 2) AS total_sales_amount,
 
-  CAST(fr.marketplace_ids AS JSON) AS marketplace_ids,
-  CAST(fr.currencies AS JSON) AS currencies,
-  CAST(fr.sales_channels AS JSON) AS sales_channels,
-  CAST(fr.country_codes AS JSON) AS country_codes,
-  CAST(cardinality(fr.skus) AS INTEGER) AS sku_count
+  fr.marketplace_ids,
+  fr.currencies,
+  fr.sales_channels,
+  fr.country_codes,
+  fr.sku_count
 
 FROM forecast_runs fr
 CROSS JOIN params p
