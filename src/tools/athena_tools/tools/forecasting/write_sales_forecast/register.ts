@@ -1,70 +1,48 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { insertClickHouseJsonEachRow } from '../../../../../clients/clickhouse';
+import {
+  insertClickHouseJsonEachRow,
+  runClickHouseQuery,
+} from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
-import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
-import { loadTextFile } from '../../../runtime/load-assets';
-import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { isAppError } from '../../../../../lib/errors';
+import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 
 type CompaniesWithPermissionResponse = {
-  companies?: Array<{
-    company_id?: number;
-    companyId?: number;
-    id?: number;
-  }>;
+  companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
 };
 
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
+type ResolvedItem = {
+  inventoryId: number;
+  sku: string;
+  marketplace: string;
+  amazonMarketplaceId: string;
+  countryCode: string;
+};
 
 function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
-function sqlNullableVarcharExpr(value: string | null | undefined): string {
-  if (value === null || value === undefined) return 'CAST(NULL AS VARCHAR)';
-  const trimmed = String(value).trim();
-  if (trimmed.length === 0) return 'CAST(NULL AS VARCHAR)';
-  return sqlStringLiteral(trimmed);
-}
-
-function sqlNullableBigintExpr(value: number | null | undefined): string {
-  if (value === null || value === undefined) return 'CAST(NULL AS BIGINT)';
-  if (!Number.isFinite(value)) return 'CAST(NULL AS BIGINT)';
-  return String(Math.trunc(value));
-}
-
-function sqlNullableDoubleExpr(value: number | null | undefined): string {
-  if (value === null || value === undefined) return 'CAST(NULL AS DOUBLE)';
-  if (!Number.isFinite(value)) return 'CAST(NULL AS DOUBLE)';
-  return String(value);
-}
-
-function sqlBooleanLiteral(value: boolean): string {
-  return value ? 'TRUE' : 'FALSE';
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+function sqlUInt64Array(values: number[]): string {
+  return `[${values.map((value) => `toUInt64(${Math.trunc(value)})`).join(', ')}]`;
 }
 
 function pickFirstNonEmptyString(...candidates: Array<unknown>): string | null {
-  for (const c of candidates) {
-    if (typeof c === 'string') {
-      const t = c.trim();
-      if (t.length > 0) return t;
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) return trimmed;
     }
   }
   return null;
 }
 
-function deriveAuthorName(authorNameInput: string | undefined, context: ToolExecutionContext): { value: string; source: string } {
+function deriveAuthorName(
+  authorNameInput: string | undefined,
+  context: ToolExecutionContext,
+): { value: string; source: string } {
   const fromInput = pickFirstNonEmptyString(authorNameInput);
   if (fromInput) return { value: fromInput, source: 'author.name' };
 
@@ -80,7 +58,6 @@ function deriveAuthorName(authorNameInput: string | undefined, context: ToolExec
 
   const fromSub = pickFirstNonEmptyString(context.subject);
   if (fromSub) return { value: fromSub, source: 'sub' };
-
   return { value: 'unknown', source: 'unknown' };
 }
 
@@ -91,15 +68,12 @@ const authorSchema = z
     id: z.string().optional(),
   })
   .strict()
-  .superRefine((a, ctx) => {
-    if (a.type === 'ai') {
-      const name = (a.name ?? '').trim();
-      if (name.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'author.name is required when author.type is "ai" (ask the user what name to record).',
-        });
-      }
+  .superRefine((author, context) => {
+    if (author.type === 'ai' && (author.name ?? '').trim().length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'author.name is required when author.type is "ai" (ask the user what name to record).',
+      });
     }
   });
 
@@ -109,21 +83,15 @@ const writeItemSchema = z
     sku: z.string().optional(),
     marketplace: z.string().optional(),
     sales_channel: z.string().optional(),
-
-    scenario_uuid: z
-      .string()
-      .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
-
-    forecast_period: z.string().min(1),
-    units_sold: z.coerce.number().min(0),
-
-    sales_amount: z.coerce.number().min(0),
-    currency: z.string().optional(),
-
+    scenario_uuid: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+    forecast_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    units_sold: z.coerce.number().finite().min(0),
+    sales_amount: z.coerce.number().finite().min(0),
+    currency: z.string().length(3),
     note: z.string().optional(),
   })
   .strict()
-  .refine((w) => (w.inventory_id ? true : Boolean(w.sku && w.marketplace)), {
+  .refine((write) => Boolean(write.inventory_id || (write.sku && write.marketplace)), {
     message: 'Each write must include inventory_id OR (sku + marketplace).',
   });
 
@@ -131,7 +99,7 @@ const inputSchema = z
   .object({
     company_id: z.coerce.number().int().min(1),
     author: authorSchema.optional(),
-    reason: z.string().min(3),
+    reason: z.string().min(10),
     dry_run: z.boolean().default(true).optional(),
     write_mode: z.enum(['append', 'replace']).default('append').optional(),
     data_type: z.enum(['forecast', 'actual']).default('forecast').optional(),
@@ -141,73 +109,98 @@ const inputSchema = z
   })
   .strict();
 
-function toBoolean(value: unknown): boolean {
-  if (value === true) return true;
-  if (value === false) return false;
-  if (typeof value === 'string') {
-    const v = value.trim().toLowerCase();
-    return v === 'true' || v === '1' || v === 't' || v === 'yes' || v === 'y';
-  }
-  if (typeof value === 'number') return value !== 0;
-  return false;
-}
-
-async function isAuthorizedForCompany(companyId: number, context: ToolExecutionContext): Promise<boolean> {
+async function isAuthorizedForCompany(
+  companyId: number,
+  context: ToolExecutionContext,
+): Promise<boolean> {
   const permission = 'view:quicksight_group.sales_and_marketing_new';
   const permissionResponse = await neonPanelRequest<CompaniesWithPermissionResponse>({
     token: context.userToken,
     path: `/api/v1/permissions/${encodeURIComponent(permission)}/companies`,
   });
-
-  const permittedCompanyIds = (permissionResponse.companies ?? [])
-    .map((c) => c.company_id ?? c.companyId ?? c.id)
-    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-
-  return permittedCompanyIds.includes(companyId);
+  return (permissionResponse.companies ?? [])
+    .map((company) => company.company_id ?? company.companyId ?? company.id)
+    .some((id) => id === companyId);
 }
 
-function buildWritesValuesSql(writes: Array<z.infer<typeof writeItemSchema>>): string {
-  // Must match the column order documented in query.sql.
-  // inventory_id, sku, marketplace, scenario_id, scenario_uuid, scenario_name,
-  // forecast_period, units_sold, sales_amount, currency, note, sales_channel
-  return writes
-    .map((w) => {
-      const inventoryIdExpr = sqlNullableBigintExpr(w.inventory_id ?? null);
-      const skuExpr = sqlNullableVarcharExpr(w.sku ?? null);
-      const marketplaceExpr = sqlNullableVarcharExpr(w.marketplace ?? null);
-
-      const scenarioIdExpr = sqlNullableBigintExpr(null);
-      const scenarioUuidExpr = sqlNullableVarcharExpr(w.scenario_uuid);
-      const scenarioNameExpr = sqlNullableVarcharExpr(null);
-
-      const forecastPeriodExpr = sqlNullableVarcharExpr(w.forecast_period);
-      const unitsSoldExpr = sqlNullableDoubleExpr(w.units_sold);
-      const salesAmountExpr = sqlNullableDoubleExpr(w.sales_amount ?? null);
-      const currencyExpr = sqlNullableVarcharExpr(w.currency ?? null);
-      const noteExpr = sqlNullableVarcharExpr(w.note ?? null);
-      const salesChannelExpr = sqlNullableVarcharExpr(w.sales_channel ?? null);
-
-      return `(${[
-        inventoryIdExpr,
-        skuExpr,
-        marketplaceExpr,
-        scenarioIdExpr,
-        scenarioUuidExpr,
-        scenarioNameExpr,
-        forecastPeriodExpr,
-        unitsSoldExpr,
-        salesAmountExpr,
-        currencyExpr,
-        noteExpr,
-        salesChannelExpr,
-      ].join(', ')})`;
-    })
-    .join(',\n      ');
+function resolvedItemFromRow(row: Record<string, unknown>): ResolvedItem | null {
+  const inventoryId = Number(row.inventory_id);
+  const sku = String(row.sku ?? '').trim();
+  const marketplace = String(row.requested_marketplace ?? row.marketplace ?? '').trim();
+  const amazonMarketplaceId = String(row.amazon_marketplace_id ?? '').trim();
+  const countryCode = String(row.country_code ?? '').trim();
+  if (!Number.isFinite(inventoryId) || inventoryId <= 0) return null;
+  if (!sku || !marketplace || !amazonMarketplaceId || !countryCode) return null;
+  return {
+    inventoryId: Math.trunc(inventoryId),
+    sku,
+    marketplace,
+    amazonMarketplaceId,
+    countryCode,
+  };
 }
 
-function truncateForDebug(value: string, maxLen: number): string {
-  if (value.length <= maxLen) return value;
-  return `${value.slice(0, maxLen)}\n-- [truncated]`;
+async function resolveItemsByInventoryId(
+  companyId: number,
+  inventoryIds: number[],
+): Promise<Map<number, ResolvedItem>> {
+  if (inventoryIds.length === 0) return new Map();
+  const result = await runClickHouseQuery({
+    query: `
+SELECT
+  inventory_id,
+  sku,
+  market_country_code AS marketplace,
+  amazon_marketplace_id,
+  market_country_code AS country_code
+FROM etl.sku_dimensions
+WHERE company_id = toUInt64(${companyId})
+  AND has(${sqlUInt64Array(inventoryIds)}, inventory_id)
+FORMAT JSON`,
+  });
+  const resolved = new Map<number, ResolvedItem>();
+  for (const row of result.rows) {
+    const item = resolvedItemFromRow(row);
+    if (item) resolved.set(item.inventoryId, item);
+  }
+  return resolved;
+}
+
+async function resolveItemsBySku(
+  companyId: number,
+  pairs: Array<{ sku: string; marketplace: string }>,
+): Promise<Map<string, ResolvedItem>> {
+  if (pairs.length === 0) return new Map();
+  const values = pairs
+    .map((pair) => `(${sqlStringLiteral(pair.sku)}, ${sqlStringLiteral(pair.marketplace)})`)
+    .join(',\n    ');
+  const result = await runClickHouseQuery({
+    query: `
+SELECT
+  dimensions.inventory_id,
+  dimensions.sku,
+  requested.marketplace AS requested_marketplace,
+  dimensions.amazon_marketplace_id,
+  dimensions.market_country_code AS country_code
+FROM etl.sku_dimensions AS dimensions
+INNER JOIN VALUES(
+  'sku String, marketplace String',
+    ${values}
+) AS requested
+  ON lowerUTF8(trimBoth(dimensions.sku)) = lowerUTF8(trimBoth(requested.sku))
+ AND (
+   lowerUTF8(trimBoth(dimensions.market_country_code)) = lowerUTF8(trimBoth(requested.marketplace))
+   OR lowerUTF8(trimBoth(dimensions.amazon_marketplace_id)) = lowerUTF8(trimBoth(requested.marketplace))
+ )
+WHERE dimensions.company_id = toUInt64(${companyId})
+FORMAT JSON`,
+  });
+  const resolved = new Map<string, ResolvedItem>();
+  for (const row of result.rows) {
+    const item = resolvedItemFromRow(row);
+    if (item) resolved.set(`${item.sku.toLowerCase()}|${item.marketplace.toLowerCase()}`, item);
+  }
+  return resolved;
 }
 
 const CLICKHOUSE_FORECAST_COLUMNS = [
@@ -229,169 +222,8 @@ const CLICKHOUSE_FORECAST_COLUMNS = [
   'country_code',
 ] as const;
 
-function buildClickHouseForecastRows(rows: Array<Record<string, unknown>>) {
-  return rows.map((row) => ({
-    amazon_marketplace_id: String(row.amazon_marketplace_id),
-    currency: row.currency == null ? null : String(row.currency),
-    sku: String(row.sku),
-    company_id: Number(row.company_id),
-    inventory_id: Number(row.inventory_id),
-    forecast_period: String(row.forecast_period),
-    units_sold: Number(row.units_sold),
-    sales_amount: Number(row.sales_amount),
-    dataset: String(row.dataset),
-    scenario_uuid: String(row.scenario_uuid),
-    calc_period: String(row.calc_period),
-    data_type: String(row.data_type),
-    author_name: row.author_name == null ? null : String(row.author_name),
-    updated_at: String(row.updated_at),
-    sales_channel: row.sales_channel == null ? null : String(row.sales_channel),
-    country_code: row.country_code == null ? null : String(row.country_code),
-  }));
-}
-
-async function resolveSkuAndMarketplaceFromSnapshot(
-  companyId: number,
-  inventoryIds: number[],
-): Promise<Map<number, { sku: string; marketplace: string }>> {
-  if (inventoryIds.length === 0) return new Map();
-
-  const catalog = config.athena.catalog;
-  const database = config.athena.database;
-  const table = config.athena.tables.inventoryPlanningSnapshot;
-
-  const query = `
-WITH params AS (
-  SELECT
-    CAST(${companyId} AS BIGINT) AS company_id,
-    ${sqlBigintArrayExpr(inventoryIds)} AS inventory_ids
-),
-latest_snapshot AS (
-  SELECT pil.year, pil.month, pil.day
-  FROM "${catalog}"."${database}"."${table}" pil
-  CROSS JOIN params p
-  WHERE pil.company_id = p.company_id
-  GROUP BY 1, 2, 3
-  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
-  LIMIT 1
-)
-SELECT
-  pil.inventory_id,
-  pil.sku,
-  pil.country_code AS marketplace
-FROM "${catalog}"."${database}"."${table}" pil
-CROSS JOIN params p
-CROSS JOIN latest_snapshot s
-WHERE
-  pil.company_id = p.company_id
-  AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
-  AND contains(p.inventory_ids, pil.inventory_id)
-`;
-
-  const res = await runAthenaQuery({
-    query,
-    database,
-    workGroup: config.athena.workgroup,
-    outputLocation: config.athena.outputLocation,
-    maxRows: Math.min(1000, inventoryIds.length + 5),
-  });
-
-  const m = new Map<number, { sku: string; marketplace: string }>();
-  for (const row of res.rows ?? []) {
-    const idRaw = row.inventory_id;
-    const id = idRaw === null ? NaN : Number(idRaw);
-    const sku = (row.sku ?? '') as string;
-    const marketplace = (row.marketplace ?? '') as string;
-    if (!Number.isFinite(id) || id <= 0) continue;
-    if (typeof sku !== 'string' || sku.trim().length === 0) continue;
-    if (typeof marketplace !== 'string' || marketplace.trim().length === 0) continue;
-    m.set(Math.trunc(id), { sku: sku.trim(), marketplace: marketplace.trim() });
-  }
-  return m;
-}
-
-/**
- * Reverse resolution: sku + marketplace (country_code) → inventory_id.
- * Needed so that writes submitted by SKU get a non-NULL inventory_id,
- * which the read query (list_latest_sales_forecast) joins on.
- */
-async function resolveInventoryIdFromSnapshot(
-  companyId: number,
-  skuMarketplacePairs: Array<{ sku: string; marketplace: string }>,
-): Promise<Map<string, number>> {
-  if (skuMarketplacePairs.length === 0) return new Map();
-
-  const catalog = config.athena.catalog;
-  const database = config.athena.database;
-  const table = config.athena.tables.inventoryPlanningSnapshot;
-
-  // Build a VALUES clause for (sku, marketplace) pairs
-  const valuesClause = skuMarketplacePairs
-    .map((p) => `(${sqlStringLiteral(p.sku)}, ${sqlStringLiteral(p.marketplace)})`)
-    .join(',\n    ');
-
-  const query = `
-WITH params AS (
-  SELECT CAST(${companyId} AS BIGINT) AS company_id
-),
-latest_snapshot AS (
-  SELECT pil.year, pil.month, pil.day
-  FROM "${catalog}"."${database}"."${table}" pil
-  CROSS JOIN params p
-  WHERE pil.company_id = p.company_id
-  GROUP BY 1, 2, 3
-  ORDER BY CAST(pil.year AS INTEGER) DESC, CAST(pil.month AS INTEGER) DESC, CAST(pil.day AS INTEGER) DESC
-  LIMIT 1
-),
-lookup_pairs AS (
-  SELECT v.sku, v.marketplace
-  FROM (VALUES
-    ${valuesClause}
-  ) AS v(sku, marketplace)
-)
-SELECT
-  pil.inventory_id,
-  pil.sku,
-  pil.country_code AS marketplace
-FROM "${catalog}"."${database}"."${table}" pil
-CROSS JOIN params p
-CROSS JOIN latest_snapshot s
-INNER JOIN lookup_pairs lp
-  ON LOWER(TRIM(pil.sku)) = LOWER(TRIM(lp.sku))
-  AND LOWER(TRIM(pil.country_code)) = LOWER(TRIM(lp.marketplace))
-WHERE
-  pil.company_id = p.company_id
-  AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
-`;
-
-  const res = await runAthenaQuery({
-    query,
-    database,
-    workGroup: config.athena.workgroup,
-    outputLocation: config.athena.outputLocation,
-    maxRows: Math.min(1000, skuMarketplacePairs.length + 5),
-  });
-
-  const m = new Map<string, number>();
-  for (const row of res.rows ?? []) {
-    const idRaw = row.inventory_id;
-    const id = idRaw === null ? NaN : Number(idRaw);
-    const sku = (row.sku ?? '') as string;
-    const marketplace = (row.marketplace ?? '') as string;
-    if (!Number.isFinite(id) || id <= 0) continue;
-    if (typeof sku !== 'string' || sku.trim().length === 0) continue;
-    if (typeof marketplace !== 'string' || marketplace.trim().length === 0) continue;
-    // Key: lowercase sku|marketplace
-    m.set(`${sku.trim().toLowerCase()}|${marketplace.trim().toLowerCase()}`, Math.trunc(id));
-  }
-  return m;
-}
-
 export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const sqlPath = path.join(__dirname, 'query.sql');
-  const insertSqlPath = path.join(__dirname, 'insert.sql');
-
   let specJson: ToolSpecJson | undefined;
   try {
     if (fs.existsSync(toolJsonPath)) {
@@ -403,7 +235,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
   registry.register({
     name: 'forecasting_write_sales_forecast',
-    description: 'Write forecast overrides to an Iceberg table (dry-run validation supported).',
+    description: 'Validate and write forecast overrides directly to ClickHouse.',
     isConsequential: true,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -411,11 +243,8 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
     execute: async (args, context) => {
       const parsed = inputSchema.parse(args);
       const companyId = Math.trunc(parsed.company_id);
-
       const warnings: string[] = [];
-
-      const authorized = await isAuthorizedForCompany(companyId, context);
-      if (!authorized) {
+      if (!(await isAuthorizedForCompany(companyId, context))) {
         return {
           dry_run: true,
           accepted: 0,
@@ -427,333 +256,124 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
       const dryRun = parsed.dry_run ?? true;
       const writeMode = parsed.write_mode ?? 'append';
-
       const author = parsed.author ?? { type: 'user' as const };
-      const derived = deriveAuthorName(author.name, context);
-      const resolvedAuthorName = derived.value;
-      if (derived.source !== 'author.name') {
-        warnings.push(`author.name not provided; using ${derived.source} for author_name.`);
+      const derivedAuthor = deriveAuthorName(author.name, context);
+      if (derivedAuthor.source !== 'author.name') {
+        warnings.push(`author.name not provided; using ${derivedAuthor.source} for author_name.`);
       }
-
       warnings.push(
-        'Note: audit metadata (reason, note, author_type, author_id, idempotency_key) is write-only and not persisted in the forecast table. Only author_name, scenario name, and updated_at are stored there. Use a consistent scenario name across writes to track iterations.',
+        'Audit metadata (reason, note, author_type, author_id, idempotency_key) is not persisted in the forecast table; author_name and updated_at are persisted.',
       );
 
-      // Resolve inventory_id-only writes to include sku + marketplace (required by the forecast table schema).
-      const writes = parsed.writes.map((w) => ({
-        ...w,
-        sku: w.sku ? w.sku.trim() : w.sku,
-        marketplace: w.marketplace ? w.marketplace.trim() : w.marketplace,
-      }));
+      const inventoryIds = [...new Set(
+        parsed.writes
+          .map((write) => write.inventory_id)
+          .filter((id): id is number => id !== undefined),
+      )];
+      const skuPairs = [...new Map(
+        parsed.writes
+          .filter((write) => !write.inventory_id && write.sku && write.marketplace)
+          .map((write) => {
+            const pair = { sku: write.sku!.trim(), marketplace: write.marketplace!.trim() };
+            return [`${pair.sku.toLowerCase()}|${pair.marketplace.toLowerCase()}`, pair] as const;
+          }),
+      ).values()];
 
-      const unresolvedInventoryIds = writes
-        .filter((w) => w.inventory_id && (!w.sku || !w.marketplace))
-        .map((w) => Math.trunc(Number(w.inventory_id)))
-        .filter((id) => Number.isFinite(id) && id > 0);
-
-      const resolutionMap = await resolveSkuAndMarketplaceFromSnapshot(companyId, unresolvedInventoryIds);
-      for (const w of writes) {
-        if (w.inventory_id && (!w.sku || !w.marketplace)) {
-          const key = Math.trunc(Number(w.inventory_id));
-          const resolved = resolutionMap.get(key);
-          if (resolved) {
-            w.sku = resolved.sku;
-            w.marketplace = resolved.marketplace;
-          } else {
-            warnings.push(`Could not resolve sku/marketplace for inventory_id=${key} from latest snapshot.`);
-          }
-        }
-      }
-
-      // Reverse resolution: sku + marketplace → inventory_id.
-      // The read query (list_latest_sales_forecast) joins forecast data on inventory_id.
-      // Without this, writes by SKU end up with NULL inventory_id and are invisible to reads.
-      const unresolvedSkuPairs = writes
-        .filter((w) => !w.inventory_id && w.sku && w.marketplace)
-        .map((w) => ({ sku: w.sku!.trim(), marketplace: w.marketplace!.trim() }))
-        .filter((p) => p.sku.length > 0 && p.marketplace.length > 0);
-
-      // Deduplicate
-      const uniqueSkuPairs = [...new Map(unresolvedSkuPairs.map((p) => [`${p.sku.toLowerCase()}|${p.marketplace.toLowerCase()}`, p])).values()];
-
-      const reverseMap = await resolveInventoryIdFromSnapshot(companyId, uniqueSkuPairs);
-      for (const w of writes) {
-        if (!w.inventory_id && w.sku && w.marketplace) {
-          const lookupKey = `${w.sku.trim().toLowerCase()}|${w.marketplace.trim().toLowerCase()}`;
-          const resolvedId = reverseMap.get(lookupKey);
-          if (resolvedId) {
-            w.inventory_id = resolvedId;
-          } else {
-            warnings.push(`Could not resolve inventory_id for sku=${w.sku}, marketplace=${w.marketplace} from latest snapshot.`);
-          }
-        }
-      }
-
-      const template = await loadTextFile(sqlPath);
-      const writesValuesSql = buildWritesValuesSql(writes as any);
-
-      const debugSql = parsed.debug_sql === true;
-
-      const reasonSql = sqlStringLiteral(parsed.reason);
-      const authorTypeSql = sqlStringLiteral(author.type);
-      const authorNameSql = sqlStringLiteral(resolvedAuthorName);
-      const authorIdSql = sqlNullableVarcharExpr(author.id ?? null);
-      const idempotencyKeySql = sqlNullableVarcharExpr(parsed.idempotency_key ?? null);
-      const dryRunSql = sqlBooleanLiteral(dryRun);
-
-      const isActual = (parsed.data_type ?? 'forecast') === 'actual';
-      const dataTypeVars = {
-        dataset_sql: isActual ? "'actual'" : "'manual'",
-        data_type_sql: isActual ? "'actual'" : "'forecast'",
-        is_actual_sql: isActual ? 'TRUE' : 'FALSE',
-      };
-
-      const rendered = renderSqlTemplate(template, {
-        forecast_catalog: config.athena.catalog,
-        forecast_database: config.athena.tables.forecastingDatabase,
-        company_id: companyId,
-        dry_run_sql: dryRunSql,
-        reason_sql: reasonSql,
-
-        author_type_sql: authorTypeSql,
-        author_name_sql: authorNameSql,
-        author_id_sql: authorIdSql,
-
-        idempotency_key_sql: idempotencyKeySql,
-
-        writes_values_sql: writesValuesSql,
-        ...dataTypeVars,
-      });
-
-      let athenaResult: Awaited<ReturnType<typeof runAthenaQuery>>;
+      let byInventoryId: Map<number, ResolvedItem>;
+      let bySku: Map<string, ResolvedItem>;
       try {
-        athenaResult = await runAthenaQuery({
-          query: rendered,
-          database: config.athena.database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 500,
-        });
+        [byInventoryId, bySku] = await Promise.all([
+          resolveItemsByInventoryId(companyId, inventoryIds),
+          resolveItemsBySku(companyId, skuPairs),
+        ]);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown Athena error.';
-        const details = isAppError(error)
-          ? { code: error.code, details: error.details }
-          : undefined;
-
-        // Always include a small snippet to aid debugging parse errors in production.
-        // Full SQL can still be included via debug_sql.
-        const valuesSqlSnippet = truncateForDebug(writesValuesSql, 4_000);
-        const renderedSqlSnippet = truncateForDebug(rendered, 8_000);
-
+        const message = error instanceof Error ? error.message : 'Unknown ClickHouse error.';
+        const details = isAppError(error) ? { code: error.code, details: error.details } : undefined;
         return {
           dry_run: true,
           accepted: parsed.writes.length,
           written: 0,
           items: [],
-          meta: {
-            warnings,
-            error: {
-              message,
-              ...(details ? { details } : {}),
-              values_sql: valuesSqlSnippet,
-              rendered_sql_snippet: renderedSqlSnippet,
-            },
-            ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
-          },
+          meta: { warnings, error: { message, ...(details ? { details } : {}) } },
         };
       }
 
-      const previewRows = (athenaResult.rows ?? []) as Array<Record<string, unknown>>;
-
-      const invalidRows = previewRows.filter((r) => {
-        const okForecastPeriod = toBoolean(r.ok_forecast_period);
-        const okUnitsSold = toBoolean(r.ok_units_sold);
-        const okSalesAmount = toBoolean(r.ok_sales_amount);
-        const okItemSelector = toBoolean(r.ok_item_selector);
-        return !(okForecastPeriod && okUnitsSold && okSalesAmount && okItemSelector);
+      const resolvedWrites = parsed.writes.map((write) => {
+        if (write.inventory_id) return byInventoryId.get(write.inventory_id);
+        const key = `${write.sku!.trim().toLowerCase()}|${write.marketplace!.trim().toLowerCase()}`;
+        return bySku.get(key);
       });
-
-      const writableRows = previewRows.length - invalidRows.length;
-
-      if (!dryRun && invalidRows.length > 0) {
-        warnings.push(`Refusing to write: ${invalidRows.length} row(s) failed validation.`);
-      }
-
-      const items = previewRows.map((r) => {
-        const okForecastPeriod = toBoolean(r.ok_forecast_period);
-        const okUnitsSold = toBoolean(r.ok_units_sold);
-        const okSalesAmount = toBoolean(r.ok_sales_amount);
-        const okItemSelector = toBoolean(r.ok_item_selector);
-
-        const problems: string[] = [];
-        if (!okForecastPeriod) problems.push('invalid forecast_period');
-        if (!okUnitsSold) problems.push('invalid units_sold');
-        if (!okSalesAmount) problems.push('invalid sales_amount');
-        if (!okItemSelector) problems.push('missing item selector');
-
-        const status = problems.length === 0 ? 'ok' : 'error';
-
+      const items = parsed.writes.map((write, index) => {
+        const resolved = resolvedWrites[index];
         return {
-          status,
-          inventory_id: r.inventory_id,
-          sku: r.sku,
-          marketplace: r.marketplace,
-          forecast_period: r.forecast_period,
-          scenario: {
-            id: r.scenario_id,
-            uuid: r.scenario_uuid,
-            name: r.scenario_name,
-          },
-          message:
-            problems.length > 0
-              ? `Validation failed: ${problems.join(', ')}.`
-              : dryRun
-                ? 'Validated (dry run).'
-                : 'Validated (ready to write).',
+          status: resolved ? 'ok' : 'error',
+          inventory_id: resolved?.inventoryId ?? write.inventory_id,
+          sku: resolved?.sku ?? write.sku,
+          marketplace: resolved?.marketplace ?? write.marketplace,
+          forecast_period: write.forecast_period,
+          scenario: { id: null, uuid: write.scenario_uuid, name: null },
+          message: resolved
+            ? dryRun ? 'Validated (dry run).' : 'Validated (ready to write).'
+            : 'Validation failed: item was not found in the current ClickHouse inventory catalog.',
+        };
+      });
+      const invalidRows = items.filter((item) => item.status === 'error');
+      const accepted = parsed.writes.length;
+      if (invalidRows.length > 0) {
+        warnings.push(`Refusing to write: ${invalidRows.length} row(s) failed validation.`);
+        return { dry_run: true, accepted, written: 0, items, meta: { warnings } };
+      }
+      if (dryRun) return { dry_run: true, accepted, written: 0, items, meta: { warnings } };
+
+      const updatedAt = new Date().toISOString();
+      const calcPeriod = updatedAt.slice(0, 7);
+      const isActual = (parsed.data_type ?? 'forecast') === 'actual';
+      const rows = parsed.writes.map((write, index) => {
+        const resolved = resolvedWrites[index]!;
+        return {
+          amazon_marketplace_id: resolved.amazonMarketplaceId,
+          currency: write.currency.toUpperCase(),
+          sku: resolved.sku,
+          company_id: companyId,
+          inventory_id: resolved.inventoryId,
+          forecast_period: write.forecast_period,
+          units_sold: write.units_sold,
+          sales_amount: write.sales_amount,
+          dataset: isActual ? 'actual' : 'manual',
+          scenario_uuid: isActual ? 'actual' : write.scenario_uuid,
+          calc_period: calcPeriod,
+          data_type: isActual ? 'actual' : 'forecast',
+          author_name: derivedAuthor.value,
+          updated_at: updatedAt,
+          sales_channel: write.sales_channel?.trim() || 'Amazon',
+          country_code: resolved.countryCode,
         };
       });
 
-      const accepted = parsed.writes.length;
-
-      if (!dryRun) {
-        if (invalidRows.length > 0) {
-          return {
-            dry_run: true,
-            accepted,
-            written: 0,
-            items,
-            meta: {
-              warnings,
-              ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
-            },
-          };
-        }
-
-        if (writeMode === 'replace') {
-          const deleteTemplate = await loadTextFile(path.join(__dirname, 'delete.sql'));
-          const deleteRendered = renderSqlTemplate(deleteTemplate, {
-            forecast_catalog: config.athena.catalog,
-            forecast_database: config.athena.tables.forecastingDatabase,
-            forecast_table_sales_forecast_writes: config.athena.tables.salesForecastWrites,
-
-            company_id: companyId,
-            writes_values_sql: writesValuesSql,
-            ...dataTypeVars,
-          });
-
-          await runAthenaQuery({
-            query: deleteRendered,
-            database: config.athena.tables.forecastingDatabase,
-            workGroup: config.athena.workgroup,
-            outputLocation: config.athena.outputLocation,
-            maxRows: 1,
-          });
-        }
-
-        const insertTemplate = await loadTextFile(insertSqlPath);
-        const insertRendered = renderSqlTemplate(insertTemplate, {
-          forecast_catalog: config.athena.catalog,
-          forecast_database: config.athena.tables.forecastingDatabase,
-          forecast_table_sales_forecast_writes: config.athena.tables.salesForecastWrites,
-
-          company_id: companyId,
-          author_name_sql: authorNameSql,
-
-          writes_values_sql: writesValuesSql,
-          ...dataTypeVars,
+      try {
+        await insertClickHouseJsonEachRow({
+          table: 'analytics.sales_forecast',
+          columns: [...CLICKHOUSE_FORECAST_COLUMNS],
+          rows,
         });
-
-        // Execute INSERT. Athena returns an execution id; result rows are ignored.
-        try {
-          await runAthenaQuery({
-            query: insertRendered,
-            database: config.athena.tables.forecastingDatabase,
-            workGroup: config.athena.workgroup,
-            outputLocation: config.athena.outputLocation,
-            maxRows: 1,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown Athena error.';
-          const details = isAppError(error)
-            ? { code: error.code, details: error.details }
-            : undefined;
-
-          const valuesSqlSnippet = truncateForDebug(writesValuesSql, 4_000);
-          const insertSqlSnippet = truncateForDebug(insertRendered, 8_000);
-
-          return {
-            dry_run: true,
-            accepted,
-            written: 0,
-            items,
-            meta: {
-              warnings,
-              error: {
-                message,
-                ...(details ? { details } : {}),
-                values_sql: valuesSqlSnippet,
-                insert_rendered_sql_snippet: insertSqlSnippet,
-              },
-              ...(debugSql
-                ? { debug: { rendered_sql: rendered, insert_rendered_sql: insertRendered } }
-                : {}),
-            },
-          };
-        }
-
-        try {
-          await insertClickHouseJsonEachRow({
-            table: 'analytics.sales_forecast',
-            columns: [...CLICKHOUSE_FORECAST_COLUMNS],
-            rows: buildClickHouseForecastRows(previewRows),
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Unknown ClickHouse error.';
-          const details = isAppError(error)
-            ? { code: error.code, details: error.details }
-            : undefined;
-          return {
-            dry_run: false,
-            accepted,
-            written: writableRows,
-            items,
-            meta: {
-              warnings: [
-                ...warnings,
-                'Iceberg write succeeded, but ClickHouse publication failed. Retry or run reconciliation before relying on Direct Query.',
-              ],
-              error: {
-                message,
-                ...(details ? { details } : {}),
-              },
-            },
-          };
-        }
-
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown ClickHouse error.';
+        const details = isAppError(error) ? { code: error.code, details: error.details } : undefined;
         return {
           dry_run: false,
           accepted,
-          written: writableRows,
-          items: items.map((it) => ({
-            ...it,
-            message: it.status === 'ok' ? `Written (${writeMode}).` : it.message,
-          })),
-          meta: {
-            warnings,
-            ...(debugSql ? { debug: { rendered_sql: rendered, insert_rendered_sql: insertRendered } } : {}),
-          },
+          written: 0,
+          items,
+          meta: { warnings, error: { message, ...(details ? { details } : {}) } },
         };
       }
 
       return {
-        dry_run: dryRun,
+        dry_run: false,
         accepted,
-        written: 0,
-        items,
-        meta: {
-          warnings,
-          ...(debugSql ? { debug: { rendered_sql: rendered } } : {}),
-        },
+        written: rows.length,
+        items: items.map((item) => ({ ...item, message: `Written (${writeMode}).` })),
+        meta: { warnings },
       };
     },
   });

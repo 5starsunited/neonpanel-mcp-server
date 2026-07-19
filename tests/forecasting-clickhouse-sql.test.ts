@@ -41,6 +41,22 @@ test('forecast catalog reads analytics.sales_forecast from ClickHouse', () => {
   assert.doesNotMatch(sql, /\{\{catalog\}\}|\{\{forecasting_database\}\}|\{\{sales_forecast_table\}\}/);
 });
 
+test('manual forecast writes validate and persist only through ClickHouse', () => {
+  const register = readForecastingAsset('write_sales_forecast', 'register.ts');
+
+  assert.match(register, /runClickHouseQuery/);
+  assert.match(register, /insertClickHouseJsonEachRow/);
+  assert.match(register, /FROM etl\.sku_dimensions/);
+  assert.doesNotMatch(register, /runAthenaQuery|config\.athena|Iceberg write/);
+
+  for (const obsoleteAsset of ['query.sql', 'insert.sql', 'delete.sql', 'audit_insert.sql']) {
+    assert.equal(
+      fs.existsSync(path.join(forecastingRoot, 'write_sales_forecast', obsoleteAsset)),
+      false,
+    );
+  }
+});
+
 for (const tool of [
   'get_sales_forecast_details',
   'compare_sales_forecast_scenarios',
