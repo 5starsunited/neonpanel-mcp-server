@@ -1,5 +1,5 @@
 -- Tool: forecasting_compare_sales_forecast_scenarios (detail mode)
--- Sources: ClickHouse analytics.sales_forecast and etl.inventory_planning_snapshot.
+-- Sources: ClickHouse etl.sales_forecast and etl.inventory_planning_snapshot.
 
 WITH params AS (
   SELECT
@@ -92,7 +92,7 @@ run_candidates AS (
       ) AS run_rank
     FROM (
       SELECT DISTINCT coalesce(f.dataset, 'unknown') AS scenario_name, f.updated_at AS run_updated_at
-      FROM analytics.sales_forecast AS f FINAL
+      FROM etl.sales_forecast AS f
       INNER JOIN items AS i ON f.company_id = i.company_id AND toUInt64(f.inventory_id) = i.inventory_id
       CROSS JOIN params AS p
       WHERE f.dataset != 'actual'
@@ -117,7 +117,7 @@ forecast_latest_rows AS (
     'forecast' AS series_type, coalesce(f.dataset, 'unknown') AS scenario_name,
     f.updated_at AS run_updated_at, f.forecast_period AS period, f.units_sold AS units_sold,
     f.sales_amount AS sales_amount, f.currency AS currency
-  FROM analytics.sales_forecast AS f FINAL
+  FROM etl.sales_forecast AS f
   INNER JOIN items AS i ON f.company_id = i.company_id AND toUInt64(f.inventory_id) = i.inventory_id
   INNER JOIN run_candidates AS rc ON rc.scenario_name = coalesce(f.dataset, 'unknown') AND rc.run_updated_at = f.updated_at
   CROSS JOIN params AS p
@@ -159,7 +159,7 @@ actual_latest_rows AS (
     'actual' AS series_type, 'actual' AS scenario_name,
     CAST(NULL, 'Nullable(DateTime64(3))') AS run_updated_at, f.forecast_period AS period,
     f.units_sold AS units_sold, f.sales_amount AS sales_amount, f.currency AS currency
-  FROM analytics.sales_forecast AS f FINAL
+  FROM etl.sales_forecast AS f
   INNER JOIN items AS i ON f.company_id = i.company_id AND toUInt64(f.inventory_id) = i.inventory_id
   CROSS JOIN params AS p
   WHERE p.include_actuals AND f.dataset = 'actual'
