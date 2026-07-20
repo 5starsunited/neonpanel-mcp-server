@@ -387,7 +387,7 @@ SELECT
   pil.month,
   pil.day
 FROM etl.inventory_planning_snapshot pil
-LEFT JOIN etl.sales_forecast AS fp
+LEFT JOIN analytics.sales_forecast AS fp FINAL
   ON fp.company_id = pil.company_id
   AND fp.inventory_id = pil.inventory_id
 CROSS JOIN latest_snapshot s

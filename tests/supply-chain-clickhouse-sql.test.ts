@@ -44,8 +44,7 @@ for (const tool of migratedTools) {
   test(`${tool} SQL uses production ClickHouse tables and dialect`, () => {
     const sql = fs.readFileSync(path.join(supplyChainRoot, tool, 'query.sql'), 'utf8');
 
-    assert.match(sql, /etl\.sales_forecast\s+AS\s+\w+/);
-    assert.doesNotMatch(sql, /sales_forecast\s+AS\s+\w+\s+FINAL/);
+    assert.match(sql, /analytics\.sales_forecast\s+AS\s+\w+\s+FINAL/);
     assert.match(sql, /etl\.inventory_planning_snapshot/);
     assert.match(sql, /QUALIFY\s+row_number\(\)\s+OVER/i);
     assert.match(sql, /toUInt64\(pil\.company_id\)\s+AS\s+company_id/i);

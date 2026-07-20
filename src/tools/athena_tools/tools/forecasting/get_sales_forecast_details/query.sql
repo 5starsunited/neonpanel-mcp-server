@@ -1,5 +1,5 @@
 -- Tool: forecasting_get_sales_forecast_details (detail mode)
--- Sources: ClickHouse etl.sales_forecast and etl.inventory_planning_snapshot.
+-- Sources: ClickHouse analytics.sales_forecast and etl.inventory_planning_snapshot.
 
 WITH params AS (
   SELECT
@@ -33,7 +33,7 @@ latest_snapshot AS (
 ),
 item_run_candidates AS (
   SELECT f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period, max(f.updated_at) AS run_updated_at
-  FROM etl.sales_forecast AS f
+  FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params AS p
   WHERE has(p.company_ids, f.company_id)
     AND f.dataset != 'actual'
@@ -60,7 +60,7 @@ forecast_latest_rows AS (
     f.forecast_period AS forecast_period, f.units_sold AS units_sold,
     f.sales_amount AS sales_amount, f.dataset AS dataset, f.scenario_uuid AS scenario_uuid,
     f.currency AS currency, f.amazon_marketplace_id AS amazon_marketplace_id, f.sku AS sku
-  FROM etl.sales_forecast AS f
+  FROM analytics.sales_forecast AS f FINAL
   INNER JOIN item_selected_run AS r
     ON r.company_id = f.company_id AND r.inventory_id = f.inventory_id
     AND r.scenario_uuid = f.scenario_uuid AND r.calc_period = f.calc_period
@@ -104,7 +104,7 @@ actual_latest_rows AS (
   SELECT
     f.company_id AS company_id, f.inventory_id AS inventory_id, f.forecast_period AS forecast_period,
     f.units_sold AS units_sold, f.sales_amount AS sales_amount, f.currency AS currency
-  FROM etl.sales_forecast AS f
+  FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params AS p
   WHERE has(p.company_ids, f.company_id) AND f.dataset = 'actual' AND p.include_actuals
     AND (empty(p.sales_channels) OR has(p.sales_channels, lower(trim(coalesce(f.sales_channel, '')))))
