@@ -74,6 +74,9 @@ for (const tool of [
 
       assert.match(sql, /analytics\.sales_forecast\s+AS\s+\w+\s+FINAL/);
       assert.match(sql, /etl\.inventory_planning_snapshot/);
+      // Product dimensions are sourced from the item-master catalog, not the planning snapshot.
+      assert.match(sql, /etl\.sku_dimensions AS dim/);
+      assert.match(sql, /coalesce\(nullIf\(dim\.brand, ''\), pil\.brand\)/);
       assert.match(sql, /has\(p\.company_ids,/);
       assert.doesNotMatch(sql, athenaRuntimeOrSql);
     });

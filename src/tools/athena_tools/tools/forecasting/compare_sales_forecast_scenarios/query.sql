@@ -50,8 +50,12 @@ items AS (
       SELECT
         toUInt64(pil.company_id) AS company_id, toUInt64(pil.inventory_id) AS inventory_id,
         coalesce(pil.sku, pil.merchant_sku, pil.ii_sku_key) AS sku,
-        pil.country_code AS marketplace_key, pil.child_asin, pil.parent_asin, pil.asin,
-        pil.product_name, pil.product_family, pil.brand, pil.ii_sku_key,
+        pil.country_code AS marketplace_key,
+        coalesce(nullIf(dim.child_asin, ''), pil.child_asin) AS child_asin,
+        coalesce(nullIf(dim.parent_asin, ''), pil.parent_asin) AS parent_asin, pil.asin,
+        coalesce(nullIf(dim.title, ''), pil.product_name) AS product_name,
+        coalesce(nullIf(dim.product_family, ''), pil.product_family) AS product_family,
+        coalesce(nullIf(dim.brand, ''), pil.brand) AS brand, pil.ii_sku_key,
         lower(trim(coalesce(pil.sku, pil.merchant_sku, pil.ii_sku_key))) AS normalized_sku,
         lower(trim(pil.country_code)) AS normalized_marketplace_key,
         concat(toString(s.year), '-', leftPad(toString(s.month), 2, '0'), '-', leftPad(toString(s.day), 2, '0')) AS snapshot_date,
@@ -62,6 +66,7 @@ items AS (
       FROM etl.inventory_planning_snapshot AS pil
       CROSS JOIN params AS p
       CROSS JOIN latest_snapshot AS s
+      LEFT JOIN etl.sku_dimensions AS dim ON dim.company_id = toUInt64(pil.company_id) AND dim.inventory_id = toUInt64(pil.inventory_id)
       WHERE has(p.company_ids, pil.company_id)
         AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
         AND (

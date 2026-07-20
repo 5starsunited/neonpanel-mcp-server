@@ -125,15 +125,26 @@ actual_item_series AS (
 ),
 t_base AS (
   SELECT
-    toUInt64(pil.company_id) AS company_id, pil.company_name, pil.company_short_name, pil.company_uuid,
-    toUInt64(pil.inventory_id) AS inventory_id, coalesce(pil.sku, pil.merchant_sku, fp.sku) AS sku, pil.country, pil.country_code,
-    pil.child_asin, pil.parent_asin, pil.asin, pil.fnsku, pil.merchant_sku, pil.brand, pil.product_family,
+    toUInt64(pil.company_id) AS company_id,
+    coalesce(nullIf(dim.company_name, ''), pil.company_name) AS company_name,
+    coalesce(nullIf(dim.company_short_name, ''), pil.company_short_name) AS company_short_name,
+    coalesce(nullIf(dim.company, ''), pil.company_uuid) AS company_uuid,
+    toUInt64(pil.inventory_id) AS inventory_id, coalesce(pil.sku, pil.merchant_sku, fp.sku) AS sku,
+    coalesce(nullIf(dim.country, ''), pil.country) AS country,
+    coalesce(nullIf(dim.market_country_code, ''), pil.country_code) AS country_code,
+    coalesce(nullIf(dim.child_asin, ''), pil.child_asin) AS child_asin,
+    coalesce(nullIf(dim.parent_asin, ''), pil.parent_asin) AS parent_asin,
+    pil.asin, coalesce(nullIf(dim.fnsku, ''), pil.fnsku) AS fnsku, pil.merchant_sku,
+    coalesce(nullIf(dim.brand, ''), pil.brand) AS brand,
+    coalesce(nullIf(dim.product_family, ''), pil.product_family) AS product_family,
     pil.revenue_abcd_class, pil.revenue_abcd_class_description, pil.pareto_abc_class,
     pil.revenue_share, pil.cumulative_revenue_share,
     pil.sales_last_30_days, pil.units_sold_last_30_days, pil.revenue_30d, pil.units_30d,
     CAST(NULL, 'Nullable(UInt64)') AS sales_forecast_scenario_id,
     fp.dataset AS sales_forecast_scenario_name, fp.scenario_uuid AS sales_forecast_scenario_uuid,
-    pil.seasonality_pattern, pil.asin_img_path, pil.product_name,
+    pil.seasonality_pattern,
+    coalesce(nullIf(dim.asin_image_url, ''), pil.asin_img_path) AS asin_img_path,
+    coalesce(nullIf(dim.title, ''), pil.product_name) AS product_name,
     pil.avg_units_30d, pil.avg_units_7d, pil.avg_units_3d,
     concat(toString(pil.year), '-', leftPad(toString(pil.month), 2, '0'), '-', leftPad(toString(pil.day), 2, '0')) AS snapshot_date,
     toString(fp.run_calc_period) AS forecast_run_period, fp.run_updated_at AS forecast_run_updated_at,
@@ -143,6 +154,7 @@ t_base AS (
   CROSS JOIN latest_snapshot AS s
   LEFT JOIN forecast_item_plan AS fp ON fp.company_id = toUInt64(pil.company_id) AND fp.inventory_id = toUInt64(pil.inventory_id)
   LEFT JOIN actual_item_series AS ap ON ap.company_id = toUInt64(pil.company_id) AND ap.inventory_id = toUInt64(pil.inventory_id)
+  LEFT JOIN etl.sku_dimensions AS dim ON dim.company_id = toUInt64(pil.company_id) AND dim.inventory_id = toUInt64(pil.inventory_id)
   WHERE has(p.company_ids, pil.company_id)
     AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
     AND (empty(p.skus) OR has(p.skus, coalesce(pil.sku, pil.merchant_sku, fp.sku))

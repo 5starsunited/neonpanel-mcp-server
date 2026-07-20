@@ -99,13 +99,19 @@ actual_item_periods AS (
 ),
 t_base AS (
   SELECT
-    toUInt64(pil.company_id) AS company_id, pil.company_name,
+    toUInt64(pil.company_id) AS company_id, coalesce(nullIf(dim.company_name, ''), pil.company_name) AS company_name,
     toUInt64(pil.inventory_id) AS inventory_id, coalesce(pil.sku, pil.merchant_sku) AS sku,
-    pil.country_code, pil.country, pil.child_asin, pil.parent_asin, pil.brand, pil.product_family,
+    coalesce(nullIf(dim.market_country_code, ''), pil.country_code) AS country_code,
+    coalesce(nullIf(dim.country, ''), pil.country) AS country,
+    coalesce(nullIf(dim.child_asin, ''), pil.child_asin) AS child_asin,
+    coalesce(nullIf(dim.parent_asin, ''), pil.parent_asin) AS parent_asin,
+    coalesce(nullIf(dim.brand, ''), pil.brand) AS brand,
+    coalesce(nullIf(dim.product_family, ''), pil.product_family) AS product_family,
     pil.sales_last_30_days, pil.units_sold_last_30_days, pil.revenue_30d, pil.units_30d,
     concat(toString(pil.year), '-', leftPad(toString(pil.month), 2, '0'), '-', leftPad(toString(pil.day), 2, '0')) AS snapshot_date
   FROM etl.inventory_planning_snapshot AS pil
   CROSS JOIN params AS p CROSS JOIN latest_snapshot AS s
+  LEFT JOIN etl.sku_dimensions AS dim ON dim.company_id = toUInt64(pil.company_id) AND dim.inventory_id = toUInt64(pil.inventory_id)
   WHERE has(p.company_ids, pil.company_id)
     AND pil.year = s.year AND pil.month = s.month AND pil.day = s.day
     AND (empty(p.skus) OR has(p.skus, coalesce(pil.sku, pil.merchant_sku)) OR has(p.skus_lower, lower(coalesce(pil.sku, pil.merchant_sku))))
