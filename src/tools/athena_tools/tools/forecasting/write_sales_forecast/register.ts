@@ -352,7 +352,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
 
       try {
         await insertClickHouseJsonEachRow({
-          table: 'analytics.sales_forecast',
+          table: 'etl.sales_forecast',
           columns: [...CLICKHOUSE_FORECAST_COLUMNS],
           rows,
         });

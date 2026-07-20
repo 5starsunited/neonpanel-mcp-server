@@ -29,14 +29,14 @@ const athenaRuntimeOrSql = new RegExp([
   '\\bfrom_iso8601_timestamp\\b',
 ].join('|'), 'i');
 
-test('forecast catalog reads analytics.sales_forecast from ClickHouse', () => {
+test('forecast catalog reads etl.sales_forecast from ClickHouse', () => {
   const sqlPath = path.join(
     process.cwd(),
     'src/tools/athena_tools/tools/forecasting/list_sales_forecasts/query.sql',
   );
   const sql = fs.readFileSync(sqlPath, 'utf8');
 
-  assert.match(sql, /FROM analytics\.sales_forecast AS f FINAL/);
+  assert.match(sql, /FROM etl\.sales_forecast AS f/);
   assert.match(sql, /has\(p\.company_ids, f\.company_id\)/);
   assert.doesNotMatch(sql, /\{\{catalog\}\}|\{\{forecasting_database\}\}|\{\{sales_forecast_table\}\}/);
 });
@@ -72,7 +72,8 @@ for (const tool of [
     test(`${tool}/${sqlFile} uses production ClickHouse tables and dialect`, () => {
       const sql = readForecastingAsset(tool, sqlFile);
 
-      assert.match(sql, /analytics\.sales_forecast\s+AS\s+\w+\s+FINAL/);
+      assert.match(sql, /etl\.sales_forecast\s+AS\s+\w+/);
+      assert.doesNotMatch(sql, /sales_forecast\s+AS\s+\w+\s+FINAL/);
       assert.match(sql, /etl\.inventory_planning_snapshot/);
       assert.match(sql, /has\(p\.company_ids,/);
       assert.doesNotMatch(sql, athenaRuntimeOrSql);
