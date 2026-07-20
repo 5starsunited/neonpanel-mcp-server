@@ -1,5 +1,5 @@
 -- Tool: supply_chain_list_po_placement_candidates
--- Sources: ClickHouse etl.sales_forecast and etl.inventory_planning_snapshot.
+-- Sources: ClickHouse analytics.sales_forecast and etl.inventory_planning_snapshot.
 
 WITH params AS (
   SELECT
@@ -38,7 +38,7 @@ forecast_run_candidates AS (
     f.scenario_uuid AS scenario_uuid,
     f.calc_period AS calc_period,
     max(f.updated_at) AS run_updated_at
-  FROM etl.sales_forecast AS f
+  FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params AS p
   WHERE has(p.company_ids, f.company_id) AND f.dataset != 'actual'
   GROUP BY f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period
@@ -61,7 +61,7 @@ forecast_latest_rows AS (
     f.inventory_id AS inventory_id,
     f.forecast_period AS forecast_period,
     coalesce(toFloat64(f.units_sold), 0.0) AS units_sold
-  FROM etl.sales_forecast AS f
+  FROM analytics.sales_forecast AS f FINAL
   INNER JOIN forecast_selected_run AS selected
     ON selected.company_id = f.company_id
     AND selected.inventory_id = f.inventory_id

@@ -2,7 +2,7 @@
 -- Purpose: Catalog/index of all forecast runs available for a company.
 --   Each row = one distinct forecast run (company_id, calc_period, updated_at, dataset).
 --   Use this to discover what forecasts exist before comparing or reviewing them.
--- Source: ClickHouse etl.sales_forecast.
+-- Source: ClickHouse analytics.sales_forecast.
 
 WITH params AS (
   SELECT
@@ -39,7 +39,7 @@ forecast_runs AS (
     groupUniqArray(coalesce(f.country_code, 'UNKNOWN')) AS country_codes,
     uniqExact(f.sku) AS sku_count
 
-  FROM etl.sales_forecast AS f
+  FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params p
   WHERE
     has(p.company_ids, f.company_id)
