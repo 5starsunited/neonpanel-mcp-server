@@ -6,6 +6,10 @@
 --   arrayExists(x -> .., a), CAST(x AS DOUBLE) -> toFloat64(x), DATE 'x' -> toDate('x').
 -- Data source: ClickHouse tables loaded from the Iceberg lake (one-time snapshot for the
 -- migration pilot; incremental pipeline pending).
+-- DIVERGENCE from the (now deprecated) Athena twin: this version threads posted_date_day
+-- forward and adds an optional time bucket ({{period_expr}} -> the `period` column) so
+-- results can be broken out by day/week/month/quarter/year. period is NULL when
+-- periodicity='none', which reproduces the original class/subclass/currency grouping.
 WITH params AS (
     SELECT
         toInt64({{company_id}})         AS company_id,
@@ -25,7 +29,10 @@ fx AS (
 ),
 source_rows AS (
     SELECT r.*
-    FROM {{database}}.financial_transaction_lines_v1 r
+    -- Serving VIEW (analytics): reproduces Iceberg's per-transaction restate/delete fidelity
+    -- (latest generation per company_id+transaction_id, tombstones excluded). Live via the
+    -- S3 ClickPipe fed by the aws_etl Lambda. Dims (currency_rates, class_map) stay in staging.
+    FROM analytics.financial_transaction_lines_v1_current r
     CROSS JOIN params p
     WHERE toInt64(r.company_id) = p.company_id
       AND (length(p.report_months) = 0 OR has(p.report_months, r.posted_month))
@@ -62,6 +69,7 @@ priced_lines AS (
         l.match_key,
         l.fulfillment_network,
         COALESCE(l.currency, 'UNKNOWN') AS currency,
+        l.posted_date_day,
         l.amount,
         CASE WHEN p.consolidation_currency IS NOT NULL
                   AND fr.rate IS NOT NULL AND fc.rate IS NOT NULL AND fc.rate <> 0
@@ -88,6 +96,7 @@ resolved AS (
     SELECT
         l.match_key           AS match_key,
         l.currency            AS currency,
+        l.posted_date_day     AS posted_date_day,
         l.amount              AS amount,
         l.amount_consolidated AS amount_consolidated,
         l.fx_missing          AS fx_missing,
@@ -112,6 +121,10 @@ combined AS (
         COALESCE(class_order, 9)                              AS class_order,
         COALESCE(subclass_order, 999)                         AS subclass_order,
         currency,
+        -- Time bucket over the marketplace-local posted day. {{period_expr}} is
+        -- CAST(NULL AS Nullable(Date)) when periodicity='none' (single group,
+        -- period=NULL), else toStartOf{Day,Week,Month,Quarter,Year}(posted_date_day).
+        {{period_expr}}                                       AS period,
         amount,
         amount_consolidated,
         fx_missing
@@ -122,6 +135,7 @@ subclass_summary AS (
         summary_class,
         summary_subclass,
         currency,
+        period,
         MIN(class_order) AS class_order,
         MIN(subclass_order) AS subclass_order,
         SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS debits,
@@ -131,7 +145,7 @@ subclass_summary AS (
         SUM(fx_missing) AS fx_missing_lines,
         COUNT(*) AS line_count
     FROM combined
-    GROUP BY summary_class, summary_subclass, currency
+    GROUP BY summary_class, summary_subclass, currency, period
 ),
 final_rows AS (
     SELECT s.*
@@ -147,6 +161,7 @@ final_rows AS (
     )
 )
 SELECT
+    f.period,
     f.class_order,
     f.subclass_order,
     f.summary_class,
@@ -161,5 +176,7 @@ SELECT
     f.line_count
 FROM final_rows f
 CROSS JOIN params p
-ORDER BY {{sort_column}} {{sort_direction}}, class_order ASC, subclass_order ASC, currency ASC
+-- period leads the ordering so time-series results come back chronologically;
+-- when periodicity='none' every period is NULL, so this leading key is a no-op.
+ORDER BY period ASC, {{sort_column}} {{sort_direction}}, class_order ASC, subclass_order ASC, currency ASC
 LIMIT {{limit_top_n}}

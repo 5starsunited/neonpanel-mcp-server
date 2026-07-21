@@ -107,6 +107,21 @@ const SORTABLE_FIELDS = [
   'line_count',
 ] as const;
 
+const PERIODICITIES = ['none', 'day', 'week', 'month', 'quarter', 'year'] as const;
+type Periodicity = (typeof PERIODICITIES)[number];
+
+// ClickHouse date-bucket expression over the marketplace-local posted day.
+// 'none' collapses to a single NULL bucket, preserving the legacy
+// (class, subclass, currency) grouping. week starts Monday (toMonday).
+const PERIOD_EXPR: Record<Periodicity, string> = {
+  none: 'CAST(NULL AS Nullable(Date))',
+  day: 'toDate(posted_date_day)',
+  week: 'toMonday(posted_date_day)',
+  month: 'toStartOfMonth(posted_date_day)',
+  quarter: 'toStartOfQuarter(posted_date_day)',
+  year: 'toStartOfYear(posted_date_day)',
+};
+
 const querySchema = z
   .object({
     filters: z
@@ -128,6 +143,7 @@ const querySchema = z
         direction: z.enum(['asc', 'desc']).default('asc').optional(),
       })
       .optional(),
+    periodicity: z.enum(PERIODICITIES).default('none').optional(),
     limit: z.coerce.number().int().min(1).max(500).default(200).optional(),
   })
   .strict();
@@ -139,6 +155,7 @@ const inputSchema = z
     query: querySchema.optional(),
     filters: z.unknown().optional(),
     sort: z.unknown().optional(),
+    periodicity: z.unknown().optional(),
     limit: z.unknown().optional(),
   })
   .strict();
@@ -159,7 +176,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
   registry.register({
     name: 'financials_analyze_financial_transactions_ch',
     description:
-      'ClickHouse PILOT twin of financials_analyze_financial_transactions: same analysis (SP-API financial transactions summarized into summary_class / summary_subclass), same filters and output shape, but served from the ClickHouse warehouse instead of Athena (sub-second vs multi-second). DATA FRESHNESS: reads a one-time snapshot loaded 2026-07-06 (transactions through 2026-07-04); use the non-_ch tool when the analysis needs data newer than that. Intended for A/B evaluation of the ClickHouse migration.',
+      'Analyzes Amazon SP-API financial transactions summarized into summary_class / summary_subclass, served from the ClickHouse warehouse (sub-second). Supersedes the DEPRECATED Athena tool financials_analyze_financial_transactions. Adds a periodicity parameter: none (default, classic class/subclass totals) or day/week/month/quarter/year for time-series breakouts over the marketplace-local posted day - each row then also carries a period date. DATA: served from the tenant-isolated analytics.financial_transaction_lines_v1_current view (latest generation per transaction, restatements/deletes applied), kept live by the S3 ClickPipe fed by the SP-API Lambda; Iceberg is retired from this path.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -170,6 +187,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
         parsed.query ?? {
           filters: parsed.filters,
           sort: parsed.sort,
+          periodicity: parsed.periodicity,
           limit: parsed.limit,
         },
       ) as QueryInput;
@@ -222,6 +240,8 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
       const limitTopN = query.limit ?? 200;
       const sortField = query.sort?.field ?? 'class_order';
       const sortDirection = query.sort?.direction ?? 'asc';
+      const periodicity: Periodicity = query.periodicity ?? 'none';
+      const periodExpr = PERIOD_EXPR[periodicity];
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
@@ -236,6 +256,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsChTool(registry: T
           : 'CAST(NULL AS Nullable(String))',
         summary_classes_array: chStringArrayExpr(summaryClasses),
         summary_subclasses_array: chStringArrayExpr(summarySubclasses),
+        period_expr: periodExpr,
         limit_top_n: Number(limitTopN),
         sort_column: sortField,
         sort_direction: sortDirection.toUpperCase(),
