@@ -1,6 +1,6 @@
 {
   "name": "advertising_analyze_campaign_performance",
-  "description": "Analyzes Amazon Advertising Marketing Stream data across Sponsored Products (SP), Sponsored Brands (SB), and Sponsored Display (SD), enriched with ASIN attributes.\n\nUse this tool to:\n- Compare campaign-level or ad-group-level ROAS, ACoS, and spend efficiency\n- Analyze performance by placement (Top of Search, Detail Page, Other, Off Amazon)\n- Slice spend by ad type (SP vs SB vs SD) to find the most efficient channel\n- Track monthly or yearly trends in advertising efficiency\n- Identify top/bottom campaigns by any KPI\n- Filter by product dimensions (product_family, brand, pareto class) to see ad spend allocation by portfolio segment\n- Drill into targeting keywords to see which targeting expressions drive conversions\n\nData enrichment: Each row is enriched with ASIN attributes (product_family, brand, pareto_abc_class, revenue_abcd_class, revenue_share) via the purchased/advertised ASIN.\n\nPeriodicity: Data is daily granularity. Group by day, month, year, or total (no time breakdown).\n\nIntegration note: Use with advertising_analyze_search_terms for search-query-level drill-down (SP only), or brand_analytics_get_search_term_momentum to correlate ad spend with organic momentum.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-campaign-analysis",
+  "description": "Analyzes Amazon Advertising Marketing Stream data across Sponsored Products (SP), Sponsored Brands (SB), and Sponsored Display (SD), enriched with SKU product family and brand.\n\nUse this tool to:\n- Compare campaign-level or ad-group-level ROAS, ACoS, and spend efficiency\n- Analyze performance by placement (Top of Search, Detail Page, Other, Off Amazon)\n- Slice spend by ad type (SP vs SB vs SD) to find the most efficient channel\n- Track monthly or yearly trends in advertising efficiency\n- Identify top/bottom campaigns by any KPI\n- Filter by product family or brand to see ad spend allocation by portfolio segment\n- Drill into targeting keywords to see which targeting expressions drive conversions\n\nPeriodicity: Data is daily granularity. Group by day, month, year, or total (no time breakdown).\n\nIntegration note: Use with advertising_analyze_search_terms for search-query-level drill-down (SP only), or brand_analytics_get_search_term_momentum to correlate ad spend with organic momentum.\n\nKnowledge base: https://help.neonpanel.com/en/articles/advertising-campaign-analysis",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -110,31 +110,6 @@
                   "type": "string"
                 },
                 "description": "Filter by brand name (from ASIN attributes)."
-              },
-              "pareto_abc_classes": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "A",
-                    "B",
-                    "C"
-                  ]
-                },
-                "description": "Filter by Pareto ABC class. A = top revenue, C = long tail."
-              },
-              "revenue_abcd_classes": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "A",
-                    "B",
-                    "C",
-                    "D"
-                  ]
-                },
-                "description": "Filter by revenue ABCD class."
               }
             },
             "required": [
@@ -194,8 +169,6 @@
                     "advertised_asin",
                     "product_family",
                     "brand",
-                    "pareto_abc_class",
-                    "revenue_abcd_class",
                     "company",
                     "marketplace"
                   ]
@@ -345,20 +318,6 @@
               ],
               "description": "Brand from ASIN attributes. 'undefined' when ASIN has no attributes. Null when not in group_by."
             },
-            "pareto_abc_class": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "description": "Pareto ABC class (A=top revenue, C=long tail). Null when not in group_by."
-            },
-            "revenue_abcd_class": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "description": "Revenue ABCD class. Null when not in group_by."
-            },
             "company_id": {
               "type": [
                 "integer",
@@ -477,13 +436,6 @@
                 "null"
               ],
               "description": "Number of distinct advertised ASINs in the aggregated rows."
-            },
-            "avg_revenue_share": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Average revenue share from ASIN attributes (0-1 scale). Null when ASIN has no attributes."
             }
           },
           "additionalProperties": true

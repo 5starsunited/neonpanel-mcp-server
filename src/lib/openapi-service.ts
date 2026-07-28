@@ -12,11 +12,18 @@ export interface OpenApiStatusOptions {
 
 export interface OpenApiStatus {
   source: 'memory' | 'local-file' | 'remote' | 'unknown';
+  remoteUrl: string;
   lastFetchedAt?: string;
   cacheTtlMs: number;
   cacheAgeMs?: number;
   cacheExpiresAt?: string;
   etag?: string;
+  document?: {
+    openapiVersion: string;
+    pathCount: number;
+    serializedSizeBytes: number;
+  };
+  lastRefresh?: OpenApiRefreshResult;
   remote?: {
     reachable: boolean;
     status?: number;
@@ -24,12 +31,18 @@ export interface OpenApiStatus {
   };
 }
 
+export interface OpenApiRefreshResult {
+  outcome: 'updated' | 'not-modified' | 'fallback';
+  error?: string;
+}
+
 export class OpenApiService {
   private cache: unknown | null = null;
   private lastFetchedAt: number | null = null;
   private etag: string | null = null;
   private source: OpenApiStatus['source'] = 'unknown';
-  private refreshing: Promise<void> | null = null;
+  private refreshing: Promise<OpenApiRefreshResult> | null = null;
+  private lastRefresh: OpenApiRefreshResult | undefined;
 
   constructor(
     private readonly remoteUrl = config.neonpanel.openApiUrl,
@@ -68,9 +81,16 @@ export class OpenApiService {
     const now = Date.now();
     const status: OpenApiStatus = {
       source: this.source,
+      remoteUrl: this.remoteUrl,
       cacheTtlMs: this.cacheTtlMs,
       etag: this.etag ?? undefined,
+      lastRefresh: this.lastRefresh,
     };
+
+    const metadata = getOpenApiMetadata(this.cache);
+    if (metadata) {
+      status.document = metadata;
+    }
 
     if (this.lastFetchedAt) {
       status.lastFetchedAt = new Date(this.lastFetchedAt).toISOString();
@@ -111,44 +131,49 @@ export class OpenApiService {
     return status;
   }
 
-  public async refreshFromRemote(): Promise<void> {
+  public async refreshFromRemote(): Promise<OpenApiRefreshResult> {
     if (this.refreshing) {
-      await this.refreshing;
-      return;
+      return this.refreshing;
     }
 
     this.refreshing = this.performRemoteRefresh();
     try {
-      await this.refreshing;
+      const result = await this.refreshing;
+      this.lastRefresh = result;
+      return result;
     } finally {
       this.refreshing = null;
     }
   }
 
-  private async performRemoteRefresh() {
+  private async performRemoteRefresh(): Promise<OpenApiRefreshResult> {
     logger.info({ url: this.remoteUrl }, 'Refreshing OpenAPI schema from NeonPanel');
 
-    const response = await this.fetchFn(this.remoteUrl, {
-      headers: {
-        Accept: 'application/json',
-        ...(this.etag ? { 'If-None-Match': this.etag } : undefined),
-      },
-    });
+    let response: Awaited<ReturnType<typeof this.fetchFn>>;
+    try {
+      response = await this.fetchFn(this.remoteUrl, {
+        headers: {
+          Accept: 'application/yaml, application/json',
+          ...(this.etag ? { 'If-None-Match': this.etag } : undefined),
+        },
+      });
+    } catch (error) {
+      return this.useFallback('Unable to fetch OpenAPI schema from remote', error);
+    }
 
     if (response.status === 304) {
-      logger.debug('OpenAPI schema not modified; using cached version');
-      this.lastFetchedAt = Date.now();
-      this.source = 'remote';
-      return;
+      if (isOpenApiDocument(this.cache)) {
+        logger.debug('OpenAPI schema not modified; using cached version');
+        this.lastFetchedAt = Date.now();
+        this.source = 'remote';
+        return { outcome: 'not-modified' };
+      }
+      return this.useFallback('Remote returned 304 but no valid OpenAPI cache is available');
     }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '<unavailable>');
-      logger.warn({ status: response.status, body }, 'Failed to refresh OpenAPI schema from remote');
-      if (!this.cache) {
-        await this.loadFromDisk();
-      }
-      return;
+      return this.useFallback(`Remote returned HTTP ${response.status}`, undefined, body);
     }
 
     // Be defensive: the remote endpoint may intermittently return non-JSON payloads
@@ -173,25 +198,14 @@ export class OpenApiService {
         'Failed to parse OpenAPI schema payload; keeping existing cache',
       );
 
-      if (!this.cache) {
-        await this.loadFromDisk();
-      }
+      return this.useFallback('Unable to parse OpenAPI schema payload', error, rawBody);
+    }
 
-      // If we still have no schema at all, return a minimal placeholder instead of throwing.
-      if (!this.cache) {
-        this.cache = {
-          openapi: '3.1.0',
-          info: {
-            title: 'NeonPanel API',
-            version: 'unknown',
-          },
-          paths: {},
-        };
-        this.lastFetchedAt = Date.now();
-        this.source = 'unknown';
-      }
-
-      return;
+    if (!isOpenApiDocument(document)) {
+      return this.useFallback('Remote payload is not a valid OpenAPI document', undefined, rawBody, {
+        status: response.status,
+        contentType,
+      });
     }
 
     this.cache = document;
@@ -199,6 +213,7 @@ export class OpenApiService {
     this.etag = response.headers.get('etag');
     this.source = 'remote';
     await this.persistToDisk(document);
+    return { outcome: 'updated' };
   }
 
   private async loadFromDisk() {
@@ -208,7 +223,12 @@ export class OpenApiService {
 
     try {
       const raw = await readFile(this.localPath, 'utf8');
-      this.cache = JSON.parse(raw);
+      const document = JSON.parse(raw);
+      if (!isOpenApiDocument(document)) {
+        logger.warn({ path: this.localPath }, 'Ignoring invalid local OpenAPI cache');
+        return;
+      }
+      this.cache = document;
       const fileStats = await stat(this.localPath);
       this.lastFetchedAt = fileStats.mtimeMs;
       this.source = 'local-file';
@@ -234,6 +254,38 @@ export class OpenApiService {
     }
 
     return Date.now() - this.lastFetchedAt >= this.cacheTtlMs;
+  }
+
+  private async useFallback(
+    error: string,
+    cause?: unknown,
+    body?: string,
+    details: Record<string, unknown> = {},
+  ): Promise<OpenApiRefreshResult> {
+    logger.warn(
+      {
+        ...details,
+        err: cause,
+        bodySnippet: body === undefined ? undefined : body.slice(0, 500),
+      },
+      `${error}; keeping existing OpenAPI cache`,
+    );
+
+    if (!isOpenApiDocument(this.cache)) {
+      await this.loadFromDisk();
+    }
+
+    if (!isOpenApiDocument(this.cache)) {
+      this.cache = {
+        openapi: '3.1.0',
+        info: { title: 'NeonPanel API', version: 'unknown' },
+        paths: {},
+      };
+      this.lastFetchedAt = Date.now();
+      this.source = 'unknown';
+    }
+
+    return { outcome: 'fallback', error };
   }
 
   /**
@@ -275,6 +327,44 @@ export class OpenApiService {
 
     return modified;
   }
+}
+
+function isOpenApiDocument(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const document = value as Record<string, unknown>;
+  if (typeof document.openapi !== 'string' || !document.openapi.startsWith('3.')) {
+    return false;
+  }
+
+  if (!document.info || typeof document.info !== 'object' || Array.isArray(document.info)) {
+    return false;
+  }
+
+  if (!document.paths || typeof document.paths !== 'object' || Array.isArray(document.paths)) {
+    return false;
+  }
+
+  return Object.values(document.paths as Record<string, unknown>).some((pathItem) => {
+    if (!pathItem || typeof pathItem !== 'object' || Array.isArray(pathItem)) {
+      return false;
+    }
+    return Object.keys(pathItem).some((key) => ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].includes(key));
+  });
+}
+
+function getOpenApiMetadata(document: unknown): OpenApiStatus['document'] | undefined {
+  if (!isOpenApiDocument(document)) {
+    return undefined;
+  }
+
+  return {
+    openapiVersion: document.openapi as string,
+    pathCount: Object.keys(document.paths as Record<string, unknown>).length,
+    serializedSizeBytes: Buffer.byteLength(JSON.stringify(document)),
+  };
 }
 
 function jsonToYaml(value: unknown, indent = 0): string {

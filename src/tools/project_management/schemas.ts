@@ -103,18 +103,15 @@ export const billPayloadSchema = z.object({
 });
 
 export const invoiceDetailInputSchema = z.object({
-  inventory_id: z.coerce.number().int().min(1).optional(),
-  service_id: z.coerce.number().int().min(1).optional(),
+  inventory_id: z.coerce.number().int().min(1).nullable().optional(),
+  service_id: z.coerce.number().int().min(1),
   quantity: z.coerce.number().int(),
   amount: z.coerce.number(),
-}).refine((d) => d.inventory_id != null || d.service_id != null, {
-  message: 'Provide at least one of inventory_id or service_id',
 });
 
-export const invoicePayloadSchema = z.object({
+const invoicePayloadSchema = z.object({
   name: z.string().nullable().optional(),
-  ref_number: z.string().optional(),
-  date: isoDateSchema.nullable().optional(),
+  transaction_date: isoDateSchema.nullable().optional(),
   market: z.string().length(2).nullable().optional(),
   currency: z.string().length(3).nullable().optional(),
   warehouse_id: z.coerce.number().int().min(1).nullable().optional(),
@@ -167,7 +164,9 @@ export const createInventoryOrderInputSchema = companyScopedBaseSchema.merge(inv
 export const createBillInputSchema = companyScopedBaseSchema.merge(billPayloadSchema)
   .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
-export const createInvoiceInputSchema = companyScopedBaseSchema.merge(invoicePayloadSchema)
+export const createInvoiceInputSchema = companyScopedBaseSchema.merge(invoicePayloadSchema.extend({
+  ref_number: z.string().min(1),
+}))
   .refine(hasCompanyIdentifier, { message: 'Provide company_id or companyUuid' });
 
 export const createAdjustmentInputSchema = companyScopedBaseSchema.merge(adjustmentPayloadSchema)

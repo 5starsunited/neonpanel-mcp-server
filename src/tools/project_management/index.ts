@@ -166,8 +166,7 @@ const invoiceProjectJsonSchema = {
   description: 'Manual invoice payload. Only manual invoices can be updated via the API.',
   properties: {
     name: { type: ['string', 'null'], description: 'Free-text display name for the invoice.' },
-    ref_number: { type: 'string', description: 'Human-readable invoice reference. Accepted on create only by NeonPanel.' },
-    date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Invoice transaction date (YYYY-MM-DD).' },
+    transaction_date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Invoice transaction date (YYYY-MM-DD).' },
     market: { type: ['string', 'null'], minLength: 2, maxLength: 2, description: 'ISO 3166-1 alpha-2 marketplace/country code.' },
     currency: { type: ['string', 'null'], minLength: 3, maxLength: 3, description: 'ISO 4217 currency code.' },
     warehouse_id: { type: ['integer', 'null'], minimum: 1, description: 'Warehouse ID associated with the invoice.' },
@@ -175,20 +174,16 @@ const invoiceProjectJsonSchema = {
     sales_channel_id: { type: ['integer', 'null'], minimum: 1, description: 'Sales channel ID.' },
     details: {
       type: ['array', 'null'],
-      description: 'Invoice line items. On update, providing details replaces all existing line items. Positive quantity means stock sold; negative quantity means customer return. Each line must reference at least one of inventory_id (product sale) or service_id (fee/charge); both may be supplied together.',
+      description: 'Invoice line items. On update, providing details replaces all existing line items. Positive quantity means stock sold; negative quantity means customer return. Each line requires service_id; add inventory_id when the line moves stock.',
       items: {
         type: 'object',
         properties: {
-          inventory_id: { type: 'integer', minimum: 1, description: 'Inventory record ID. Optional if service_id is provided.' },
-          service_id: { type: 'integer', minimum: 1, description: 'Associated service ID. Optional if inventory_id is provided.' },
+          inventory_id: { type: ['integer', 'null'], minimum: 1, description: 'Inventory record ID. Optional for service-only lines.' },
+          service_id: { type: 'integer', minimum: 1, description: 'Associated service ID. Required on every invoice line.' },
           quantity: { type: 'integer', description: 'Display quantity. Positive=sold, negative=returned.' },
           amount: { type: 'number', description: 'Total monetary amount for this line.' },
         },
-        required: ['quantity', 'amount'],
-        anyOf: [
-          { required: ['inventory_id'] },
-          { required: ['service_id'] },
-        ],
+        required: ['service_id', 'quantity', 'amount'],
         additionalProperties: false,
       },
     },
@@ -258,7 +253,11 @@ const shipmentProjectJsonSchema = {
   additionalProperties: false,
 };
 
-function projectInputJsonSchema(projectJsonSchema: { properties: Record<string, unknown> }, idProperty?: [string, string]) {
+function projectInputJsonSchema(
+  projectJsonSchema: { properties: Record<string, unknown> },
+  idProperty?: [string, string],
+  requiredProperties: string[] = [],
+) {
   const idProperties = idProperty
     ? {
         [idProperty[0]]: {
@@ -276,7 +275,7 @@ function projectInputJsonSchema(projectJsonSchema: { properties: Record<string, 
       ...idProperties,
       ...projectJsonSchema.properties,
     },
-    required: idProperty ? [idProperty[0]] : [],
+    required: [...(idProperty ? [idProperty[0]] : []), ...requiredProperties],
     additionalProperties: false,
   };
 }
@@ -285,7 +284,13 @@ const createInventoryOrderInputJsonSchema = projectInputJsonSchema(inventoryOrde
 const updateInventoryOrderInputJsonSchema = projectInputJsonSchema(inventoryOrderProjectJsonSchema, ['inventory_order_id', 'Inventory Order / Purchase Order ID.']);
 const createBillInputJsonSchema = projectInputJsonSchema(billProjectJsonSchema);
 const updateBillInputJsonSchema = projectInputJsonSchema(billProjectJsonSchema, ['bill_id', 'Bill ID.']);
-const createInvoiceInputJsonSchema = projectInputJsonSchema(invoiceProjectJsonSchema);
+const createInvoiceInputJsonSchema = projectInputJsonSchema({
+  ...invoiceProjectJsonSchema,
+  properties: {
+    ...invoiceProjectJsonSchema.properties,
+    ref_number: { type: 'string', minLength: 1, description: 'Human-readable invoice reference. Required when creating an invoice.' },
+  },
+}, undefined, ['ref_number']);
 const updateInvoiceInputJsonSchema = projectInputJsonSchema(invoiceProjectJsonSchema, ['invoice_id', 'Manual invoice ID.']);
 const createAdjustmentInputJsonSchema = projectInputJsonSchema(adjustmentProjectJsonSchema);
 const updateAdjustmentInputJsonSchema = projectInputJsonSchema(adjustmentProjectJsonSchema, ['adjustment_id', 'Inventory adjustment ID.']);
@@ -631,13 +636,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_create_invoice',
-      description: 'Create a NeonPanel manual invoice. Each detail line uses quantity and amount plus at least one of inventory_id (product sale) or service_id (fee/charge); both may be supplied together.',
+      description: 'Create a NeonPanel manual invoice. ref_number is required. Each detail line requires service_id; add inventory_id for a product sale.',
       isConsequential: true,
       inputSchema: createInvoiceInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
         name: 'project_management_create_invoice',
-        description: 'Create a NeonPanel manual invoice. Each detail line uses quantity and amount plus at least one of inventory_id (product sale) or service_id (fee/charge); both may be supplied together.',
+        description: 'Create a NeonPanel manual invoice. ref_number is required. Each detail line requires service_id; add inventory_id for a product sale.',
         isConsequential: true,
         inputSchema: createInvoiceInputJsonSchema,
         outputSchema: passthroughOutputSchema,
@@ -648,7 +653,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
           arguments: {
             company_id: 230,
             ref_number: 'REF-INV-001',
-            date: '2026-05-03',
+            transaction_date: '2026-05-03',
             market: 'US',
             currency: 'USD',
             warehouse_id: 3,
@@ -665,13 +670,13 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
     })
     .register({
       name: 'project_management_update_invoice',
-      description: 'Sparse-update a NeonPanel manual invoice. Only manual invoices can be updated via the API. Providing details replaces all existing line items.',
+      description: 'Sparse-update a NeonPanel manual invoice. Only manual invoices can be updated via the API; ref_number cannot be changed. Providing details replaces all existing line items.',
       isConsequential: true,
       inputSchema: updateInvoiceInputSchema,
       outputSchema: passthroughOutputSchema,
       specJson: {
         name: 'project_management_update_invoice',
-        description: 'Sparse-update a NeonPanel manual invoice. Only manual invoices can be updated via the API. Providing details replaces all existing line items.',
+        description: 'Sparse-update a NeonPanel manual invoice. Only manual invoices can be updated via the API; ref_number cannot be changed. Providing details replaces all existing line items.',
         isConsequential: true,
         inputSchema: updateInvoiceInputJsonSchema,
         outputSchema: passthroughOutputSchema,
@@ -682,7 +687,7 @@ export function registerProjectManagementTools(registry: ToolRegistry) {
           arguments: {
             company_id: 230,
             invoice_id: 17,
-            date: '2026-05-03',
+            transaction_date: '2026-05-03',
           },
         },
       ],

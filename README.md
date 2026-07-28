@@ -57,23 +57,23 @@ Thin MCP bridge over the NeonPanel REST API with Provider OAuth bearer validatio
 
 **Production:** https://mcp.neonpanel.com
 
-### NeonPanel API Schemas
+### NeonPanel API Reference
 
-NeonPanel exposes multiple OpenAPI documents:
+NeonPanel publishes a consolidated OpenAPI document for all API updates:
 
-- **General API** (`https://my.neonpanel.com/api/v1/scheme/3.1.0`) — core platform endpoints
-- **Documents API** (`https://my.neonpanel.com/api/v1/scheme/documents`) — project/document routes: Inventory Orders, Bills, Shipments, Invoices, Adjustments, Payment Requests, Assembly Orders, Vendors, Services, Payment Terms, Sales Channels
+- **OpenAPI YAML**: `https://my.neonpanel.com/api/v1/openapi`
+- **Visual reference and YAML/JSON downloads**: `https://my.neonpanel.com/api/v1/reference`
 
-> **When updating MCP tools**, always refresh from the Documents API schema — it is the authoritative source for all `project_management_*` tools:
+When updating MCP tools, use the consolidated document as the authoritative source for platform and project-management endpoints:
 
 ```bash
-curl -fsS 'https://my.neonpanel.com/api/v1/scheme/documents' -o /tmp/neonpanel-documents.yaml
+curl -fsS 'https://my.neonpanel.com/api/v1/openapi' -o /tmp/neonpanel-openapi.yaml
 ```
 
 Inspect specific endpoints after refreshing:
 
 ```bash
-grep -n 'shipments\|Shipment\|/companies/{companyUuid}/shipments' /tmp/neonpanel-documents.yaml | head -80
+grep -n 'shipments\|Shipment\|/companies/{companyUuid}/shipments' /tmp/neonpanel-openapi.yaml | head -80
 ```
 
 ## 📊 Athena (FBA Planning)

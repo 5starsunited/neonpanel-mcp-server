@@ -13,6 +13,7 @@ import {
   updateBillInputSchema,
   updatePaymentRequestInputSchema,
   updateShipmentInputSchema,
+  updateInvoiceInputSchema,
 } from '../src/tools/project_management/schemas';
 
 test('project management registers separated project and payment write tools', () => {
@@ -142,7 +143,7 @@ test('project management accepts invoice and adjustment project payloads', () =>
   const invoice = createInvoiceInputSchema.parse({
     company_id: 230,
     ref_number: 'REF-INV-001',
-    date: '2026-05-03',
+    transaction_date: '2026-05-03',
     market: 'US',
     currency: 'USD',
     warehouse_id: 3,
@@ -152,6 +153,24 @@ test('project management accepts invoice and adjustment project payloads', () =>
   });
 
   assert.equal(invoice.details?.[0]?.quantity, -1);
+  assert.equal(invoice.details?.[0]?.service_id, 55);
+
+  assert.throws(() => createInvoiceInputSchema.parse({
+    company_id: 230,
+    details: [{ service_id: 55, quantity: 1, amount: 25 }],
+  }));
+  assert.throws(() => createInvoiceInputSchema.parse({
+    company_id: 230,
+    ref_number: 'REF-INV-002',
+    details: [{ inventory_id: 101, quantity: 1, amount: 25 }],
+  }));
+
+  const updatedInvoice = updateInvoiceInputSchema.parse({
+    company_id: 230,
+    invoice_id: 17,
+    transaction_date: '2026-05-03',
+  });
+  assert.equal(updatedInvoice.transaction_date, '2026-05-03');
 
   const adjustment = updateAdjustmentInputSchema.parse({
     company_id: 230,
@@ -162,6 +181,27 @@ test('project management accepts invoice and adjustment project payloads', () =>
 
   assert.equal(adjustment.adjustment_id, 88);
   assert.equal(adjustment.details?.[0]?.rate, 25);
+});
+
+test('project management exposes the consolidated Invoice API write contract', () => {
+  const registry = new ToolRegistry();
+  registerProjectManagementTools(registry);
+
+  const createTool = registry.list().find((entry) => entry.name === 'project_management_create_invoice');
+  const updateTool = registry.list().find((entry) => entry.name === 'project_management_update_invoice');
+  assert.ok(createTool);
+  assert.ok(updateTool);
+
+  const createSchema = createTool.inputSchema;
+  const updateSchema = updateTool.inputSchema;
+  const createDetails = createSchema.properties?.details as any;
+
+  assert.ok(createSchema.required?.includes('ref_number'));
+  assert.deepEqual(createSchema.properties?.transaction_date?.type, ['string', 'null']);
+  assert.equal(createSchema.properties?.date, undefined);
+  assert.equal(updateSchema.properties?.ref_number, undefined);
+  assert.deepEqual(createDetails.items.required, ['service_id', 'quantity', 'amount']);
+  assert.equal(createDetails.items.properties.inventory_id.type[1], 'null');
 });
 
 test('project management exposes assembly orders as full CRUD tools', () => {

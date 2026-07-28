@@ -3,9 +3,12 @@ import { OpenApiService } from '../lib/openapi-service';
 
 async function main() {
   const service = new OpenApiService();
-  await service.refreshFromRemote();
+  const result = await service.refreshFromRemote();
+  if (result.outcome === 'fallback') {
+    throw new Error(result.error ?? 'Remote OpenAPI document was not accepted');
+  }
   const status = await service.getStatus({ includeCache: true });
-  logger.info({ status }, 'Refreshed OpenAPI document');
+  logger.info({ result, status }, 'Refreshed OpenAPI document');
 }
 
 main().catch((error) => {

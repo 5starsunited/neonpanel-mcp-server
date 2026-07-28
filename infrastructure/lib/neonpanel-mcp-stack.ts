@@ -66,7 +66,7 @@ export class NeonpanelMcpStack extends cdk.Stack {
           // concurrency. 16 gives headroom for concurrent tool calls.
           UV_THREADPOOL_SIZE: '16',
           NEONPANEL_API_BASE: 'https://my.neonpanel.com',
-          NEONPANEL_OPENAPI_URL: 'https://my.neonpanel.com/api/v1/scheme/3.1.0',
+          NEONPANEL_OPENAPI_URL: 'https://my.neonpanel.com/api/v1/openapi',
           NEONPANEL_OAUTH_ISSUER: 'https://my.neonpanel.com',
           NEONPANEL_OAUTH_JWKS_URI: 'https://my.neonpanel.com/.well-known/jwks.json',
               // Scope requested by the ChatGPT connector and advertised by this MCP server.

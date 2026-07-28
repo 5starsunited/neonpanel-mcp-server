@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { logger } from '../../../../../logging/logger';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -19,28 +19,33 @@ type CompaniesWithPermissionResponse = {
   }>;
 };
 
+// ClickHouse string-literal escaping (backslash escapes, per CH dialect).
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
 
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+// ClickHouse array literals; empty arrays need an explicit element type.
+function chStringArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST([] AS Array(String))';
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
+function chUInt64ArrayExpr(values: number[]): string {
+  if (values.length === 0) return 'CAST([] AS Array(UInt64))';
+  return `CAST([${values.map((n) => String(Math.trunc(n))).join(',')}] AS Array(UInt64))`;
 }
 
-function sqlDateExpr(value?: string): string {
+// ClickHouse Date literal or a typed NULL when absent.
+function chDateOrNull(value?: string): string {
   const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
+  if (trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `toDate(${sqlStringLiteral(trimmed)})`;
+  }
+  return 'CAST(NULL AS Nullable(Date))';
 }
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
@@ -55,8 +60,6 @@ const GROUP_BY_OPTIONS = [
   'advertised_asin',
   'product_family',
   'brand',
-  'pareto_abc_class',
-  'revenue_abcd_class',
   'company',
   'marketplace',
 ] as const;
@@ -78,6 +81,16 @@ const SORTABLE_FIELDS = [
 ] as const;
 
 const PERIODICITY_OPTIONS = ['day', 'month', 'year', 'total'] as const;
+type Periodicity = (typeof PERIODICITY_OPTIONS)[number];
+
+// ClickHouse period-bucket expression over the business date (report_date).
+// 'total' collapses to a single NULL bucket (no time breakdown).
+const PERIOD_EXPR: Record<Periodicity, string> = {
+  day: 'toString(w.report_date)',
+  month: "formatDateTime(w.report_date, '%Y-%m')",
+  year: 'toString(toYear(w.report_date))',
+  total: 'CAST(NULL AS Nullable(String))',
+};
 
 const querySchema = z
   .object({
@@ -109,8 +122,6 @@ const querySchema = z
         asins: z.array(z.string()).optional(),
         product_families: z.array(z.string()).optional(),
         brands: z.array(z.string()).optional(),
-        pareto_abc_classes: z.array(z.enum(['A', 'B', 'C'])).optional(),
-        revenue_abcd_classes: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
       })
       .strict(),
     aggregation: z
@@ -165,7 +176,7 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
   registry.register({
     name: 'advertising_analyze_campaign_performance',
     description:
-      'Analyzes Amazon Advertising Marketing Stream data (SP/SB/SD) enriched with ASIN attributes. Supports campaign, placement, ad-type and time-period analysis.',
+      'Analyzes Amazon Advertising campaign performance (SP/SB/SD) enriched with SKU attributes (brand, product family), served from the ClickHouse warehouse (sub-second). Supports campaign, placement, ad-type and time-period analysis.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -180,6 +191,7 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
         'view:quicksight_group.marketing',
       ];
 
+      const permStart = Date.now();
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {
         try {
@@ -204,9 +216,11 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
         }
       }
 
+      const permissionMs = Date.now() - permStart;
+
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
 
-      const requestedCompanyIds = [query.filters.company_id];
+      const requestedCompanyIds = [Math.trunc(query.filters.company_id)];
       const allowedCompanyIds = requestedCompanyIds.filter((id) =>
         permittedCompanyIds.includes(id),
       );
@@ -216,9 +230,6 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
       }
 
       // ── Extract filter values ─────────────────────────────────────────────
-      const catalog = config.athena.catalog;
-      const database = 'brand_analytics_iceberg';
-
       const campaignTypes = (query.filters.campaign_types ?? [])
         .map((s) => s.trim())
         .filter(Boolean);
@@ -246,15 +257,10 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
         .map((p) => p.trim())
         .filter(Boolean);
       const brands = (query.filters.brands ?? []).map((b) => b.trim()).filter(Boolean);
-      const paretoClasses = (query.filters.pareto_abc_classes ?? [])
-        .map((p) => p.trim())
-        .filter(Boolean);
-      const revenueClasses = (query.filters.revenue_abcd_classes ?? [])
-        .map((r) => r.trim())
-        .filter(Boolean);
 
       const groupBy = query.aggregation?.group_by ?? ['campaign_name'];
-      const periodicity = query.aggregation?.periodicity ?? 'total';
+      const periodicity: Periodicity = query.aggregation?.periodicity ?? 'total';
+      const periodExpr = PERIOD_EXPR[periodicity];
       const sortField = query.sort?.field ?? 'cost_usd';
       const sortDirection = query.sort?.direction ?? 'desc';
       const time = query.aggregation?.time;
@@ -264,30 +270,27 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: chDateOrNull(time?.start_date),
+        end_date_sql: chDateOrNull(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
+        company_ids_array: chUInt64ArrayExpr(allowedCompanyIds),
 
         // Filter arrays
-        campaign_types_array: sqlVarcharArrayExpr(campaignTypes),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        campaign_names_array: sqlVarcharArrayExpr(campaignNames),
-        ad_group_names_array: sqlVarcharArrayExpr(adGroupNames),
-        target_keywords_array: sqlVarcharArrayExpr(targetKeywords),
+        campaign_types_array: chStringArrayExpr(campaignTypes),
+        marketplaces_array: chStringArrayExpr(marketplaces),
+        campaign_names_array: chStringArrayExpr(campaignNames),
+        ad_group_names_array: chStringArrayExpr(adGroupNames),
+        target_keywords_array: chStringArrayExpr(targetKeywords),
         keyword_match_type_sql: sqlStringLiteral(keywordMatchType),
-        placements_array: sqlVarcharArrayExpr(placements),
-        match_types_array: sqlVarcharArrayExpr(matchTypes),
-        asins_array: sqlVarcharArrayExpr(asins),
-        product_families_array: sqlVarcharArrayExpr(productFamilies),
-        brands_array: sqlVarcharArrayExpr(brands),
-        pareto_classes_array: sqlVarcharArrayExpr(paretoClasses),
-        revenue_classes_array: sqlVarcharArrayExpr(revenueClasses),
+        placements_array: chStringArrayExpr(placements),
+        match_types_array: chStringArrayExpr(matchTypes),
+        asins_array: chStringArrayExpr(asins),
+        product_families_array: chStringArrayExpr(productFamilies),
+        brands_array: chStringArrayExpr(brands),
 
         // Periodicity
-        periodicity_sql: sqlStringLiteral(periodicity),
+        period_expr: periodExpr,
 
         // Sort (whitelisted column name, safe for interpolation)
         sort_column: sortField,
@@ -303,21 +306,25 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
         group_by_advertised_asin: groupBy.includes('advertised_asin') ? 1 : 0,
         group_by_product_family: groupBy.includes('product_family') ? 1 : 0,
         group_by_brand: groupBy.includes('brand') ? 1 : 0,
-        group_by_pareto_class: groupBy.includes('pareto_abc_class') ? 1 : 0,
-        group_by_revenue_class: groupBy.includes('revenue_abcd_class') ? 1 : 0,
         group_by_company: groupBy.includes('company') ? 1 : 0,
         group_by_marketplace: groupBy.includes('marketplace') ? 1 : 0,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const queryStart = Date.now();
+      const result = await runClickHouseQuery({ query: rendered });
+      const queryMs = Date.now() - queryStart;
 
-      return { items: athenaResult.rows ?? [] };
+      logger.info(
+        {
+          tool: 'advertising_analyze_campaign_performance',
+          permissionMs,
+          queryMs,
+          rows: result.rows?.length ?? 0,
+        },
+        'ch tool phase timing',
+      );
+
+      return { items: result.rows ?? [] };
     },
   });
 }
