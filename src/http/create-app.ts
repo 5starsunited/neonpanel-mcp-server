@@ -207,9 +207,20 @@ export function createApp(deps: AppDependencies): Application {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false }));
 
+  // Keep mcp.neonpanel.com out of search indexes
+  app.use((_req, res, next) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    next();
+  });
+
   // Root endpoint - MCP server info
   app.get('/', (_req, res) => {
     res.json(buildServerMetadata());
+  });
+
+  // Block search-engine indexing of the MCP subdomain
+  app.get('/robots.txt', (_req, res) => {
+    res.type('text/plain').send('User-agent: *\nDisallow: /*\n');
   });
 
   // Dedicated MCP discovery endpoint for clients like ChatGPT Workspace
