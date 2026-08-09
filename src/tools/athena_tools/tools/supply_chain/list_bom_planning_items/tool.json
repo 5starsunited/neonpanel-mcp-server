@@ -1,0 +1,30 @@
+{
+  "name": "supply_chain_list_bom_planning_items",
+  "description": "List BOM-aware inventory planning items. Use planning_source/is_assembly for assemble-versus-purchase decisions, effective_available_units and days_of_cover_incl_components for component-backed coverage, binding_component_sku for the build constraint, cumulative_lead_time_days for total lead time, and assembly_shortfall_units_actual for the finished-good shortage. product_type is display-only and must not be used as the assembly flag. Warehouse formulas already allocate shared component stock and include WIP exactly once.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "skus": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+      "inventory_ids": { "type": "array", "items": { "type": "integer" }, "maxItems": 100 },
+      "marketplaces": { "type": "array", "items": { "type": "string" } },
+      "planning_source": { "type": "array", "items": { "type": "string", "enum": ["ASSEMBLE", "PURCHASE"] } },
+      "components_only": { "type": "boolean", "default": false },
+      "min_assembly_shortfall_units": { "type": "number", "minimum": 0 },
+      "sort_by": { "type": "string", "enum": ["assembly_shortfall_units_actual", "days_of_cover_incl_components", "sku"], "default": "assembly_shortfall_units_actual" },
+      "sort_direction": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 }
+    },
+    "required": ["company_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+      "meta": { "type": "object", "additionalProperties": true }
+    },
+    "required": ["items"]
+  }
+}

@@ -13,6 +13,8 @@ import { registerSupplyChainListStockReplenishmentRiskItemsTool } from './tools/
 import { registerShipmentArrivalOracle } from './tools/supply_chain/shipment_arrival_oracle/register';
 import { registerSupplyChainWriteInventoryPlanningParametersTool } from './tools/supply_chain/write_inventory_planning_parameters/register';
 import { registerSupplyChainWriteCompanyPlanningDefaultsTool } from './tools/supply_chain/write_company_planning_defaults/register';
+import { registerSupplyChainListBomPlanningItemsTool } from './tools/supply_chain/list_bom_planning_items/register';
+import { registerSupplyChainListComponentBuyPlanTool } from './tools/supply_chain/list_component_buy_plan/register';
 import { registerForecastingGetSalesForecastDetailsTool } from './tools/forecasting/get_sales_forecast_details/register';
 import { registerForecastingCompareSalesForecastScenariosTool } from './tools/forecasting/compare_sales_forecast_scenarios/register';
 import { registerForecastingWriteSalesForecastTool } from './tools/forecasting/write_sales_forecast/register';
@@ -95,6 +97,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerShipmentArrivalOracle(registry);
   registerSupplyChainInspectInventorySkuSnapshotTool(registry);
   registerSupplyChainListProductLogisticsParametersTool(registry);
+  registerSupplyChainListBomPlanningItemsTool(registry);
+  registerSupplyChainListComponentBuyPlanTool(registry);
   registerSupplyChainWriteInventoryPlanningParametersTool(registry);
   registerSupplyChainWriteCompanyPlanningDefaultsTool(registry);
   registerBrandAnalyticsGetCompetitiveLandscapeTool(registry);

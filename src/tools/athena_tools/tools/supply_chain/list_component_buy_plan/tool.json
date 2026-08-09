@@ -1,0 +1,26 @@
+{
+  "name": "supply_chain_list_component_buy_plan",
+  "description": "List the BOM component buy plan at one row per company and component product. It combines independent sales with dependent assembly demand and nets the requirement against the shared physical stock pool. Use net_requirement_units_actual or net_requirement_units_plan as the quantity to buy. When has_inventory_item is 0, stock_record_status is NO_STOCK_RECORD: pool values are structurally unavailable, not measured zero. Do not sum stock fields again by parent assembly.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": { "type": "integer", "minimum": 1 },
+      "component_skus": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+      "stock_record": { "type": "string", "enum": ["all", "present", "missing"], "default": "all" },
+      "requirement_basis": { "type": "string", "enum": ["actual", "plan"], "default": "actual" },
+      "min_net_requirement_units": { "type": "number", "minimum": 0, "default": 0 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 }
+    },
+    "required": ["company_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+      "meta": { "type": "object", "additionalProperties": true }
+    },
+    "required": ["items"]
+  }
+}

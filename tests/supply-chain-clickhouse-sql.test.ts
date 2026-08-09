@@ -52,3 +52,43 @@ for (const tool of migratedTools) {
     assert.doesNotMatch(sql, athenaRuntimeOrSql);
   });
 }
+
+const bomTools = [
+  {
+    name: 'list_bom_planning_items',
+    source: 'etl.inventory_planning_bom',
+    requiredFields: [
+      'planning_source',
+      'buildable_from_components_units',
+      'binding_component_sku',
+      'effective_available_units',
+      'days_of_cover_incl_components',
+      'cumulative_lead_time_days',
+      'assembly_shortfall_units_actual',
+    ],
+  },
+  {
+    name: 'list_component_buy_plan',
+    source: 'etl.inventory_planning_component_plan',
+    requiredFields: [
+      'has_inventory_item',
+      'dependent_actual_daily_units',
+      'net_requirement_units_actual',
+      'net_requirement_units_plan',
+    ],
+  },
+];
+
+for (const tool of bomTools) {
+  test(`${tool.name} delegates BOM planning calculations to its serving view`, () => {
+    const register = fs.readFileSync(path.join(supplyChainRoot, tool.name, 'register.ts'), 'utf8');
+    const sql = fs.readFileSync(path.join(supplyChainRoot, tool.name, 'query.sql'), 'utf8');
+
+    assert.match(register, /runClickHouseQuery/);
+    assert.match(sql, new RegExp(tool.source.replaceAll('.', '\\.')));
+    for (const field of tool.requiredFields) assert.match(sql, new RegExp(`\\b${field}\\b`));
+    assert.doesNotMatch(sql, /lead_time_days\s*\+\s*component/i);
+    assert.doesNotMatch(sql, /wip_total_ordered_quantity/i);
+    assert.doesNotMatch(sql, /product_type\s*=\s*'Assembly'/i);
+  });
+}
