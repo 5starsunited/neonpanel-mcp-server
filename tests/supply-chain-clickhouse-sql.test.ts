@@ -75,6 +75,9 @@ const bomTools = [
       'dependent_actual_daily_units',
       'net_requirement_units_actual',
       'net_requirement_units_plan',
+      // net_requirement_units_plan is derived from the combined forecast, so the
+      // tool must return it rather than dependent demand alone.
+      'total_plan_units_arr',
     ],
   },
 ];
