@@ -1,12 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import {
+  executeBrandAnalyticsQuery,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlUInt64ArrayExpr,
+} from '../_clickhouse';
 import { applySelectFields } from '../select-fields';
 
 type CompaniesWithPermissionResponse = {
@@ -19,30 +23,6 @@ type CompaniesWithPermissionResponse = {
     short_name?: string;
   }>;
 };
-
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
-}
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -81,7 +61,8 @@ type QueryInput = z.infer<typeof querySchema>;
 
 const toolSpecificSchema = z
   .object({
-    min_combination_pct: z.coerce.number().min(0).max(100).default(0).optional(),
+    // combination_pct is a 0-1 fraction in the source data, not a percentage.
+    min_combination_pct: z.coerce.number().min(0).max(1).default(0).optional(),
     max_rank: z.coerce.number().int().min(1).max(3).default(3).optional(),
   })
   .strict();
@@ -163,8 +144,6 @@ export function registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry: To
       }
 
       // ── Extract filter values ─────────────────────────────────────────────
-      const catalog = config.athena.catalog;
-
       const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
 
@@ -194,14 +173,13 @@ export function registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry: To
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        asins_array: sqlVarcharArrayExpr(asins),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        asins_array: sqlStringArrayExpr(asins),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
         min_combination_pct: Number(minCombinationPct),
         max_rank: Number(maxRank),
 
@@ -210,16 +188,8 @@ export function registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry: To
         sort_direction: sortDirection.toUpperCase(),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'sp_api_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
-
-      const rows = athenaResult.rows ?? [];
-      return applySelectFields(rows, selectFields);
+      const result = await executeBrandAnalyticsQuery(rendered);
+      return applySelectFields(result.rows ?? [], selectFields);
     },
   });
 }
