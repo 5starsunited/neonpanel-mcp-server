@@ -1,25 +1,46 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import {
+  executeBrandAnalyticsQuery,
+  insertBrandAnalyticsState,
+  nowVersion,
+  resolveMarketplaceIds,
+  sqlStringLiteral,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
 };
 
-function sqlString(v: string): string {
-  return `'${v.replace(/'/g, "''")}'`;
-}
+const STATE_TABLE = 'analytics.ba_analytics_watchlist';
+const STATE_COLUMNS = [
+  'company_id',
+  'marketplace_id',
+  'watchlist_name',
+  'grain',
+  'entity_ids',
+  'cadence',
+  'focus',
+  'owner',
+  'last_run_at',
+  'is_active',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by',
+  'notes',
+  'version',
+];
 
 const inputSchema = z
   .object({
     company_id: z.coerce.number().int().min(1),
-    marketplace: z.string().min(1).max(10),
+    marketplace: z.string().min(1).max(20),
     watchlist_name: z.string().min(1).max(200),
     dry_run: z.boolean().default(true).optional(),
   })
@@ -75,7 +96,8 @@ function parseEntityIds(raw: unknown): string[] {
   if (typeof raw !== 'string') return [];
   const s = raw.trim();
   if (s.length === 0) return [];
-  // Athena array output often looks like "[a, b, c]".
+  // Defensive: entity_ids is Array(String) in ClickHouse and arrives as a real
+  // array, but tolerate a bracketed or comma-separated string too.
   if (s.startsWith('[') && s.endsWith(']')) {
     return s
       .slice(1, -1)
@@ -89,7 +111,6 @@ function parseEntityIds(raw: unknown): string[] {
 export function registerBrandAnalyticsRunWatchlistTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const selectSqlPath = path.join(__dirname, 'select.sql');
-  const touchSqlPath = path.join(__dirname, 'touch_last_run.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -113,7 +134,6 @@ export function registerBrandAnalyticsRunWatchlistTool(registry: ToolRegistry) {
       const parsed = inputSchema.parse(args);
       const { company_id: companyId, marketplace, watchlist_name: watchlistName } = parsed;
       const dryRun = parsed.dry_run !== false;
-      const catalog = config.athena.catalog;
       const userId = context.subject ?? 'unknown';
 
       const authorized = await isAuthorizedForCompany(companyId, context);
@@ -128,20 +148,28 @@ export function registerBrandAnalyticsRunWatchlistTool(registry: ToolRegistry) {
         };
       }
 
+      // Callers supply a country code; state rows key on the canonical Amazon
+      // marketplace id, so resolve before looking the watchlist up.
+      const marketplaceIds = await resolveMarketplaceIds([marketplace]);
+      const marketplaceId = marketplaceIds.get(marketplace.trim().toLowerCase());
+      if (!marketplaceId) {
+        return {
+          dry_run: dryRun,
+          found: false,
+          watchlist: null,
+          diagnosis_parameters: null,
+          last_run_at_updated: false,
+          error: `Unknown marketplace: ${marketplace}.`,
+        };
+      }
+
       const selectTemplate = await loadTextFile(selectSqlPath);
       const selectSql = renderSqlTemplate(selectTemplate, {
-        catalog,
         company_id: companyId,
-        marketplace_literal: sqlString(marketplace),
-        watchlist_name_literal_lower: sqlString(watchlistName.toLowerCase()),
+        marketplace_id_literal: sqlStringLiteral(marketplaceId),
+        watchlist_name_literal_lower: sqlStringLiteral(watchlistName.toLowerCase()),
       });
-      const selectResult = await runAthenaQuery({
-        query: selectSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 1,
-      });
+      const selectResult = await executeBrandAnalyticsQuery(selectSql);
       const row = (selectResult.rows ?? [])[0];
       if (!row) {
         return {
@@ -183,20 +211,35 @@ export function registerBrandAnalyticsRunWatchlistTool(registry: ToolRegistry) {
         };
       }
 
-      const touchTemplate = await loadTextFile(touchSqlPath);
-      const touchSql = renderSqlTemplate(touchTemplate, {
-        catalog,
-        company_id: companyId,
-        marketplace_literal: sqlString(marketplace),
-        watchlist_name_literal_lower: sqlString(watchlistName.toLowerCase()),
-        updated_by_literal: sqlString(userId),
-      });
-      await runAthenaQuery({
-        query: touchSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
+      // The state table is append-only SharedReplacingMergeTree(version), so
+      // bumping last_run_at means re-inserting the whole row with a newer
+      // version rather than issuing an UPDATE. Every column not being changed
+      // is carried over from the row just read.
+      const stateRow = row as Record<string, unknown>;
+      const version = nowVersion();
+      await insertBrandAnalyticsState({
+        table: STATE_TABLE,
+        columns: STATE_COLUMNS,
+        rows: [
+          {
+            company_id: companyId,
+            marketplace_id: marketplaceId,
+            watchlist_name: String(stateRow.watchlist_name ?? watchlistName),
+            grain: String(stateRow.grain ?? ''),
+            entity_ids: entityIds,
+            cadence: String(stateRow.cadence ?? ''),
+            focus: String(stateRow.focus ?? ''),
+            owner: String(stateRow.owner ?? ''),
+            last_run_at: version,
+            is_active: 1,
+            created_at: String(stateRow.created_at ?? version),
+            updated_at: version,
+            created_by: String(stateRow.created_by ?? userId),
+            updated_by: userId,
+            notes: String(stateRow.notes ?? ''),
+            version,
+          },
+        ],
       });
 
       return {
