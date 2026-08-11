@@ -1,14 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
+import {
+  executeBrandAnalyticsQuery,
+  intentTermsFilterClauseSql,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlUInt64ArrayExpr,
+  termIntentsCteSql,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -20,30 +25,6 @@ type CompaniesWithPermissionResponse = {
     short_name?: string;
   }>;
 };
-
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
-}
 
 const querySchema = z
   .object({
@@ -186,9 +167,6 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
         return { items: [] };
       }
 
-      const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
-
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
       const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
@@ -231,8 +209,9 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
           asin:            { select: 'w.asin AS asin',                                                            group: 'w.asin' },
           product_family:  { select: 'w.product_family AS product_family',                                        group: 'w.product_family' },
           search_term:     { select: 'w.searchquerydata_searchquery AS search_term',                              group: 'w.searchquerydata_searchquery' },
-          week:            { select: "date_trunc('week', w.week_start) AS week",                                  group: "date_trunc('week', w.week_start)" },
-          month:           { select: "date_trunc('month', w.week_start) AS month",                                group: "date_trunc('month', w.week_start)" },
+          // Brand Analytics weeks are Sunday-aligned, hence toStartOfWeek(..., 0).
+          week:            { select: 'toStartOfWeek(w.week_start, 0) AS week',                                    group: 'toStartOfWeek(w.week_start, 0)' },
+          month:           { select: 'toStartOfMonth(w.week_start) AS month',                                     group: 'toStartOfMonth(w.week_start)' },
         };
         const selects: string[] = [];
         const groups: string[] = [];
@@ -247,40 +226,31 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
 
         const groupedTemplate = await loadTextFile(sqlGroupedPath);
         const renderedGrouped = renderSqlTemplate(groupedTemplate, {
-          catalog,
           limit_top_n: Number(limitTopN),
-          start_date_sql: sqlDateExpr(time?.start_date),
-          end_date_sql: sqlDateExpr(time?.end_date),
+          start_date_sql: sqlNullableDateExpr(time?.start_date),
+          end_date_sql: sqlNullableDateExpr(time?.end_date),
           periods_back: Number(periodsBack),
-          company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-          marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-          search_terms_array: sqlVarcharArrayExpr(searchTerms),
-          term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+          company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+          marketplaces_array: sqlStringArrayExpr(marketplaces),
+          search_terms_array: sqlStringArrayExpr(searchTerms),
+          term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
           intent_terms_filter_sql: intentTermsFilterClauseSql(
-            catalog,
             allowedCompanyIds,
             intentIds,
-            'r.searchquerydata_searchquery',
+            'sqp.search_query',
           ),
-          parent_asins_array: sqlVarcharArrayExpr(parentAsins),
-          asins_array: sqlVarcharArrayExpr(asins),
-          product_families_array: sqlVarcharArrayExpr(productFamilies),
-          row_types_array: sqlVarcharArrayExpr(rowTypes),
-          revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-          pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+          parent_asins_array: sqlStringArrayExpr(parentAsins),
+          asins_array: sqlStringArrayExpr(asins),
+          product_families_array: sqlStringArrayExpr(productFamilies),
+          row_types_array: sqlStringArrayExpr(rowTypes),
+          revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+          pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
           group_by_select_clause: selects.join(',\n        '),
           group_by_clause: groups.join(', '),
         });
 
-        const athenaGrouped = await runAthenaQuery({
-          query: renderedGrouped,
-          database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: limitTopN,
-        });
-
-        const aggregations = athenaGrouped.rows ?? [];
+        const groupedResult = await executeBrandAnalyticsQuery(renderedGrouped);
+        const aggregations = groupedResult.rows ?? [];
         return {
           items: [],
           aggregations,
@@ -290,50 +260,42 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         ryg_company_id: Number(rygCompanyId),
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        search_terms_array: sqlVarcharArrayExpr(searchTerms),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        search_terms_array: sqlStringArrayExpr(searchTerms),
+        term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
         intent_terms_filter_sql: intentTermsFilterClauseSql(
-          catalog,
           allowedCompanyIds,
           intentIds,
-          'r.searchquerydata_searchquery',
+          'sqp.search_query',
         ),
-        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
-        asins_array: sqlVarcharArrayExpr(asins),
-        product_families_array: sqlVarcharArrayExpr(productFamilies),
-        row_types_array: sqlVarcharArrayExpr(rowTypes),
-        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
-        strength_colors_array: sqlVarcharArrayExpr(strengthColors),
-        weakness_colors_array: sqlVarcharArrayExpr(weaknessColors),
-        opportunity_colors_array: sqlVarcharArrayExpr(opportunityColors),
-        threshold_colors_array: sqlVarcharArrayExpr(thresholdColors),
-        impression_trend_colors_array: sqlVarcharArrayExpr(impressionTrendColors),
-        click_trend_colors_array: sqlVarcharArrayExpr(clickTrendColors),
-        cart_add_trend_colors_array: sqlVarcharArrayExpr(cartAddTrendColors),
-        purchase_trend_colors_array: sqlVarcharArrayExpr(purchaseTrendColors),
-        ctr_advantage_trend_colors_array: sqlVarcharArrayExpr(ctrAdvantageTrendColors),
-        diagnostic_scenarios_array: sqlVarcharArrayExpr(diagnosticScenarios),
-        term_types_array: sqlVarcharArrayExpr(termTypes),
-        priority_tiers_array: sqlVarcharArrayExpr(priorityTiers),
+        parent_asins_array: sqlStringArrayExpr(parentAsins),
+        asins_array: sqlStringArrayExpr(asins),
+        product_families_array: sqlStringArrayExpr(productFamilies),
+        row_types_array: sqlStringArrayExpr(rowTypes),
+        revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
+        strength_colors_array: sqlStringArrayExpr(strengthColors),
+        weakness_colors_array: sqlStringArrayExpr(weaknessColors),
+        opportunity_colors_array: sqlStringArrayExpr(opportunityColors),
+        threshold_colors_array: sqlStringArrayExpr(thresholdColors),
+        impression_trend_colors_array: sqlStringArrayExpr(impressionTrendColors),
+        click_trend_colors_array: sqlStringArrayExpr(clickTrendColors),
+        cart_add_trend_colors_array: sqlStringArrayExpr(cartAddTrendColors),
+        purchase_trend_colors_array: sqlStringArrayExpr(purchaseTrendColors),
+        ctr_advantage_trend_colors_array: sqlStringArrayExpr(ctrAdvantageTrendColors),
+        diagnostic_scenarios_array: sqlStringArrayExpr(diagnosticScenarios),
+        term_types_array: sqlStringArrayExpr(termTypes),
+        priority_tiers_array: sqlStringArrayExpr(priorityTiers),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
-
-      const rows = athenaResult.rows ?? [];
+      const result = await executeBrandAnalyticsQuery(rendered);
+      const rows = result.rows ?? [];
       return applySelectFields(rows, selectFields);
     },
   });

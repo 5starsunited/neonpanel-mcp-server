@@ -1,14 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
+import {
+  allowListedSql,
+  executeBrandAnalyticsQuery,
+  intentTermsFilterClauseSql,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlUInt64ArrayExpr,
+  termIntentsCteSql,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -21,33 +27,12 @@ type CompaniesWithPermissionResponse = {
   }>;
 };
 
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
-}
-
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
-const groupBySchema = z.enum(['intent', 'search_term', 'marketplace', 'company', 'brand', 'product_family', 'category', 'asin']);
+// `category` is intentionally absent: it was the Amazon department of the
+// leading competitor ASIN, which the ClickHouse contract does not carry. See
+// the header of query.sql.
+const groupBySchema = z.enum(['intent', 'search_term', 'marketplace', 'company', 'brand', 'product_family', 'asin']);
 
 const querySchema = z
   .object({
@@ -59,7 +44,6 @@ const querySchema = z
         asins: z.array(z.string()).optional(),
         competitor_asins: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
-        category: z.array(z.string()).optional(),
         brand: z.array(z.string()).optional(),
         revenue_abcd_class: z.array(z.enum(['A', 'B', 'C', 'D'])).optional(),
         pareto_abc_class: z.array(z.enum(['A', 'B', 'C'])).optional(),
@@ -120,13 +104,12 @@ const inputSchema = z
 type DimensionConfig = { expression: string; alias: string };
 
 const dimensionMap: Record<GroupByField, DimensionConfig> = {
-  intent: { expression: "COALESCE(aw.primary_intent_id, '__UNCLASSIFIED__')", alias: 'intent_id' },
+  intent: { expression: "ifNull(aw.primary_intent_id, '__UNCLASSIFIED__')", alias: 'intent_id' },
   search_term: { expression: 'aw.search_term', alias: 'search_term' },
   marketplace: { expression: 'aw.marketplace', alias: 'marketplace' },
   company: { expression: 'aw.company_id', alias: 'company_id' },
-  brand: { expression: "COALESCE(aw.my_brand, '__UNKNOWN__')", alias: 'my_brand' },
-  product_family: { expression: "COALESCE(aw.product_family, '__UNKNOWN__')", alias: 'product_family' },
-  category: { expression: "COALESCE(aw.category, '__UNKNOWN__')", alias: 'category' },
+  brand: { expression: "ifNull(aw.my_brand, '__UNKNOWN__')", alias: 'my_brand' },
+  product_family: { expression: "ifNull(aw.product_family, '__UNKNOWN__')", alias: 'product_family' },
   asin: { expression: 'aw.asin', alias: 'asin' },
 };
 
@@ -136,11 +119,28 @@ function buildDimensionClauses(groupBy: GroupByField[]) {
 
   return {
     uniqueGroupBy,
-    groupBySelectClause: dimensions.map((d) => `${d.expression} AS ${d.alias}`).join(',\n    '),
-    finalGroupBySelectClause: dimensions.map((d) => `e.${d.alias}`).join(',\n    '),
+    groupBySelectClause: dimensions.map((d) => `${d.expression} AS ${d.alias}`).join(',\n        '),
+    finalGroupBySelectClause: dimensions.map((d) => `c.${d.alias} AS ${d.alias}`).join(',\n        '),
     groupByClause: dimensions.map((d) => d.expression).join(', '),
     partitionByClause: dimensions.map((d) => d.alias).join(', '),
   };
+}
+
+/**
+ * match_type picks between three ClickHouse predicates instead of being
+ * interpolated as a value, so the mode itself never reaches the SQL text.
+ */
+function searchTermMatchSql(matchType: string | undefined, arrayExpr: string): string {
+  const column = 'sqp.search_query';
+  return allowListedSql<'exact' | 'starts_with' | 'contains'>(
+    matchType,
+    {
+      exact: `arrayExists(term -> lower(term) = lower(${column}), ${arrayExpr})`,
+      starts_with: `arrayExists(term -> startsWith(lower(${column}), lower(term)), ${arrayExpr})`,
+      contains: `arrayExists(term -> position(lower(${column}), lower(term)) > 0, ${arrayExpr})`,
+    },
+    'exact',
+  );
 }
 
 // ── Registration ───────────────────────────────────────────────────────────────
@@ -160,7 +160,7 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
   registry.register({
     name: 'brand_analytics_get_search_term_momentum',
     description:
-      'Weekly search term momentum from the smart snapshot: click share trends, WoW/4w/12w averages, top-3 competitors, weak leader detection.',
+      'Weekly search term momentum: click share trends, WoW/4w/12w averages, top-3 competitors, weak leader detection.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -210,15 +210,11 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       }
 
       // ── Extract filter values ─────────────────────────────────────────────
-      const catalog = config.athena.catalog;
-      const database = 'brand_analytics_iceberg';
-
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
       const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
       const competitorAsins = (query.filters.competitor_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
-      const categories = (query.filters.category ?? []).map((c) => c.trim()).filter(Boolean);
       const brands = (query.filters.brand ?? []).map((b) => b.trim()).filter(Boolean);
       const revenueClass = (query.filters.revenue_abcd_class ?? []).map((c) => c.trim()).filter(Boolean);
       const paretoClass = (query.filters.pareto_abc_class ?? []).map((c) => c.trim()).filter(Boolean);
@@ -257,33 +253,33 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const sortDirection = query.sort?.direction ?? 'desc';
 
       // ── Render & execute SQL ──────────────────────────────────────────────
+      const searchTermsArray = sqlStringArrayExpr(searchTerms);
       const sqlPath = path.join(__dirname, isGrouped ? 'query_grouped.sql' : 'query.sql');
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
-        term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+        term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        // Cap on the number of terms carried into the window functions.
+        top_terms_limit: Math.max(limitTopN * 10, 2000),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        search_terms_array: sqlVarcharArrayExpr(searchTerms),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        search_terms_array: searchTermsArray,
+        search_term_match_sql: searchTermMatchSql(matchType, searchTermsArray),
         intent_terms_filter_sql: intentTermsFilterClauseSql(
-          catalog,
           allowedCompanyIds,
           intentIds,
-          's.search_term',
+          'sqp.search_query',
         ),
-        match_type_sql: sqlStringLiteral(matchType),
-        asins_array: sqlVarcharArrayExpr(asins),
-        competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        categories_array: sqlVarcharArrayExpr(categories),
-        brands_array: sqlVarcharArrayExpr(brands),
-        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
-        product_families_array: sqlVarcharArrayExpr(productFamilies),
-        momentum_signals_array: sqlVarcharArrayExpr(momentumSignals),
+        asins_array: sqlStringArrayExpr(asins),
+        competitor_asins_array: sqlStringArrayExpr(competitorAsins),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        brands_array: sqlStringArrayExpr(brands),
+        revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
+        product_families_array: sqlStringArrayExpr(productFamilies),
+        momentum_signals_array: sqlStringArrayExpr(momentumSignals),
         weak_leader_max_conversion_share: Number(weakLeaderMax),
         weak_leader_min_search_volume: Number(weakLeaderMinVolume),
         min_click_share: Number(minClickShare),
@@ -298,15 +294,8 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
         sort_direction: sortDirection.toUpperCase(),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
-
-      const rows = athenaResult.rows ?? [];
+      const result = await executeBrandAnalyticsQuery(rendered);
+      const rows = result.rows ?? [];
       return applySelectFields(rows, selectFields);
     },
   });

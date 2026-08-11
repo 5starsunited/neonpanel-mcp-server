@@ -1,20 +1,15 @@
--- List RYG thresholds: returns system defaults + company overrides.
--- is_override = true when a company-specific row exists for that metric slot.
--- Deduplicate by keeping only the latest row per unique key.
-WITH ranked AS (
-  SELECT
-    *,
-    ROW_NUMBER() OVER (
-      PARTITION BY COALESCE(company_id, -1), tool, signal_group, metric, color
-      ORDER BY updated_at DESC
-    ) AS rn
-  FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
-  WHERE (company_id = {{company_id_sql}} OR ({{include_defaults}} AND company_id IS NULL))
-    AND ({{tool_filter_sql}})
-)
+-- List RYG thresholds (ClickHouse): system defaults + company overrides.
+--
+-- Source: etl.ba_ryg_thresholds_current — SharedReplacingMergeTree(version) FINAL
+-- filtered to is_active = 1, so the latest version per
+-- (company_id, tool, signal_group, metric, color) is already collapsed and no
+-- ROW_NUMBER dedup is needed here.
+--
+-- is_override = true when the row carries a company_id (company_id IS NULL marks
+-- a system default seeded by migration 0047).
 SELECT
     company_id,
-    CASE WHEN company_id IS NOT NULL THEN true ELSE false END AS is_override,
+    company_id IS NOT NULL AS is_override,
     tool,
     signal_group,
     metric,
@@ -23,11 +18,13 @@ SELECT
     signal_code,
     signal_description,
     updated_at
-FROM ranked
-WHERE rn = 1
+FROM etl.ba_ryg_thresholds_current
+WHERE (company_id = {{company_id_sql}} OR ({{include_defaults}} AND company_id IS NULL))
+  AND ({{tool_filter_sql}})
 ORDER BY
     tool,
     signal_group,
     metric,
     color,
     company_id NULLS LAST
+LIMIT {{limit}}

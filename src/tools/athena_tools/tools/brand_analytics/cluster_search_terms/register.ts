@@ -1,16 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
-import { loadTextFile } from '../../../runtime/load-assets';
-import { renderSqlTemplate } from '../../../runtime/render-sql';
-import {
-  generateBigintId,
-  isAuthorizedForCompany,
-  sqlString,
-} from '../_intent_common';
+import { executeBrandAnalyticsQuery, insertBrandAnalyticsState, nowVersion } from '../_clickhouse';
+import { generateBigintId, isAuthorizedForCompany } from '../_intent_common';
+
+const AUDIT_TABLE = 'analytics.ba_intent_cluster_audit';
+const AUDIT_COLUMNS = [
+  'id',
+  'company_id',
+  'operation_type',
+  'status',
+  'input_search_terms_count',
+  'output_intents_count',
+  'output_mapping',
+  'llm_model',
+  'llm_input_tokens',
+  'llm_output_tokens',
+  'created_at',
+  'created_by',
+  'is_active',
+  'version',
+];
 
 const inputSchema = z
   .object({
@@ -101,7 +112,6 @@ function normalizeTerms(terms: string[]): string[] {
 
 export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const auditInsertSqlPath = path.join(__dirname, 'audit_insert.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -132,7 +142,6 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
       const T_review_low = parsed.t_review_low ?? 0.4;
       const productCategory = parsed.product_category ?? null;
       const userId = context.subject ?? 'unknown';
-      const catalog = config.athena.catalog;
 
       const authorized = await isAuthorizedForCompany(companyId, context);
       if (!authorized) {
@@ -152,20 +161,30 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
       const preparedTerms = normalizeTerms(parsed.search_terms);
       const runId = generateBigintId();
 
-      const auditTemplate = await loadTextFile(auditInsertSqlPath);
-      const auditSql = renderSqlTemplate(auditTemplate, {
-        catalog,
-        run_id: runId,
-        company_id: companyId,
-        input_count: preparedTerms.length,
-        created_by: sqlString(userId),
-      });
-      await runAthenaQuery({
-        query: auditSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
+      // Open a pending audit row; brand_analytics_create_user_intent_cluster
+      // finalizes it by inserting the same (company_id, id) with a newer version.
+      const version = nowVersion();
+      await insertBrandAnalyticsState({
+        table: AUDIT_TABLE,
+        columns: AUDIT_COLUMNS,
+        rows: [
+          {
+            id: runId,
+            company_id: companyId,
+            operation_type: 'cluster_with_llm',
+            status: 'pending',
+            input_search_terms_count: preparedTerms.length,
+            output_intents_count: 0,
+            output_mapping: '',
+            llm_model: '',
+            llm_input_tokens: null,
+            llm_output_tokens: null,
+            created_at: version,
+            created_by: userId,
+            is_active: 1,
+            version,
+          },
+        ],
       });
 
       // If requested, fetch existing intents and example terms to include in instructions
@@ -176,35 +195,25 @@ export function registerBrandAnalyticsClusterSearchTermsTool(registry: ToolRegis
         sample_terms: string[];
       }> = [];
       if (mode !== 'auto') {
+        // The *_current views already apply FINAL + is_active = 1, so the latest
+        // row per (company_id, intent_id) is served without a ROW_NUMBER dedup.
         const intentsSql = `
-WITH latest_intent AS (
-  SELECT
-    intent_id,
-    intent_name,
-    customer_need,
-    ROW_NUMBER() OVER (PARTITION BY intent_id ORDER BY created_at DESC, id DESC) AS rn
-  FROM "${catalog}"."brand_analytics_iceberg"."user_intents"
-  WHERE company_id = ${companyId}
-)
 SELECT intent_id, intent_name, customer_need
-FROM latest_intent
-WHERE rn = 1
-  AND intent_id IS NOT NULL
+FROM etl.ba_user_intents_current
+WHERE company_id = ${companyId}
+  AND intent_id != ''
 `;
-        const intentResult = await runAthenaQuery({
-          query: intentsSql,
-          database: 'brand_analytics_iceberg',
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 1000,
-        });
+        const intentResult = await executeBrandAnalyticsQuery(intentsSql);
         const intentRows = intentResult.rows ?? [];
         // fetch sample terms per intent (top 5 by confidence)
         const mappingSql = `
 WITH ranked AS (
-  SELECT intent_id, search_term AS term, confidence,
-    ROW_NUMBER() OVER (PARTITION BY intent_id ORDER BY confidence DESC) rn
-  FROM "${catalog}"."brand_analytics_iceberg"."search_term_to_intent"
+  SELECT
+    intent_id AS intent_id,
+    search_term AS term,
+    confidence AS confidence,
+    row_number() OVER (PARTITION BY intent_id ORDER BY confidence DESC) AS rn
+  FROM etl.ba_search_term_to_intent_current
   WHERE company_id = ${companyId}
 )
 SELECT intent_id, term
@@ -212,13 +221,7 @@ FROM ranked
 WHERE rn <= 5
 ORDER BY intent_id, rn
 `;
-        const mappingResult = await runAthenaQuery({
-          query: mappingSql,
-          database: 'brand_analytics_iceberg',
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 5000,
-        });
+        const mappingResult = await executeBrandAnalyticsQuery(mappingSql);
         const mappingRows = mappingResult.rows ?? [];
         const samplesByIntent = new Map<string, string[]>();
         for (const r of mappingRows) {
@@ -235,7 +238,7 @@ ORDER BY intent_id, rn
           existingIntents.push({
             intent_id: id,
             intent_name: String(r.intent_name ?? ''),
-            customer_need: r.customer_need ?? null,
+            customer_need: r.customer_need == null ? null : String(r.customer_need),
             sample_terms: samplesByIntent.get(id) ?? [],
           });
         }

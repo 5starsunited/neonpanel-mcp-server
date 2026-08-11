@@ -1,347 +1,311 @@
--- Tool query for search_catalog_performance
--- Reads directly from the raw SP-API source table (not the snapshot) to guarantee
--- multi-week history for LAG/AVG window functions.
--- Replicates the ETL enrichment (marketplace, parent_asin, ASIN attributes) at query time.
+-- Tool query for search_catalog_performance (ClickHouse)
+--
+-- Source: etl.ba_search_catalog_performance — the weekly Search Catalog
+-- Performance report, already joined to etl.ba_asin_attributes for parent_asin,
+-- brand, product_family, title and the revenue/pareto classes. That single view
+-- replaces the marketplaces_dim / asin_dim / asin_attrs enrichment CTEs the
+-- Athena version rebuilt at query time.
+--
+-- Two groups of fields are recovered from raw_payload because migration 0036
+-- types only the eight headline metrics. The producer serializes every exploded
+-- report column into raw_payload, so these keys are the report's own flattened
+-- names (verified against the live payload):
+--   * the same/one/two-day delivery breakdown, which drives the opportunity signal
+--   * the report's own date/startdate/enddate range
+--
+-- purchasedata_conversionrate is NOT published by Amazon in this report — it is
+-- absent from raw_payload, so the typed staging.conversion_rate column is empty.
+-- kpi_purchase_rate is therefore derived as purchases / clicks. The Athena query
+-- used Amazon's reported value for child rows but derived that same ratio for
+-- parent rows, so deriving both also removes a child/parent inconsistency.
+-- kpi_click_rate is derived as clicks / impressions for the same reason.
+--
+-- NOTE: revenue_abcd_class / pareto_abc_class / revenue_share are rolling
+-- last-30-day, as-of ASIN attributes, not the class in effect during a past week.
 
-WITH params AS (
-    SELECT
-        {{limit_top_n}} AS limit_top_n,
-        {{start_date_sql}} AS start_date,
-        {{end_date_sql}} AS end_date,
-        CAST({{periods_back}} AS INTEGER) AS periods_back,
-
-        -- REQUIRED (authorization + partition pruning)
-        {{company_ids_array}} AS company_ids,
-        transform({{company_ids_array}}, x -> CAST(x AS VARCHAR)) AS company_ids_str,
-
-        -- OPTIONAL filters (empty array => no filter)
-        {{marketplaces_array}} AS marketplaces,
-        {{parent_asins_array}} AS parent_asins,
-        {{asins_array}} AS asins,
-        {{product_families_array}} AS product_families,
-        {{row_types_array}} AS row_types,
-        CASE
-            WHEN cardinality({{revenue_abcd_class_array}}) = 0 THEN ARRAY['A','B']
-            ELSE {{revenue_abcd_class_array}}
-        END AS revenue_abcd_class,
-        {{pareto_abc_class_array}} AS pareto_abc_class,
-        {{strength_colors_array}} AS strength_colors,
-        {{weakness_colors_array}} AS weakness_colors,
-        {{opportunity_colors_array}} AS opportunity_colors,
-        {{threshold_colors_array}} AS threshold_colors,
-        {{click_trend_colors_array}} AS click_trend_colors,
-        {{cart_add_trend_colors_array}} AS cart_add_trend_colors,
-        {{purchase_trend_colors_array}} AS purchase_trend_colors
-),
--- ─── RYG threshold values (pivoted from Iceberg table into one row) ──────────
--- Company-specific overrides (company_id = N) take priority over defaults (company_id IS NULL).
+WITH
+-- ─── RYG threshold values (pivoted into one row) ────────────────────────────
+-- Company-specific overrides win over system defaults (company_id IS NULL).
 ryg_ranked AS (
-    SELECT *,
-        ROW_NUMBER() OVER (
+    SELECT
+        signal_group AS signal_group,
+        metric AS metric,
+        color AS color,
+        threshold_value AS threshold_value,
+        row_number() OVER (
             PARTITION BY tool, signal_group, metric, color
-            ORDER BY CASE WHEN company_id = {{ryg_company_id}} THEN 0 ELSE 1 END
+            ORDER BY if(isNotNull(company_id), 0, 1)
         ) AS rn
-    FROM "{{catalog}}"."brand_analytics_iceberg"."ryg_thresholds"
+    FROM etl.ba_ryg_thresholds_current
     WHERE (company_id = {{ryg_company_id}} OR company_id IS NULL)
       AND tool IN ('scp', 'global')
 ),
 
+-- toNullable is required: maxIf over an empty match set returns 0 for Float64,
+-- which would silently read as "threshold met". A missing threshold must stay
+-- NULL so the comparison is NULL and the signal falls through to its ELSE branch.
 thresholds AS (
     SELECT
         -- Strength (scp)
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'    AND color = 'green'  THEN threshold_value END) AS str_click_rate_g,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'green'  THEN threshold_value END) AS str_purchase_rate_g,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'click_rate'    AND color = 'yellow' THEN threshold_value END) AS str_click_rate_y,
-        MAX(CASE WHEN signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'yellow' THEN threshold_value END) AS str_purchase_rate_y,
+        maxIf(toNullable(threshold_value), signal_group = 'strength' AND metric = 'click_rate' AND color = 'green') AS str_click_rate_g,
+        maxIf(toNullable(threshold_value), signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'green') AS str_purchase_rate_g,
+        maxIf(toNullable(threshold_value), signal_group = 'strength' AND metric = 'click_rate' AND color = 'yellow') AS str_click_rate_y,
+        maxIf(toNullable(threshold_value), signal_group = 'strength' AND metric = 'purchase_rate' AND color = 'yellow') AS str_purchase_rate_y,
         -- Opportunity (scp)
-        MAX(CASE WHEN signal_group = 'opportunity' AND metric = 'cvr_ratio' AND color = 'green' THEN threshold_value END) AS opp_cvr_ratio_g,
+        maxIf(toNullable(threshold_value), signal_group = 'opportunity' AND metric = 'cvr_ratio' AND color = 'green') AS opp_cvr_ratio_g,
         -- Trend (global)
-        MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'green' THEN threshold_value END) AS trend_delta_g,
-        MAX(CASE WHEN signal_group = 'trend' AND metric = 'delta' AND color = 'red'   THEN threshold_value END) AS trend_delta_r
+        maxIf(toNullable(threshold_value), signal_group = 'trend' AND metric = 'delta' AND color = 'green') AS trend_delta_g,
+        maxIf(toNullable(threshold_value), signal_group = 'trend' AND metric = 'delta' AND color = 'red') AS trend_delta_r
     FROM ryg_ranked
     WHERE rn = 1
 ),
--- ─── Dimension tables ──────────────────────────────────────────────────────
-marketplaces_dim AS (
-    SELECT
-        CAST(amazon_marketplace_id AS VARCHAR) AS amazon_marketplace_id,
-        lower(country)    AS country,
-        lower(code)       AS country_code,
-        lower(name)       AS marketplace_name,
-        lower(domain)     AS domain,
-        id                AS marketplace_id
-    FROM "{{catalog}}"."neonpanel_iceberg"."amazon_marketplaces"
-),
 
--- Parent ASIN + ASIN attribute enrichment
-asin_dim AS (
-    SELECT
-        child_asin        AS asin,
-        parent_asin,
-        marketplace_id,
-        brand,
-        product_family,
-        revenue_abcd_class,
-        pareto_abc_class,
-        revenue_share
-    FROM "{{catalog}}"."inventory_planning"."last_snapshot_inventory_planning"
-),
-
-asin_attrs AS (
-    SELECT
-        asin,
-        marketplace_id,
-        MAX(parent_asin)        AS parent_asin,
-        MAX(brand)              AS brand,
-        MAX(product_family)     AS product_family,
-        MIN(revenue_abcd_class) AS revenue_abcd_class,
-        MIN(pareto_abc_class)   AS pareto_abc_class,
-        SUM(revenue_share)      AS revenue_share
-    FROM asin_dim
-    GROUP BY asin, marketplace_id
-),
-
--- Company name lookup
-companies_dim AS (
-    SELECT
-        CAST(id AS VARCHAR) AS company_id_str,
-        name AS company_name
-    FROM "{{catalog}}"."neonpanel_iceberg"."app_companies"
-),
-
--- ─── Raw SP-API data ───────────────────────────────────────────────────────
-raw AS (
-    SELECT
-        r.asin,
-        r.week_start,
-        r.year,
-        CAST(r.date AS DATE)       AS report_date,
-        r.startdate,
-        r.enddate,
-        r.impressiondata_impressioncount,
-        r.clickdata_clickcount,
-        r.cartadddata_cartaddcount,
-        r.purchasedata_purchasecount,
-        r.clickdata_clickrate,
-        r.purchasedata_conversionrate,
-        r.purchasedata_searchtrafficsales_amount,
-        r.purchasedata_searchtrafficsales_currencycode,
-        r.cartadddata_onedayshippingcartaddcount,
-        r.cartadddata_samedayshippingcartaddcount,
-        r.cartadddata_twodayshippingcartaddcount,
-        r.clickdata_onedayshippingclickcount,
-        r.clickdata_samedayshippingclickcount,
-        r.clickdata_twodayshippingclickcount,
-        r.purchasedata_onedayshippingpurchasecount,
-        r.purchasedata_samedayshippingpurchasecount,
-        r.purchasedata_twodayshippingpurchasecount,
-        r.impressiondata_onedayshippingimpressioncount,
-        r.impressiondata_samedayshippingimpressioncount,
-        r.impressiondata_twodayshippingimpressioncount,
-        CAST(r.ingest_company_id AS BIGINT) AS company_id,
-        r.ingest_seller_id                  AS amazon_seller_id,
-        r.rspec_marketplaceids
-    FROM "{{catalog}}"."sp_api_iceberg"."brand_analytics_search_catalog_performance_report" r
-    CROSS JOIN params p
-    WHERE
-        contains(p.company_ids_str, r.ingest_company_id)
-),
-
--- ─── Enrich with marketplace + parent_asin + attributes ────────────────────
+-- ─── Child rows: one report row per ASIN week ───────────────────────────────
 base_child AS (
     SELECT
-        COALESCE(c.company_name, 'unknown')           AS company,
-        COALESCE(m.marketplace_name, 'unknown')        AS marketplace,
-        COALESCE(m.country_code, 'unknown')            AS marketplace_country_code,
-        COALESCE(aa.parent_asin, r.asin)               AS parent_asin,
-        COALESCE(aa.revenue_abcd_class, 'D')           AS revenue_abcd_class,
-        COALESCE(aa.pareto_abc_class, 'C')             AS pareto_abc_class,
-        COALESCE(aa.brand, 'unknown')                  AS brand,
-        COALESCE(aa.product_family, 'unknown')         AS product_family,
-        aa.revenue_share,
-        CAST(NULL AS VARCHAR)                          AS title,
-        r.asin,
-        r.week_start,
-        r.year,
-        r.report_date,
-        r.startdate,
-        r.enddate,
-        r.impressiondata_impressioncount,
-        r.clickdata_clickcount,
-        r.cartadddata_cartaddcount,
-        r.purchasedata_purchasecount,
-        r.clickdata_clickrate,
-        r.purchasedata_conversionrate,
-        r.purchasedata_searchtrafficsales_amount,
-        r.purchasedata_searchtrafficsales_currencycode,
-        r.cartadddata_onedayshippingcartaddcount,
-        r.cartadddata_samedayshippingcartaddcount,
-        r.cartadddata_twodayshippingcartaddcount,
-        r.clickdata_onedayshippingclickcount,
-        r.clickdata_samedayshippingclickcount,
-        r.clickdata_twodayshippingclickcount,
-        r.purchasedata_onedayshippingpurchasecount,
-        r.purchasedata_samedayshippingpurchasecount,
-        r.purchasedata_twodayshippingpurchasecount,
-        r.impressiondata_onedayshippingimpressioncount,
-        r.impressiondata_samedayshippingimpressioncount,
-        r.impressiondata_twodayshippingimpressioncount,
-        r.company_id,
-        r.amazon_seller_id,
-        -- KPI base calculations
-        r.clickdata_clickrate AS kpi_click_rate,
-        CASE
-            WHEN r.impressiondata_impressioncount = 0 THEN NULL
-            ELSE r.cartadddata_cartaddcount / r.impressiondata_impressioncount
-        END AS kpi_cart_add_rate,
-        r.purchasedata_conversionrate AS kpi_purchase_rate,
-        CASE
-            WHEN r.clickdata_clickcount = 0 THEN NULL
-            ELSE r.purchasedata_searchtrafficsales_amount / r.clickdata_clickcount
-        END AS kpi_sales_per_click,
-        CASE
-            WHEN r.impressiondata_impressioncount = 0 THEN NULL
-            ELSE r.purchasedata_searchtrafficsales_amount / r.impressiondata_impressioncount
-        END AS kpi_sales_per_impression,
-        'child' AS row_type
-    FROM raw r
-    LEFT JOIN marketplaces_dim m
-        ON m.amazon_marketplace_id = r.rspec_marketplaceids[1]
-    LEFT JOIN companies_dim c
-        ON c.company_id_str = CAST(r.company_id AS VARCHAR)
-    LEFT JOIN asin_attrs aa
-        ON aa.asin = r.asin
-        AND aa.marketplace_id = m.marketplace_id
-    CROSS JOIN params p
+        ifNull(companies.name, 'unknown') AS company,
+        lower(ifNull(marketplace.marketplace_name, 'unknown')) AS marketplace,
+        lower(ifNull(marketplace.country_code, 'unknown')) AS marketplace_country_code,
+        ifNull(nullIf(scp.parent_asin, ''), scp.asin) AS parent_asin,
+        ifNull(nullIf(scp.revenue_abcd_class, ''), 'D') AS revenue_abcd_class,
+        ifNull(nullIf(scp.pareto_abc_class, ''), 'C') AS pareto_abc_class,
+        ifNull(nullIf(scp.brand, ''), 'unknown') AS brand,
+        ifNull(nullIf(scp.product_family, ''), 'unknown') AS product_family,
+        CAST(scp.revenue_share AS Nullable(Float64)) AS revenue_share,
+        CAST(nullIf(scp.title, '') AS Nullable(String)) AS title,
+        scp.asin AS asin,
+        scp.week_start AS week_start,
+        CAST(parseDateTimeBestEffortOrNull(JSONExtractString(scp.raw_payload, 'date')) AS Nullable(Date)) AS report_date,
+        CAST(parseDateTimeBestEffortOrNull(JSONExtractString(scp.raw_payload, 'startdate')) AS Nullable(DateTime64(3))) AS startdate,
+        CAST(parseDateTimeBestEffortOrNull(JSONExtractString(scp.raw_payload, 'enddate')) AS Nullable(DateTime64(3))) AS enddate,
+        CAST(scp.impression_count AS Nullable(Float64)) AS impressiondata_impressioncount,
+        CAST(scp.click_count AS Nullable(Float64)) AS clickdata_clickcount,
+        CAST(scp.cart_add_count AS Nullable(Float64)) AS cartadddata_cartaddcount,
+        CAST(scp.purchase_count AS Nullable(Float64)) AS purchasedata_purchasecount,
+        CAST(scp.click_rate AS Nullable(Float64)) AS clickdata_clickrate,
+        CAST(
+            if(ifNull(scp.click_count, 0) = 0, NULL, scp.purchase_count / scp.click_count)
+            AS Nullable(Float64)
+        ) AS purchasedata_conversionrate,
+        CAST(scp.search_traffic_sales AS Nullable(Float64)) AS purchasedata_searchtrafficsales_amount,
+        CAST(nullIf(scp.currency_code, '') AS Nullable(String)) AS purchasedata_searchtrafficsales_currencycode,
+        JSONExtract(scp.raw_payload, 'cartadddata_onedayshippingcartaddcount', 'Nullable(Float64)') AS cartadddata_onedayshippingcartaddcount,
+        JSONExtract(scp.raw_payload, 'cartadddata_samedayshippingcartaddcount', 'Nullable(Float64)') AS cartadddata_samedayshippingcartaddcount,
+        JSONExtract(scp.raw_payload, 'cartadddata_twodayshippingcartaddcount', 'Nullable(Float64)') AS cartadddata_twodayshippingcartaddcount,
+        JSONExtract(scp.raw_payload, 'clickdata_onedayshippingclickcount', 'Nullable(Float64)') AS clickdata_onedayshippingclickcount,
+        JSONExtract(scp.raw_payload, 'clickdata_samedayshippingclickcount', 'Nullable(Float64)') AS clickdata_samedayshippingclickcount,
+        JSONExtract(scp.raw_payload, 'clickdata_twodayshippingclickcount', 'Nullable(Float64)') AS clickdata_twodayshippingclickcount,
+        JSONExtract(scp.raw_payload, 'purchasedata_onedayshippingpurchasecount', 'Nullable(Float64)') AS purchasedata_onedayshippingpurchasecount,
+        JSONExtract(scp.raw_payload, 'purchasedata_samedayshippingpurchasecount', 'Nullable(Float64)') AS purchasedata_samedayshippingpurchasecount,
+        JSONExtract(scp.raw_payload, 'purchasedata_twodayshippingpurchasecount', 'Nullable(Float64)') AS purchasedata_twodayshippingpurchasecount,
+        JSONExtract(scp.raw_payload, 'impressiondata_onedayshippingimpressioncount', 'Nullable(Float64)') AS impressiondata_onedayshippingimpressioncount,
+        JSONExtract(scp.raw_payload, 'impressiondata_samedayshippingimpressioncount', 'Nullable(Float64)') AS impressiondata_samedayshippingimpressioncount,
+        JSONExtract(scp.raw_payload, 'impressiondata_twodayshippingimpressioncount', 'Nullable(Float64)') AS impressiondata_twodayshippingimpressioncount,
+        scp.company_id AS company_id,
+        scp.amazon_seller_id AS amazon_seller_id,
+        -- KPI base calculations (see header: both rates are derived, not reported)
+        CAST(
+            if(ifNull(scp.impression_count, 0) = 0, NULL, scp.click_count / scp.impression_count)
+            AS Nullable(Float64)
+        ) AS kpi_click_rate,
+        CAST(
+            if(ifNull(scp.impression_count, 0) = 0, NULL, scp.cart_add_count / scp.impression_count)
+            AS Nullable(Float64)
+        ) AS kpi_cart_add_rate,
+        CAST(
+            if(ifNull(scp.click_count, 0) = 0, NULL, scp.purchase_count / scp.click_count)
+            AS Nullable(Float64)
+        ) AS kpi_purchase_rate,
+        CAST(
+            if(ifNull(scp.click_count, 0) = 0, NULL, scp.search_traffic_sales / scp.click_count)
+            AS Nullable(Float64)
+        ) AS kpi_sales_per_click,
+        CAST(
+            if(ifNull(scp.impression_count, 0) = 0, NULL, scp.search_traffic_sales / scp.impression_count)
+            AS Nullable(Float64)
+        ) AS kpi_sales_per_impression,
+        CAST('child' AS String) AS row_type
+    FROM etl.ba_search_catalog_performance AS scp
+    LEFT JOIN etl.ba_marketplaces AS marketplace
+        ON scp.marketplace_id = marketplace.marketplace_id
+    -- toString on both sides: app_companies.id and company_id are not guaranteed
+    -- to share an integer type, and this dimension is tiny.
+    LEFT JOIN app.app_companies AS companies
+        ON toString(companies.id) = toString(scp.company_id)
     WHERE
-        (
-            cardinality(p.marketplaces) = 0
-            OR any_match(
-                p.marketplaces,
+        has({{company_ids_array}}, scp.company_id)
+        AND (
+            length({{marketplaces_array}}) = 0
+            OR arrayExists(
                 input -> lower(input) IN (
-                    COALESCE(m.country_code, ''),
-                    COALESCE(m.marketplace_name, '')
-                )
+                    lower(ifNull(marketplace.country_code, '')),
+                    lower(ifNull(marketplace.marketplace_name, ''))
+                ),
+                {{marketplaces_array}}
             )
         )
-        AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(r.asin)))
-        AND (cardinality(p.parent_asins) = 0 OR any_match(p.parent_asins, a -> lower(a) = lower(COALESCE(aa.parent_asin, r.asin))))
-        AND (cardinality(p.product_families) = 0 OR any_match(p.product_families, pf -> lower(pf) = lower(COALESCE(aa.product_family, ''))))
-        AND (cardinality(p.revenue_abcd_class) = 0 OR any_match(p.revenue_abcd_class, rc -> upper(rc) = upper(COALESCE(aa.revenue_abcd_class, 'D'))))
-        AND (cardinality(p.pareto_abc_class) = 0 OR any_match(p.pareto_abc_class, pc -> upper(pc) = upper(COALESCE(aa.pareto_abc_class, 'C'))))
+        AND (length({{asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(scp.asin), {{asins_array}}))
+        AND (
+            length({{parent_asins_array}}) = 0
+            OR arrayExists(a -> lower(a) = lower(ifNull(nullIf(scp.parent_asin, ''), scp.asin)), {{parent_asins_array}})
+        )
+        AND (
+            length({{product_families_array}}) = 0
+            OR arrayExists(pf -> lower(pf) = lower(ifNull(scp.product_family, '')), {{product_families_array}})
+        )
+        -- Deliberate: an empty revenue_abcd_class filter means A+B only, not
+        -- "no filter". This reproduces the Athena params default.
+        AND has(
+            arrayMap(x -> upper(x), if(length({{revenue_abcd_class_array}}) = 0, ['A', 'B'], {{revenue_abcd_class_array}})),
+            upper(ifNull(nullIf(scp.revenue_abcd_class, ''), 'D'))
+        )
+        AND (
+            length({{pareto_abc_class_array}}) = 0
+            OR arrayExists(pc -> upper(pc) = upper(ifNull(nullIf(scp.pareto_abc_class, ''), 'C')), {{pareto_abc_class_array}})
+        )
 ),
 
-latest AS (
-    SELECT max(week_start) AS latest_week
+-- ─── Date window ────────────────────────────────────────────────────────────
+-- 12 extra weeks are read before start_date so the rolling baselines below have
+-- history; the final SELECT trims back to the requested range.
+date_bounds AS (
+    SELECT
+        ifNull({{start_date_sql}}, addWeeks(max(week_start), -1 * ({{periods_back}} - 1))) AS start_date,
+        ifNull({{end_date_sql}}, max(week_start)) AS end_date,
+        addWeeks(ifNull({{start_date_sql}}, addWeeks(max(week_start), -1 * ({{periods_back}} - 1))), -12) AS lookback_start
     FROM base_child
 ),
 
-date_bounds AS (
-    SELECT
-        COALESCE(
-            p.start_date,
-            date_add('week', -1 * (p.periods_back - 1), l.latest_week)
-        ) AS start_date,
-        COALESCE(
-            p.end_date,
-            l.latest_week
-        ) AS end_date
-    FROM params p
-    CROSS JOIN latest l
-),
-
-window_bounds AS (
-    SELECT
-        start_date,
-        end_date,
-        date_add('week', -12, start_date) AS lookback_start
-    FROM date_bounds
-),
-
 windowed AS (
-    SELECT b.*
-    FROM base_child b
-    CROSS JOIN window_bounds d
-    WHERE b.week_start BETWEEN d.lookback_start AND d.end_date
-      AND b.year BETWEEN year(d.lookback_start) AND year(d.end_date)
+    SELECT *
+    FROM base_child
+    WHERE week_start >= (SELECT lookback_start FROM date_bounds)
+      AND week_start <= (SELECT end_date FROM date_bounds)
 ),
 
-parent_agg AS (
+-- ─── Parent rows: roll child ASINs up to parent_asin ────────────────────────
+-- Split in two: ClickHouse rejects an aggregate nested inside another expression
+-- that is itself aggregated once the CTE is inlined (ILLEGAL_AGGREGATION), so
+-- parent_sums does the pure aggregation and parent_agg derives the ratios.
+parent_sums AS (
     SELECT
-        company,
-        marketplace,
-        marketplace_country_code,
-        parent_asin,
-        MAX(revenue_abcd_class) AS revenue_abcd_class,
-        MAX(pareto_abc_class) AS pareto_abc_class,
-        MAX(brand) AS brand,
-        MAX(product_family) AS product_family,
-        SUM(revenue_share) AS revenue_share,
-        CAST(NULL AS VARCHAR) AS title,
-        parent_asin AS asin,
-        week_start,
-        year,
-        MAX(report_date) AS report_date,
-        MAX(startdate) AS startdate,
-        MAX(enddate) AS enddate,
-        SUM(impressiondata_impressioncount) AS impressiondata_impressioncount,
-        SUM(clickdata_clickcount) AS clickdata_clickcount,
-        SUM(cartadddata_cartaddcount) AS cartadddata_cartaddcount,
-        SUM(purchasedata_purchasecount) AS purchasedata_purchasecount,
-        CASE
-            WHEN SUM(impressiondata_impressioncount) = 0 THEN NULL
-            ELSE SUM(clickdata_clickcount) / SUM(impressiondata_impressioncount)
-        END AS clickdata_clickrate,
-        CASE
-            WHEN SUM(clickdata_clickcount) = 0 THEN NULL
-            ELSE SUM(purchasedata_purchasecount) / SUM(clickdata_clickcount)
-        END AS purchasedata_conversionrate,
-        SUM(purchasedata_searchtrafficsales_amount) AS purchasedata_searchtrafficsales_amount,
-        MAX(purchasedata_searchtrafficsales_currencycode) AS purchasedata_searchtrafficsales_currencycode,
-        SUM(cartadddata_onedayshippingcartaddcount) AS cartadddata_onedayshippingcartaddcount,
-        SUM(cartadddata_samedayshippingcartaddcount) AS cartadddata_samedayshippingcartaddcount,
-        SUM(cartadddata_twodayshippingcartaddcount) AS cartadddata_twodayshippingcartaddcount,
-        SUM(clickdata_onedayshippingclickcount) AS clickdata_onedayshippingclickcount,
-        SUM(clickdata_samedayshippingclickcount) AS clickdata_samedayshippingclickcount,
-        SUM(clickdata_twodayshippingclickcount) AS clickdata_twodayshippingclickcount,
-        SUM(purchasedata_onedayshippingpurchasecount) AS purchasedata_onedayshippingpurchasecount,
-        SUM(purchasedata_samedayshippingpurchasecount) AS purchasedata_samedayshippingpurchasecount,
-        SUM(purchasedata_twodayshippingpurchasecount) AS purchasedata_twodayshippingpurchasecount,
-        SUM(impressiondata_onedayshippingimpressioncount) AS impressiondata_onedayshippingimpressioncount,
-        SUM(impressiondata_samedayshippingimpressioncount) AS impressiondata_samedayshippingimpressioncount,
-        SUM(impressiondata_twodayshippingimpressioncount) AS impressiondata_twodayshippingimpressioncount,
-        MAX(company_id) AS company_id,
-        MAX(amazon_seller_id) AS amazon_seller_id,
-        -- KPI base calculations
-        CASE
-            WHEN SUM(impressiondata_impressioncount) = 0 THEN NULL
-            ELSE SUM(clickdata_clickcount) / SUM(impressiondata_impressioncount)
-        END AS kpi_click_rate,
-        CASE
-            WHEN SUM(impressiondata_impressioncount) = 0 THEN NULL
-            ELSE SUM(cartadddata_cartaddcount) / SUM(impressiondata_impressioncount)
-        END AS kpi_cart_add_rate,
-        CASE
-            WHEN SUM(clickdata_clickcount) = 0 THEN NULL
-            ELSE SUM(purchasedata_purchasecount) / SUM(clickdata_clickcount)
-        END AS kpi_purchase_rate,
-        CASE
-            WHEN SUM(clickdata_clickcount) = 0 THEN NULL
-            ELSE SUM(purchasedata_searchtrafficsales_amount) / SUM(clickdata_clickcount)
-        END AS kpi_sales_per_click,
-        CASE
-            WHEN SUM(impressiondata_impressioncount) = 0 THEN NULL
-            ELSE SUM(purchasedata_searchtrafficsales_amount) / SUM(impressiondata_impressioncount)
-        END AS kpi_sales_per_impression,
-        'parent' AS row_type
+        company AS company,
+        marketplace AS marketplace,
+        marketplace_country_code AS marketplace_country_code,
+        parent_asin AS parent_asin,
+        week_start AS week_start,
+        max(revenue_abcd_class) AS revenue_abcd_class,
+        max(pareto_abc_class) AS pareto_abc_class,
+        max(brand) AS brand,
+        max(product_family) AS product_family,
+        sum(revenue_share) AS revenue_share,
+        max(report_date) AS report_date,
+        max(startdate) AS startdate,
+        max(enddate) AS enddate,
+        sum(impressiondata_impressioncount) AS impressiondata_impressioncount,
+        sum(clickdata_clickcount) AS clickdata_clickcount,
+        sum(cartadddata_cartaddcount) AS cartadddata_cartaddcount,
+        sum(purchasedata_purchasecount) AS purchasedata_purchasecount,
+        sum(purchasedata_searchtrafficsales_amount) AS purchasedata_searchtrafficsales_amount,
+        max(purchasedata_searchtrafficsales_currencycode) AS purchasedata_searchtrafficsales_currencycode,
+        sum(cartadddata_onedayshippingcartaddcount) AS cartadddata_onedayshippingcartaddcount,
+        sum(cartadddata_samedayshippingcartaddcount) AS cartadddata_samedayshippingcartaddcount,
+        sum(cartadddata_twodayshippingcartaddcount) AS cartadddata_twodayshippingcartaddcount,
+        sum(clickdata_onedayshippingclickcount) AS clickdata_onedayshippingclickcount,
+        sum(clickdata_samedayshippingclickcount) AS clickdata_samedayshippingclickcount,
+        sum(clickdata_twodayshippingclickcount) AS clickdata_twodayshippingclickcount,
+        sum(purchasedata_onedayshippingpurchasecount) AS purchasedata_onedayshippingpurchasecount,
+        sum(purchasedata_samedayshippingpurchasecount) AS purchasedata_samedayshippingpurchasecount,
+        sum(purchasedata_twodayshippingpurchasecount) AS purchasedata_twodayshippingpurchasecount,
+        sum(impressiondata_onedayshippingimpressioncount) AS impressiondata_onedayshippingimpressioncount,
+        sum(impressiondata_samedayshippingimpressioncount) AS impressiondata_samedayshippingimpressioncount,
+        sum(impressiondata_twodayshippingimpressioncount) AS impressiondata_twodayshippingimpressioncount,
+        max(company_id) AS company_id,
+        max(amazon_seller_id) AS amazon_seller_id
     FROM windowed
     GROUP BY
         company,
         marketplace,
         marketplace_country_code,
         parent_asin,
-        week_start,
-        year
+        week_start
+),
+
+-- Column list and order must match `windowed` exactly for the UNION ALL below.
+parent_agg AS (
+    SELECT
+        company AS company,
+        marketplace AS marketplace,
+        marketplace_country_code AS marketplace_country_code,
+        parent_asin AS parent_asin,
+        revenue_abcd_class AS revenue_abcd_class,
+        pareto_abc_class AS pareto_abc_class,
+        brand AS brand,
+        product_family AS product_family,
+        CAST(revenue_share AS Nullable(Float64)) AS revenue_share,
+        CAST(NULL AS Nullable(String)) AS title,
+        parent_asin AS asin,
+        week_start AS week_start,
+        CAST(report_date AS Nullable(Date)) AS report_date,
+        CAST(startdate AS Nullable(DateTime64(3))) AS startdate,
+        CAST(enddate AS Nullable(DateTime64(3))) AS enddate,
+        CAST(impressiondata_impressioncount AS Nullable(Float64)) AS impressiondata_impressioncount,
+        CAST(clickdata_clickcount AS Nullable(Float64)) AS clickdata_clickcount,
+        CAST(cartadddata_cartaddcount AS Nullable(Float64)) AS cartadddata_cartaddcount,
+        CAST(purchasedata_purchasecount AS Nullable(Float64)) AS purchasedata_purchasecount,
+        CAST(
+            if(ifNull(impressiondata_impressioncount, 0) = 0, NULL,
+               clickdata_clickcount / impressiondata_impressioncount)
+            AS Nullable(Float64)
+        ) AS clickdata_clickrate,
+        CAST(
+            if(ifNull(clickdata_clickcount, 0) = 0, NULL,
+               purchasedata_purchasecount / clickdata_clickcount)
+            AS Nullable(Float64)
+        ) AS purchasedata_conversionrate,
+        CAST(purchasedata_searchtrafficsales_amount AS Nullable(Float64)) AS purchasedata_searchtrafficsales_amount,
+        CAST(purchasedata_searchtrafficsales_currencycode AS Nullable(String)) AS purchasedata_searchtrafficsales_currencycode,
+        CAST(cartadddata_onedayshippingcartaddcount AS Nullable(Float64)) AS cartadddata_onedayshippingcartaddcount,
+        CAST(cartadddata_samedayshippingcartaddcount AS Nullable(Float64)) AS cartadddata_samedayshippingcartaddcount,
+        CAST(cartadddata_twodayshippingcartaddcount AS Nullable(Float64)) AS cartadddata_twodayshippingcartaddcount,
+        CAST(clickdata_onedayshippingclickcount AS Nullable(Float64)) AS clickdata_onedayshippingclickcount,
+        CAST(clickdata_samedayshippingclickcount AS Nullable(Float64)) AS clickdata_samedayshippingclickcount,
+        CAST(clickdata_twodayshippingclickcount AS Nullable(Float64)) AS clickdata_twodayshippingclickcount,
+        CAST(purchasedata_onedayshippingpurchasecount AS Nullable(Float64)) AS purchasedata_onedayshippingpurchasecount,
+        CAST(purchasedata_samedayshippingpurchasecount AS Nullable(Float64)) AS purchasedata_samedayshippingpurchasecount,
+        CAST(purchasedata_twodayshippingpurchasecount AS Nullable(Float64)) AS purchasedata_twodayshippingpurchasecount,
+        CAST(impressiondata_onedayshippingimpressioncount AS Nullable(Float64)) AS impressiondata_onedayshippingimpressioncount,
+        CAST(impressiondata_samedayshippingimpressioncount AS Nullable(Float64)) AS impressiondata_samedayshippingimpressioncount,
+        CAST(impressiondata_twodayshippingimpressioncount AS Nullable(Float64)) AS impressiondata_twodayshippingimpressioncount,
+        company_id AS company_id,
+        amazon_seller_id AS amazon_seller_id,
+        CAST(
+            if(ifNull(impressiondata_impressioncount, 0) = 0, NULL,
+               clickdata_clickcount / impressiondata_impressioncount)
+            AS Nullable(Float64)
+        ) AS kpi_click_rate,
+        CAST(
+            if(ifNull(impressiondata_impressioncount, 0) = 0, NULL,
+               cartadddata_cartaddcount / impressiondata_impressioncount)
+            AS Nullable(Float64)
+        ) AS kpi_cart_add_rate,
+        CAST(
+            if(ifNull(clickdata_clickcount, 0) = 0, NULL,
+               purchasedata_purchasecount / clickdata_clickcount)
+            AS Nullable(Float64)
+        ) AS kpi_purchase_rate,
+        CAST(
+            if(ifNull(clickdata_clickcount, 0) = 0, NULL,
+               purchasedata_searchtrafficsales_amount / clickdata_clickcount)
+            AS Nullable(Float64)
+        ) AS kpi_sales_per_click,
+        CAST(
+            if(ifNull(impressiondata_impressioncount, 0) = 0, NULL,
+               purchasedata_searchtrafficsales_amount / impressiondata_impressioncount)
+            AS Nullable(Float64)
+        ) AS kpi_sales_per_impression,
+        CAST('parent' AS String) AS row_type
+    FROM parent_sums
 ),
 
 final_base AS (
@@ -350,195 +314,219 @@ final_base AS (
     SELECT * FROM parent_agg
 ),
 
+-- ─── Week-over-week and rolling-baseline deltas ─────────────────────────────
+-- lagInFrame needs the explicit ROWS frame; the default RANGE frame does not step
+-- back exactly one row. toNullable + NULL default keeps "no prior week" as NULL
+-- rather than a fabricated zero delta.
 with_deltas AS (
     SELECT
         fb.*,
-        fb.kpi_click_rate - LAG(fb.kpi_click_rate) OVER (
+        fb.kpi_click_rate - lagInFrame(toNullable(fb.kpi_click_rate), 1, NULL) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
         ) AS kpi_click_rate_wow,
-        fb.kpi_click_rate - AVG(fb.kpi_click_rate) OVER (
+        fb.kpi_click_rate - avg(fb.kpi_click_rate) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
             ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
         ) AS kpi_click_rate_wolast4,
-        fb.kpi_click_rate - AVG(fb.kpi_click_rate) OVER (
+        fb.kpi_click_rate - avg(fb.kpi_click_rate) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
             ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
         ) AS kpi_click_rate_wolast12,
-        fb.kpi_cart_add_rate - LAG(fb.kpi_cart_add_rate) OVER (
+        fb.kpi_cart_add_rate - lagInFrame(toNullable(fb.kpi_cart_add_rate), 1, NULL) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
         ) AS kpi_cart_add_rate_wow,
-        fb.kpi_cart_add_rate - AVG(fb.kpi_cart_add_rate) OVER (
+        fb.kpi_cart_add_rate - avg(fb.kpi_cart_add_rate) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
             ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
         ) AS kpi_cart_add_rate_wolast4,
-        fb.kpi_cart_add_rate - AVG(fb.kpi_cart_add_rate) OVER (
+        fb.kpi_cart_add_rate - avg(fb.kpi_cart_add_rate) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
             ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
         ) AS kpi_cart_add_rate_wolast12,
-        fb.kpi_purchase_rate - LAG(fb.kpi_purchase_rate) OVER (
+        fb.kpi_purchase_rate - lagInFrame(toNullable(fb.kpi_purchase_rate), 1, NULL) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW
         ) AS kpi_purchase_rate_wow,
-        fb.kpi_purchase_rate - AVG(fb.kpi_purchase_rate) OVER (
+        fb.kpi_purchase_rate - avg(fb.kpi_purchase_rate) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
             ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING
         ) AS kpi_purchase_rate_wolast4,
-        fb.kpi_purchase_rate - AVG(fb.kpi_purchase_rate) OVER (
+        fb.kpi_purchase_rate - avg(fb.kpi_purchase_rate) OVER (
             PARTITION BY fb.company_id, fb.marketplace_country_code, fb.row_type, fb.parent_asin, fb.asin
             ORDER BY fb.week_start
             ROWS BETWEEN 12 PRECEDING AND 1 PRECEDING
         ) AS kpi_purchase_rate_wolast12
-    FROM final_base fb
+    FROM final_base AS fb
 ),
 
+-- ─── Delivery-speed conversion rates ────────────────────────────────────────
+-- The `= 0` guard on the two-day purchase count is new: it is the ratio's
+-- denominator, and ClickHouse returns +inf rather than raising on divide-by-zero,
+-- which would score as a false 'green' shipping_alpha opportunity.
 cvr_base AS (
     SELECT
         w.*,
-        -- Delivery speed CVR (purchase per click)
-        CASE
-            WHEN w.clickdata_samedayshippingclickcount = 0 THEN NULL
-            ELSE w.purchasedata_samedayshippingpurchasecount / w.clickdata_samedayshippingclickcount
-        END AS cvr_same_day,
-        CASE
-            WHEN w.clickdata_onedayshippingclickcount = 0 THEN NULL
-            ELSE w.purchasedata_onedayshippingpurchasecount / w.clickdata_onedayshippingclickcount
-        END AS cvr_one_day,
-        CASE
-            WHEN w.clickdata_twodayshippingclickcount = 0 THEN NULL
-            ELSE w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount
-        END AS cvr_two_day,
-        CASE
-            WHEN w.clickdata_samedayshippingclickcount = 0
-                OR w.clickdata_twodayshippingclickcount = 0
-                OR w.purchasedata_twodayshippingpurchasecount IS NULL
-                OR w.purchasedata_samedayshippingpurchasecount IS NULL
-                THEN NULL
-            ELSE (w.purchasedata_samedayshippingpurchasecount / w.clickdata_samedayshippingclickcount)
-                / (w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount)
-        END AS cvr_same_vs_two_ratio,
-        CASE
-            WHEN w.clickdata_onedayshippingclickcount = 0
-                OR w.clickdata_twodayshippingclickcount = 0
-                OR w.purchasedata_twodayshippingpurchasecount IS NULL
-                OR w.purchasedata_onedayshippingpurchasecount IS NULL
-                THEN NULL
-            ELSE (w.purchasedata_onedayshippingpurchasecount / w.clickdata_onedayshippingclickcount)
-                / (w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount)
-        END AS cvr_one_vs_two_ratio
-    FROM with_deltas w
+        if(ifNull(w.clickdata_samedayshippingclickcount, 0) = 0, NULL,
+           w.purchasedata_samedayshippingpurchasecount / w.clickdata_samedayshippingclickcount) AS cvr_same_day,
+        if(ifNull(w.clickdata_onedayshippingclickcount, 0) = 0, NULL,
+           w.purchasedata_onedayshippingpurchasecount / w.clickdata_onedayshippingclickcount) AS cvr_one_day,
+        if(ifNull(w.clickdata_twodayshippingclickcount, 0) = 0, NULL,
+           w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount) AS cvr_two_day,
+        if(
+            ifNull(w.clickdata_samedayshippingclickcount, 0) = 0
+            OR ifNull(w.clickdata_twodayshippingclickcount, 0) = 0
+            OR w.purchasedata_twodayshippingpurchasecount IS NULL
+            OR w.purchasedata_samedayshippingpurchasecount IS NULL
+            OR w.purchasedata_twodayshippingpurchasecount = 0,
+            NULL,
+            (w.purchasedata_samedayshippingpurchasecount / w.clickdata_samedayshippingclickcount)
+            / (w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount)
+        ) AS cvr_same_vs_two_ratio,
+        if(
+            ifNull(w.clickdata_onedayshippingclickcount, 0) = 0
+            OR ifNull(w.clickdata_twodayshippingclickcount, 0) = 0
+            OR w.purchasedata_twodayshippingpurchasecount IS NULL
+            OR w.purchasedata_onedayshippingpurchasecount IS NULL
+            OR w.purchasedata_twodayshippingpurchasecount = 0,
+            NULL,
+            (w.purchasedata_onedayshippingpurchasecount / w.clickdata_onedayshippingclickcount)
+            / (w.purchasedata_twodayshippingpurchasecount / w.clickdata_twodayshippingclickcount)
+        ) AS cvr_one_vs_two_ratio
+    FROM with_deltas AS w
 ),
 
+-- ─── Strength / weakness / opportunity / ceiling signals ────────────────────
 signal_base AS (
     SELECT
         w.*,
         -- Strength signal (green/yellow/red)
-        CASE
-            WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN NULL
-            WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'green'
-            WHEN w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'yellow'
-            ELSE 'red'
-        END AS strength_color,
-        CASE
-            WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN 'insufficient_data'
-            WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'high_ctr'
-            WHEN w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'decent_ctr'
-            ELSE 'weak_click_or_conversion'
-        END AS strength_code,
-        CASE
-            WHEN w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL THEN 'Not enough data to evaluate strength.'
-            WHEN w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g THEN 'ASIN CTR and conversion are excellent for search results.'
-            WHEN w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y THEN 'Moderate CTR or conversion; above average but not leading.'
-            ELSE 'Underperforming click or conversion rate.'
-        END AS strength_description,
+        multiIf(
+            w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL, NULL,
+            w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g, 'green',
+            w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y, 'yellow',
+            'red'
+        ) AS strength_color,
+        multiIf(
+            w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL, 'insufficient_data',
+            w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g, 'high_ctr',
+            w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y, 'decent_ctr',
+            'weak_click_or_conversion'
+        ) AS strength_code,
+        multiIf(
+            w.kpi_click_rate IS NULL OR w.kpi_purchase_rate IS NULL, 'Not enough data to evaluate strength.',
+            w.kpi_click_rate >= t.str_click_rate_g AND w.kpi_purchase_rate >= t.str_purchase_rate_g, 'ASIN CTR and conversion are excellent for search results.',
+            w.kpi_click_rate >= t.str_click_rate_y OR w.kpi_purchase_rate >= t.str_purchase_rate_y, 'Moderate CTR or conversion; above average but not leading.',
+            'Underperforming click or conversion rate.'
+        ) AS strength_description,
 
-        -- Weakness signal (no scp rows → always green)
-        'green' AS weakness_color,
-        'no_major_weakness' AS weakness_code,
-        'No critical weakness detected.' AS weakness_description,
+        -- Weakness signal (no scp weakness rows are evaluated → always green)
+        CAST('green' AS String) AS weakness_color,
+        CAST('no_major_weakness' AS String) AS weakness_code,
+        CAST('No critical weakness detected.' AS String) AS weakness_description,
 
         -- Opportunity signal (fast-delivery CVR uplift)
-        CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'green'
-            ELSE 'red'
-        END AS opportunity_color,
-        CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g THEN 'shipping_alpha'
-            ELSE 'no_clear_opportunity'
-        END AS opportunity_code,
-        CASE
-            WHEN COALESCE(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g OR COALESCE(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
-              THEN '1-Day delivery provides >30% CVR lift. Scale FBA inventory.'
-            ELSE 'No clear opportunity detected.'
-        END AS opportunity_description,
+        if(
+            ifNull(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
+            OR ifNull(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g,
+            'green', 'red'
+        ) AS opportunity_color,
+        if(
+            ifNull(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
+            OR ifNull(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g,
+            'shipping_alpha', 'no_clear_opportunity'
+        ) AS opportunity_code,
+        if(
+            ifNull(w.cvr_same_vs_two_ratio, 0) >= t.opp_cvr_ratio_g
+            OR ifNull(w.cvr_one_vs_two_ratio, 0) >= t.opp_cvr_ratio_g,
+            '1-Day delivery provides >30% CVR lift. Scale FBA inventory.',
+            'No clear opportunity detected.'
+        ) AS opportunity_description,
 
         -- Threshold / ceiling signal (always green for now)
-        'green' AS threshold_color,
-        'no_ceiling' AS threshold_code,
-        'No ceiling detected.' AS threshold_description
-    FROM cvr_base w
-    CROSS JOIN thresholds t
+        CAST('green' AS String) AS threshold_color,
+        CAST('no_ceiling' AS String) AS threshold_code,
+        CAST('No ceiling detected.' AS String) AS threshold_description
+    FROM cvr_base AS w
+    CROSS JOIN thresholds AS t
 ),
 
 final AS (
     SELECT
         sb.*,
-        -- Trend signals (thresholds from ryg_thresholds table)
-        CASE
-            WHEN sb.kpi_click_rate_wow > t.trend_delta_g
-             AND sb.kpi_click_rate_wolast4 > t.trend_delta_g
-             AND sb.kpi_click_rate_wolast12 > t.trend_delta_g THEN 'green'
-            WHEN sb.kpi_click_rate_wow < t.trend_delta_r
-             AND sb.kpi_click_rate_wolast4 < t.trend_delta_r
-             AND sb.kpi_click_rate_wolast12 < t.trend_delta_r THEN 'red'
-            ELSE 'yellow'
-        END AS kpi_click_rate_trend_signal,
-        CASE
-            WHEN sb.kpi_cart_add_rate_wow > t.trend_delta_g
-             AND sb.kpi_cart_add_rate_wolast4 > t.trend_delta_g
-             AND sb.kpi_cart_add_rate_wolast12 > t.trend_delta_g THEN 'green'
-            WHEN sb.kpi_cart_add_rate_wow < t.trend_delta_r
-             AND sb.kpi_cart_add_rate_wolast4 < t.trend_delta_r
-             AND sb.kpi_cart_add_rate_wolast12 < t.trend_delta_r THEN 'red'
-            ELSE 'yellow'
-        END AS kpi_cart_add_rate_trend_signal,
-        CASE
-            WHEN sb.kpi_purchase_rate_wow > t.trend_delta_g
-             AND sb.kpi_purchase_rate_wolast4 > t.trend_delta_g
-             AND sb.kpi_purchase_rate_wolast12 > t.trend_delta_g THEN 'green'
-            WHEN sb.kpi_purchase_rate_wow < t.trend_delta_r
-             AND sb.kpi_purchase_rate_wolast4 < t.trend_delta_r
-             AND sb.kpi_purchase_rate_wolast12 < t.trend_delta_r THEN 'red'
-            ELSE 'yellow'
-        END AS kpi_purchase_rate_trend_signal,
-        json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.strength_color, sb.strength_code, sb.strength_description]) AS JSON)) AS strength_signal,
-        json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.weakness_color, sb.weakness_code, sb.weakness_description]) AS JSON)) AS weakness_signal,
-        json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.opportunity_color, sb.opportunity_code, sb.opportunity_description]) AS JSON)) AS opportunity_signal,
-        json_format(CAST(map(ARRAY['color','code','description'], ARRAY[sb.threshold_color, sb.threshold_code, sb.threshold_description]) AS JSON)) AS threshold_signal
-    FROM signal_base sb
-    CROSS JOIN thresholds t
+        -- Trend signals (thresholds from analytics.ba_ryg_thresholds)
+        multiIf(
+            sb.kpi_click_rate_wow > t.trend_delta_g
+            AND sb.kpi_click_rate_wolast4 > t.trend_delta_g
+            AND sb.kpi_click_rate_wolast12 > t.trend_delta_g, 'green',
+            sb.kpi_click_rate_wow < t.trend_delta_r
+            AND sb.kpi_click_rate_wolast4 < t.trend_delta_r
+            AND sb.kpi_click_rate_wolast12 < t.trend_delta_r, 'red',
+            'yellow'
+        ) AS kpi_click_rate_trend_signal,
+        multiIf(
+            sb.kpi_cart_add_rate_wow > t.trend_delta_g
+            AND sb.kpi_cart_add_rate_wolast4 > t.trend_delta_g
+            AND sb.kpi_cart_add_rate_wolast12 > t.trend_delta_g, 'green',
+            sb.kpi_cart_add_rate_wow < t.trend_delta_r
+            AND sb.kpi_cart_add_rate_wolast4 < t.trend_delta_r
+            AND sb.kpi_cart_add_rate_wolast12 < t.trend_delta_r, 'red',
+            'yellow'
+        ) AS kpi_cart_add_rate_trend_signal,
+        multiIf(
+            sb.kpi_purchase_rate_wow > t.trend_delta_g
+            AND sb.kpi_purchase_rate_wolast4 > t.trend_delta_g
+            AND sb.kpi_purchase_rate_wolast12 > t.trend_delta_g, 'green',
+            sb.kpi_purchase_rate_wow < t.trend_delta_r
+            AND sb.kpi_purchase_rate_wolast4 < t.trend_delta_r
+            AND sb.kpi_purchase_rate_wolast12 < t.trend_delta_r, 'red',
+            'yellow'
+        ) AS kpi_purchase_rate_trend_signal,
+        toJSONString(map(
+            'color', ifNull(sb.strength_color, ''),
+            'code', sb.strength_code,
+            'description', sb.strength_description
+        )) AS strength_signal,
+        toJSONString(map(
+            'color', sb.weakness_color,
+            'code', sb.weakness_code,
+            'description', sb.weakness_description
+        )) AS weakness_signal,
+        toJSONString(map(
+            'color', sb.opportunity_color,
+            'code', sb.opportunity_code,
+            'description', sb.opportunity_description
+        )) AS opportunity_signal,
+        toJSONString(map(
+            'color', sb.threshold_color,
+            'code', sb.threshold_code,
+            'description', sb.threshold_description
+        )) AS threshold_signal
+    FROM signal_base AS sb
+    CROSS JOIN thresholds AS t
 )
 
-SELECT
-    f.*
-FROM final f
-CROSS JOIN params
-CROSS JOIN date_bounds d
+SELECT f.*
+FROM final AS f
 WHERE
-    f.week_start BETWEEN d.start_date AND d.end_date
-    AND (cardinality(params.row_types) = 0 OR any_match(params.row_types, rt -> lower(rt) = lower(f.row_type)))
-    AND (cardinality(params.strength_colors) = 0 OR any_match(params.strength_colors, c -> lower(c) = lower(f.strength_color)))
-    AND (cardinality(params.weakness_colors) = 0 OR any_match(params.weakness_colors, c -> lower(c) = lower(f.weakness_color)))
-    AND (cardinality(params.opportunity_colors) = 0 OR any_match(params.opportunity_colors, c -> lower(c) = lower(f.opportunity_color)))
-    AND (cardinality(params.threshold_colors) = 0 OR any_match(params.threshold_colors, c -> lower(c) = lower(f.threshold_color)))
-    AND (cardinality(params.click_trend_colors) = 0 OR any_match(params.click_trend_colors, c -> lower(c) = lower(f.kpi_click_rate_trend_signal)))
-    AND (cardinality(params.cart_add_trend_colors) = 0 OR any_match(params.cart_add_trend_colors, c -> lower(c) = lower(f.kpi_cart_add_rate_trend_signal)))
-    AND (cardinality(params.purchase_trend_colors) = 0 OR any_match(params.purchase_trend_colors, c -> lower(c) = lower(f.kpi_purchase_rate_trend_signal)))
+    f.week_start >= (SELECT start_date FROM date_bounds)
+    AND f.week_start <= (SELECT end_date FROM date_bounds)
+    AND (length({{row_types_array}}) = 0 OR arrayExists(rt -> lower(rt) = lower(f.row_type), {{row_types_array}}))
+    AND (length({{strength_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(ifNull(f.strength_color, '')), {{strength_colors_array}}))
+    AND (length({{weakness_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(f.weakness_color), {{weakness_colors_array}}))
+    AND (length({{opportunity_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(f.opportunity_color), {{opportunity_colors_array}}))
+    AND (length({{threshold_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(f.threshold_color), {{threshold_colors_array}}))
+    AND (length({{click_trend_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(f.kpi_click_rate_trend_signal), {{click_trend_colors_array}}))
+    AND (length({{cart_add_trend_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(f.kpi_cart_add_rate_trend_signal), {{cart_add_trend_colors_array}}))
+    AND (length({{purchase_trend_colors_array}}) = 0 OR arrayExists(c -> lower(c) = lower(f.kpi_purchase_rate_trend_signal), {{purchase_trend_colors_array}}))
 ORDER BY f.week_start DESC
 LIMIT {{limit_top_n}};

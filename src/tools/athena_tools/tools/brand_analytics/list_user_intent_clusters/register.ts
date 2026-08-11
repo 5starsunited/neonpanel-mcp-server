@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { isAuthorizedForCompany, sqlString } from '../_intent_common';
+import { executeBrandAnalyticsQuery, sqlStringLiteral } from '../_clickhouse';
+import { isAuthorizedForCompany } from '../_intent_common';
 
 const inputSchema = z
   .object({
@@ -61,7 +60,6 @@ export function registerBrandAnalyticsListUserIntentClustersTool(registry: ToolR
       const status = parsed.status ?? 'active';
       const limit = parsed.limit ?? 50;
       const offset = parsed.offset ?? 0;
-      const catalog = config.athena.catalog;
       const inputSearchTerms = parsed.search_terms ?? null;
 
       const authorized = await isAuthorizedForCompany(companyId, context);
@@ -69,16 +67,15 @@ export function registerBrandAnalyticsListUserIntentClustersTool(registry: ToolR
         return { intents: [], total_count: 0, limit, offset, error: 'Not authorized for this company.' };
       }
 
-      const statusFilterSql = status === 'all' ? 'TRUE' : `li.status = ${sqlString(status)}`;
+      const statusFilterSql = status === 'all' ? '1' : `li.status = ${sqlStringLiteral(status)}`;
       const intentIds = parsed.intent_ids ?? [];
       const intentIdsFilterSql =
         intentIds.length === 0
-          ? 'TRUE'
-          : `li.intent_id IN (${intentIds.map((s) => sqlString(s)).join(', ')})`;
+          ? '1'
+          : `li.intent_id IN (${intentIds.map((s) => sqlStringLiteral(s)).join(', ')})`;
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         company_id: companyId,
         status_filter_sql: statusFilterSql,
         intent_ids_filter_sql: intentIdsFilterSql,
@@ -86,15 +83,9 @@ export function registerBrandAnalyticsListUserIntentClustersTool(registry: ToolR
         limit_top_n: limit,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limit,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
-      const rows = athenaResult.rows ?? [];
+      const rows = result.rows ?? [];
       const totalCount = rows.length > 0 ? parseIntOrZero(rows[0]?.total_count) : 0;
       const intents = rows.map((r) => ({
         id: parseIntOrZero(r.id),
@@ -119,7 +110,6 @@ export function registerBrandAnalyticsListUserIntentClustersTool(registry: ToolR
         ...(await buildCoverageBlock({
           inputSearchTerms,
           companyId,
-          catalog,
           coverageSqlPath,
         })),
       };
@@ -130,7 +120,6 @@ export function registerBrandAnalyticsListUserIntentClustersTool(registry: ToolR
 async function buildCoverageBlock(opts: {
   inputSearchTerms: string[] | null;
   companyId: number;
-  catalog: string;
   coverageSqlPath: string;
 }): Promise<{
   coverage?: {
@@ -156,21 +145,14 @@ async function buildCoverageBlock(opts: {
   }
   if (normalized.length === 0) return {};
 
-  const termsInListSql = normalized.map((t) => sqlString(t)).join(', ');
+  const termsInListSql = normalized.map((t) => sqlStringLiteral(t)).join(', ');
   const template = await loadTextFile(opts.coverageSqlPath);
   const sql = renderSqlTemplate(template, {
-    catalog: opts.catalog,
     company_id: opts.companyId,
     terms_in_list_sql: termsInListSql,
   });
 
-  const result = await runAthenaQuery({
-    query: sql,
-    database: 'brand_analytics_iceberg',
-    workGroup: config.athena.workgroup,
-    outputLocation: config.athena.outputLocation,
-    maxRows: normalized.length * 5,
-  });
+  const result = await executeBrandAnalyticsQuery(sql);
 
   const byTerm = new Map<string, Set<string>>();
   for (const row of result.rows ?? []) {

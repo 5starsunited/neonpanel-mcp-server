@@ -1,11 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { executeBrandAnalyticsQuery, sqlStringLiteral } from '../_clickhouse';
 
 const inputSchema = z
   .object({
@@ -19,13 +18,9 @@ const inputSchema = z
   })
   .strict();
 
-function sqlString(v: string): string {
-  return `'${v.replace(/'/g, "''")}'`;
-}
-
-function arrayInClause(values: string[] | undefined, column: string, wrap?: (s: string) => string): string {
-  if (!values || values.length === 0) return 'TRUE';
-  const mapped = values.map((v) => sqlString(wrap ? wrap(v) : v));
+function arrayInClause(values: string[] | undefined, column: string): string {
+  if (!values || values.length === 0) return '1';
+  const mapped = values.map((value) => sqlStringLiteral(value));
   return `${column} IN (${mapped.join(', ')})`;
 }
 
@@ -54,22 +49,32 @@ export function registerBrandAnalyticsListCompetitorAsinsTool(registry: ToolRegi
     execute: async (args) => {
       const parsed = inputSchema.parse(args);
 
-      const catalog = config.athena.catalog;
       const limitTopN = parsed.limit ?? 200;
 
       const companyIdsSql = parsed.company_ids.map((n) => String(n)).join(', ');
-      const companyFilterSql = `company_id IN (${companyIdsSql})`;
+      const companyFilterSql = `competitors.company_id IN (${companyIdsSql})`;
 
-      const marketplaceFilterSql = arrayInClause(parsed.marketplaces, 'marketplace');
-      const competitorAsinFilterSql = arrayInClause(parsed.competitor_asins, 'competitor_asin');
-      const againstAsinFilterSql = arrayInClause(parsed.against_my_asin, 'against_my_asin');
-      const againstFamilyFilterSql = arrayInClause(parsed.against_my_product_family, 'against_my_product_family');
+      // Callers pass country codes; state rows key on the canonical marketplace
+      // id, so match either representation.
+      const marketplaceFilterSql =
+        parsed.marketplaces && parsed.marketplaces.length > 0
+          ? `lower(competitors.marketplace_id) IN (${parsed.marketplaces
+              .map((m) => sqlStringLiteral(m.toLowerCase()))
+              .join(', ')}) OR lower(ifNull(marketplace.country_code, '')) IN (${parsed.marketplaces
+              .map((m) => sqlStringLiteral(m.toLowerCase()))
+              .join(', ')})`
+          : '1';
+      const competitorAsinFilterSql = arrayInClause(parsed.competitor_asins, 'competitors.competitor_asin');
+      const againstAsinFilterSql = arrayInClause(parsed.against_my_asin, 'competitors.against_my_asin');
+      const againstFamilyFilterSql = arrayInClause(
+        parsed.against_my_product_family,
+        'competitors.against_my_product_family',
+      );
 
-      const activeFilterSql = parsed.include_inactive ? 'TRUE' : 'is_active = TRUE';
+      const activeFilterSql = parsed.include_inactive ? '1' : 'competitors.is_active = 1';
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         company_filter_sql: companyFilterSql,
         marketplace_filter_sql: marketplaceFilterSql,
         competitor_asin_filter_sql: competitorAsinFilterSql,
@@ -79,15 +84,9 @@ export function registerBrandAnalyticsListCompetitorAsinsTool(registry: ToolRegi
         limit_top_n: limitTopN,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
-      return { items: athenaResult.rows ?? [] };
+      return { items: result.rows ?? [] };
     },
   });
 }

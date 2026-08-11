@@ -1,20 +1,66 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import {
-  generateBigintId,
-  isAuthorizedForCompany,
-  isValidIntentIdSlug,
-  sqlNullableDouble,
-  sqlNullableInt,
-  sqlNullableString,
-  sqlString,
-} from '../_intent_common';
+  executeBrandAnalyticsQuery,
+  insertBrandAnalyticsState,
+  nowVersion,
+  sqlStringLiteral,
+} from '../_clickhouse';
+import { generateBigintId, isAuthorizedForCompany, isValidIntentIdSlug } from '../_intent_common';
+
+const INTENTS_TABLE = 'analytics.ba_user_intents';
+const INTENTS_COLUMNS = [
+  'id',
+  'company_id',
+  'intent_id',
+  'intent_name',
+  'customer_need',
+  'status',
+  'search_term_count',
+  'source',
+  'clustering_run_id',
+  'created_at',
+  'created_by',
+  'is_active',
+  'version',
+];
+
+const MAPPINGS_TABLE = 'analytics.ba_search_term_to_intent';
+const MAPPINGS_COLUMNS = [
+  'id',
+  'company_id',
+  'search_term',
+  'intent_id',
+  'confidence',
+  'contribution_pct',
+  'source',
+  'created_at',
+  'created_by',
+  'is_active',
+  'version',
+];
+
+const AUDIT_TABLE = 'analytics.ba_intent_cluster_audit';
+const AUDIT_COLUMNS = [
+  'id',
+  'company_id',
+  'operation_type',
+  'status',
+  'input_search_terms_count',
+  'output_intents_count',
+  'output_mapping',
+  'llm_model',
+  'llm_input_tokens',
+  'llm_output_tokens',
+  'created_at',
+  'created_by',
+  'is_active',
+  'version',
+];
 
 const searchTermItem = z.object({
   term: z.string().min(1).max(300),
@@ -47,28 +93,6 @@ const inputSchema = z
 
 type WriteItem = z.infer<typeof searchTermItem>;
 
-function buildMappingsValuesSql(
-  rows: Array<{
-    id: number;
-    companyId: number;
-    term: string;
-    intentIdSlug: string;
-    confidence: number;
-    contributionPct: number;
-    source: string;
-    userId: string;
-  }>,
-): string {
-  return rows
-    .map(
-      (r) =>
-        `(${r.id}, ${r.companyId}, ${sqlString(r.term)}, ${sqlString(r.intentIdSlug)}, ` +
-        `${sqlNullableDouble(r.confidence)}, ${sqlNullableDouble(r.contributionPct)}, ` +
-        `${sqlString(r.source)}, current_timestamp, ${sqlString(r.userId)})`,
-    )
-    .join(',\n  ');
-}
-
 function dedupSearchTerms(items: WriteItem[]): WriteItem[] {
   const seen = new Set<string>();
   const out: WriteItem[] = [];
@@ -84,11 +108,7 @@ function dedupSearchTerms(items: WriteItem[]): WriteItem[] {
 export function registerBrandAnalyticsCreateUserIntentClusterTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
   const checkSqlPath = path.join(__dirname, 'check_intent_id.sql');
-  const insertIntentSqlPath = path.join(__dirname, 'insert_intent.sql');
-  const insertMappingsSqlPath = path.join(__dirname, 'insert_mappings.sql');
   const selectAuditSqlPath = path.join(__dirname, 'select_audit.sql');
-  const deleteAuditSqlPath = path.join(__dirname, 'delete_audit.sql');
-  const insertAuditSqlPath = path.join(__dirname, 'insert_audit.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -116,7 +136,9 @@ export function registerBrandAnalyticsCreateUserIntentClusterTool(registry: Tool
       const source = parsed.source ?? 'manual';
       const clusteringRunId = parsed.clustering_run_id ?? null;
       const userId = context.subject ?? 'unknown';
-      const catalog = config.athena.catalog;
+      // One request-scoped version stamps the intent, its mappings and the audit
+      // row so a partially applied write is identifiable after the fact.
+      const version = nowVersion();
 
       if (!isValidIntentIdSlug(intentIdSlug)) {
         return {
@@ -151,17 +173,10 @@ export function registerBrandAnalyticsCreateUserIntentClusterTool(registry: Tool
       // Uniqueness pre-check.
       const checkTemplate = await loadTextFile(checkSqlPath);
       const checkSql = renderSqlTemplate(checkTemplate, {
-        catalog,
         company_id: companyId,
-        intent_id: sqlString(intentIdSlug),
+        intent_id: sqlStringLiteral(intentIdSlug),
       });
-      const checkResult = await runAthenaQuery({
-        query: checkSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 1,
-      });
+      const checkResult = await executeBrandAnalyticsQuery(checkSql);
       const existingCountRaw = checkResult.rows?.[0]?.existing_count ?? '0';
       const existingCount = Number.parseInt(String(existingCountRaw), 10) || 0;
       if (existingCount > 0) {
@@ -178,53 +193,66 @@ export function registerBrandAnalyticsCreateUserIntentClusterTool(registry: Tool
 
       // Insert the intent row.
       const intentRowId = generateBigintId();
-      const insertIntentTemplate = await loadTextFile(insertIntentSqlPath);
-      const insertIntentSql = renderSqlTemplate(insertIntentTemplate, {
-        catalog,
-        id: intentRowId,
-        company_id: companyId,
-        intent_id: sqlString(intentIdSlug),
-        intent_name: sqlString(parsed.intent_name),
-        customer_need: sqlString(parsed.customer_need),
-        search_term_count: dedupedTerms.length,
-        source: sqlString(source),
-        clustering_run_id: clusteringRunId == null ? 'NULL' : String(clusteringRunId),
-        created_by: sqlString(userId),
-      });
-      await runAthenaQuery({
-        query: insertIntentSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
+      await insertBrandAnalyticsState({
+        table: INTENTS_TABLE,
+        columns: INTENTS_COLUMNS,
+        rows: [
+          {
+            id: intentRowId,
+            company_id: companyId,
+            intent_id: intentIdSlug,
+            intent_name: parsed.intent_name,
+            customer_need: parsed.customer_need,
+            status: 'active',
+            search_term_count: dedupedTerms.length,
+            source,
+            clustering_run_id: clusteringRunId,
+            created_at: version,
+            created_by: userId,
+            is_active: 1,
+            version,
+          },
+        ],
       });
 
-      // Insert mapping rows (if any).
+      // Insert mapping rows (if any). The intent row is already durable, so a
+      // failure here is surfaced as a partial write rather than rolled back.
       if (dedupedTerms.length > 0) {
-        const insertMappingsTemplate = await loadTextFile(insertMappingsSqlPath);
-        // Build distinct ids per row.
         const baseId = generateBigintId();
-        const rows = dedupedTerms.map((t, idx) => ({
-          id: baseId + idx,
-          companyId,
-          term: t.term,
-          intentIdSlug,
-          confidence: t.confidence ?? 0.95,
-          contributionPct: t.contribution_pct ?? 1.0,
-          source,
-          userId,
-        }));
-        const insertMappingsSql = renderSqlTemplate(insertMappingsTemplate, {
-          catalog,
-          mappings_values_sql: buildMappingsValuesSql(rows),
-        });
-        await runAthenaQuery({
-          query: insertMappingsSql,
-          database: 'brand_analytics_iceberg',
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 0,
-        });
+        try {
+          await insertBrandAnalyticsState({
+            table: MAPPINGS_TABLE,
+            columns: MAPPINGS_COLUMNS,
+            rows: dedupedTerms.map((t, idx) => ({
+              id: baseId + idx,
+              company_id: companyId,
+              search_term: t.term,
+              intent_id: intentIdSlug,
+              confidence: t.confidence ?? 0.95,
+              contribution_pct: t.contribution_pct ?? 1.0,
+              source,
+              created_at: version,
+              created_by: userId,
+              is_active: 1,
+              version,
+            })),
+          });
+        } catch (err) {
+          return {
+            dry_run: false,
+            id: intentRowId,
+            intent_id: intentIdSlug,
+            intent_name: parsed.intent_name,
+            search_term_count: 0,
+            clustering_run_id: clusteringRunId,
+            audit_finalized: false,
+            error:
+              `Partial write: intent "${intentIdSlug}" was created (id=${intentRowId}) but its ` +
+              `${dedupedTerms.length} search-term mapping(s) failed to persist: ` +
+              `${err instanceof Error ? err.message : String(err)}. ` +
+              `Re-run with the same intent_id after archiving the orphaned intent, or add the mappings separately.`,
+          };
+        }
       }
 
       // Finalize audit row, if a clustering_run_id is supplied.
@@ -233,17 +261,10 @@ export function registerBrandAnalyticsCreateUserIntentClusterTool(registry: Tool
         try {
           const selectAuditTemplate = await loadTextFile(selectAuditSqlPath);
           const selectAuditSql = renderSqlTemplate(selectAuditTemplate, {
-            catalog,
             run_id: clusteringRunId,
             company_id: companyId,
           });
-          const auditRead = await runAthenaQuery({
-            query: selectAuditSql,
-            database: 'brand_analytics_iceberg',
-            workGroup: config.athena.workgroup,
-            outputLocation: config.athena.outputLocation,
-            maxRows: 1,
-          });
+          const auditRead = await executeBrandAnalyticsQuery(selectAuditSql);
           const existing = auditRead.rows?.[0];
           if (existing) {
             const payload = parsed.llm_audit_payload ?? null;
@@ -264,44 +285,29 @@ export function registerBrandAnalyticsCreateUserIntentClusterTool(registry: Tool
                 ? null
                 : String(existing.output_mapping);
 
-            const deleteAuditTemplate = await loadTextFile(deleteAuditSqlPath);
-            const deleteAuditSql = renderSqlTemplate(deleteAuditTemplate, {
-              catalog,
-              run_id: clusteringRunId,
-              company_id: companyId,
-            });
-            await runAthenaQuery({
-              query: deleteAuditSql,
-              database: 'brand_analytics_iceberg',
-              workGroup: config.athena.workgroup,
-              outputLocation: config.athena.outputLocation,
-              maxRows: 0,
-            });
-
-            const insertAuditTemplate = await loadTextFile(insertAuditSqlPath);
-            const createdAtExpr = createdAtStr
-              ? `CAST(${sqlString(createdAtStr)} AS TIMESTAMP)`
-              : 'current_timestamp';
-            const insertAuditSql = renderSqlTemplate(insertAuditTemplate, {
-              catalog,
-              run_id: clusteringRunId,
-              company_id: companyId,
-              operation_type: sqlString(operationType),
-              input_search_terms_count: inputCount,
-              output_intents_count: nextOutputIntents,
-              output_mapping: sqlNullableString(outputMapping),
-              llm_model: sqlNullableString(llmModel),
-              llm_input_tokens: sqlNullableInt(llmIn ?? null),
-              llm_output_tokens: sqlNullableInt(llmOut ?? null),
-              created_at_expr: createdAtExpr,
-              created_by: sqlString(createdByStr),
-            });
-            await runAthenaQuery({
-              query: insertAuditSql,
-              database: 'brand_analytics_iceberg',
-              workGroup: config.athena.workgroup,
-              outputLocation: config.athena.outputLocation,
-              maxRows: 0,
+            // Re-insert the same (company_id, id) with a newer version; the
+            // ReplacingMergeTree collapses it onto the pending row.
+            await insertBrandAnalyticsState({
+              table: AUDIT_TABLE,
+              columns: AUDIT_COLUMNS,
+              rows: [
+                {
+                  id: clusteringRunId,
+                  company_id: companyId,
+                  operation_type: operationType,
+                  status: 'completed',
+                  input_search_terms_count: inputCount,
+                  output_intents_count: nextOutputIntents,
+                  output_mapping: outputMapping ?? '',
+                  llm_model: llmModel ?? '',
+                  llm_input_tokens: llmIn ?? null,
+                  llm_output_tokens: llmOut ?? null,
+                  created_at: createdAtStr || version,
+                  created_by: createdByStr,
+                  is_active: 1,
+                  version,
+                },
+              ],
             });
             auditFinalized = true;
           }

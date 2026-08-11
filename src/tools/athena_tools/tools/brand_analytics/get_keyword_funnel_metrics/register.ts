@@ -1,14 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
+import {
+  executeBrandAnalyticsQuery,
+  intentTermsFilterClauseSql,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlStringLiteral,
+  sqlUInt64ArrayExpr,
+  termIntentsCteSql,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -20,30 +26,6 @@ type CompaniesWithPermissionResponse = {
     short_name?: string;
   }>;
 };
-
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
-}
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -189,9 +171,6 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       }
 
       // ── Extract filter values ─────────────────────────────────────────────
-      const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
-
       const keywords = (query.filters.keywords ?? []).map((k) => k.trim()).filter(Boolean);
       const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
@@ -231,8 +210,8 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
           company:     { select: 'w.company_id AS company_id',                  group: 'w.company_id' },
           marketplace: { select: 'w.marketplace_country_code AS marketplace',   group: 'w.marketplace_country_code' },
           keyword:     { select: 'w.keyword AS keyword',                        group: 'w.keyword' },
-          week:        { select: "date_trunc('week', w.week_start) AS week",   group: "date_trunc('week', w.week_start)" },
-          month:       { select: "date_trunc('month', w.week_start) AS month", group: "date_trunc('month', w.week_start)" },
+          week:        { select: 'toStartOfWeek(w.week_start, 0) AS week',      group: 'toStartOfWeek(w.week_start, 0)' },
+          month:       { select: 'toStartOfMonth(w.week_start) AS month',       group: 'toStartOfMonth(w.week_start)' },
         };
         const selects: string[] = [];
         const groups: string[] = [];
@@ -245,42 +224,34 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
 
         const groupedTemplate = await loadTextFile(sqlGroupedPath);
         const renderedGrouped = renderSqlTemplate(groupedTemplate, {
-          catalog,
-          term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+          term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
           limit_top_n: Number(limitTopN),
-          start_date_sql: sqlDateExpr(time?.start_date),
-          end_date_sql: sqlDateExpr(time?.end_date),
+          start_date_sql: sqlNullableDateExpr(time?.start_date),
+          end_date_sql: sqlNullableDateExpr(time?.end_date),
           periods_back: Number(periodsBack),
-          company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-          keywords_array: sqlVarcharArrayExpr(keywords),
+          company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+          keywords_array: sqlStringArrayExpr(keywords),
           intent_terms_filter_sql: intentTermsFilterClauseSql(
-            catalog,
             allowedCompanyIds,
             intentIds,
-            'r.searchquerydata_searchquery',
+            'sqp.search_query',
           ),
           match_type_sql: sqlStringLiteral(matchType),
-          marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-          asins_array: sqlVarcharArrayExpr(asins),
-          brands_array: sqlVarcharArrayExpr(brands),
-          product_families_array: sqlVarcharArrayExpr(productFamilies),
-          revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-          pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+          marketplaces_array: sqlStringArrayExpr(marketplaces),
+          asins_array: sqlStringArrayExpr(asins),
+          brands_array: sqlStringArrayExpr(brands),
+          product_families_array: sqlStringArrayExpr(productFamilies),
+          revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+          pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
           min_search_frequency_rank: Number(minSfr),
           min_impressions: Number(minImpressions),
           group_by_select_clause: selects.join(',\n        '),
           group_by_clause: groups.join(', '),
         });
 
-        const athenaGrouped = await runAthenaQuery({
-          query: renderedGrouped,
-          database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: limitTopN,
-        });
+        const groupedResult = await executeBrandAnalyticsQuery(renderedGrouped);
 
-        const aggregations = athenaGrouped.rows ?? [];
+        const aggregations = groupedResult.rows ?? [];
         return {
           items: [],
           aggregations,
@@ -291,27 +262,25 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
-        term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
+        term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        keywords_array: sqlVarcharArrayExpr(keywords),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        keywords_array: sqlStringArrayExpr(keywords),
         intent_terms_filter_sql: intentTermsFilterClauseSql(
-          catalog,
           allowedCompanyIds,
           intentIds,
-          'r.searchquerydata_searchquery',
+          'sqp.search_query',
         ),
         match_type_sql: sqlStringLiteral(matchType),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        asins_array: sqlVarcharArrayExpr(asins),
-        brands_array: sqlVarcharArrayExpr(brands),
-        product_families_array: sqlVarcharArrayExpr(productFamilies),
-        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        asins_array: sqlStringArrayExpr(asins),
+        brands_array: sqlStringArrayExpr(brands),
+        product_families_array: sqlStringArrayExpr(productFamilies),
+        revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
         min_search_frequency_rank: Number(minSfr),
         min_impressions: Number(minImpressions),
 
@@ -320,15 +289,9 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
         sort_direction: sortDirection.toUpperCase(),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
-      const rows = athenaResult.rows ?? [];
+      const rows = result.rows ?? [];
       return applySelectFields(rows, selectFields);
     },
   });

@@ -1,12 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import {
+  executeBrandAnalyticsQuery,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlUInt64ArrayExpr,
+} from '../_clickhouse';
 import { applySelectFields } from '../select-fields';
 
 type CompaniesWithPermissionResponse = {
@@ -19,30 +23,6 @@ type CompaniesWithPermissionResponse = {
     short_name?: string;
   }>;
 };
-
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
-}
 
 const querySchema = z
   .object({
@@ -160,9 +140,6 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
         return { items: [] };
       }
 
-      const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
-
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const parentAsins = (query.filters.parent_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const asins = (query.filters.asins ?? []).map((a) => a.trim()).filter(Boolean);
@@ -186,38 +163,30 @@ export function registerBrandAnalyticsAnalyzeSearchCatalogPerformanceTool(regist
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         ryg_company_id: Number(rygCompanyId),
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
-        asins_array: sqlVarcharArrayExpr(asins),
-        product_families_array: sqlVarcharArrayExpr(productFamilies),
-        row_types_array: sqlVarcharArrayExpr(rowTypes),
-        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
-        strength_colors_array: sqlVarcharArrayExpr(strengthColors),
-        weakness_colors_array: sqlVarcharArrayExpr(weaknessColors),
-        opportunity_colors_array: sqlVarcharArrayExpr(opportunityColors),
-        threshold_colors_array: sqlVarcharArrayExpr(thresholdColors),
-        click_trend_colors_array: sqlVarcharArrayExpr(clickTrendColors),
-        cart_add_trend_colors_array: sqlVarcharArrayExpr(cartAddTrendColors),
-        purchase_trend_colors_array: sqlVarcharArrayExpr(purchaseTrendColors),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        parent_asins_array: sqlStringArrayExpr(parentAsins),
+        asins_array: sqlStringArrayExpr(asins),
+        product_families_array: sqlStringArrayExpr(productFamilies),
+        row_types_array: sqlStringArrayExpr(rowTypes),
+        revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
+        strength_colors_array: sqlStringArrayExpr(strengthColors),
+        weakness_colors_array: sqlStringArrayExpr(weaknessColors),
+        opportunity_colors_array: sqlStringArrayExpr(opportunityColors),
+        threshold_colors_array: sqlStringArrayExpr(thresholdColors),
+        click_trend_colors_array: sqlStringArrayExpr(clickTrendColors),
+        cart_add_trend_colors_array: sqlStringArrayExpr(cartAddTrendColors),
+        purchase_trend_colors_array: sqlStringArrayExpr(purchaseTrendColors),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
-
-      const rows = athenaResult.rows ?? [];
+      const result = await executeBrandAnalyticsQuery(rendered);
+      const rows = result.rows ?? [];
       return applySelectFields(rows, selectFields);
     },
   });

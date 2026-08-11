@@ -1,6 +1,7 @@
--- Read the existing pending audit row so we can rewrite it as 'completed'.
--- Iceberg row-level UPDATE is unreliable across workgroups, so we do
--- DELETE + re-INSERT through the create_user_intent_cluster handler.
+-- Read the pending audit row for a clustering run so it can be re-inserted as
+-- 'completed'. analytics.ba_intent_cluster_audit is a
+-- SharedReplacingMergeTree(version), so finalizing is an insert of a newer
+-- version rather than an UPDATE.
 SELECT
   id,
   company_id,
@@ -14,6 +15,6 @@ SELECT
   llm_output_tokens,
   created_at,
   created_by
-FROM "{{catalog}}"."brand_analytics_iceberg"."intent_cluster_audit"
+FROM etl.ba_intent_cluster_audit_current
 WHERE id = {{run_id}}
   AND company_id = {{company_id}}

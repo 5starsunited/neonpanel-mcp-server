@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
+import {
+  executeBrandAnalyticsQuery,
+  intentTermsFilterClauseSql,
+  sqlStringLiteral,
+  termIntentsCteSql,
+} from '../_clickhouse';
 
 const inputSchema = z
   .object({
@@ -21,25 +24,39 @@ const inputSchema = z
   })
   .strict();
 
-function sqlString(v: string): string {
-  return `'${v.replace(/'/g, "''")}'`;
-}
-
 function arrayInClause(values: string[] | undefined, column: string, caseInsensitive = false): string {
-  if (!values || values.length === 0) return 'TRUE';
+  if (!values || values.length === 0) return '1';
   if (caseInsensitive) {
-    const mapped = values.map((v) => sqlString(v.toLowerCase()));
-    return `LOWER(${column}) IN (${mapped.join(', ')})`;
+    const mapped = values.map((v) => sqlStringLiteral(v.toLowerCase()));
+    return `lower(${column}) IN (${mapped.join(', ')})`;
   }
-  const mapped = values.map((v) => sqlString(v));
+  const mapped = values.map((v) => sqlStringLiteral(v));
   return `${column} IN (${mapped.join(', ')})`;
 }
 
 function periodOverlapClause(start: string | undefined, end: string | undefined): string {
-  if (!start && !end) return 'TRUE';
+  if (!start && !end) return '1';
   const s = start ?? '1970-01-01';
-  const e = end ?? '9999-12-31';
-  return `t.period_start <= DATE ${sqlString(e)} AND t.period_end >= DATE ${sqlString(s)}`;
+  const e = end ?? '2149-06-06';
+  return `t.period_start <= toDate(${sqlStringLiteral(e)}) AND t.period_end >= toDate(${sqlStringLiteral(s)})`;
+}
+
+/**
+ * The ClickHouse state table stores competitors as a JSON string. Re-hydrate it
+ * so the published `competitors` field keeps the array-of-objects shape.
+ */
+function hydrateCompetitors(row: Record<string, unknown>): Record<string, unknown> {
+  const { competitors_json: competitorsJson, ...rest } = row;
+  let competitors: unknown = [];
+  if (typeof competitorsJson === 'string' && competitorsJson.trim() !== '') {
+    try {
+      const parsed: unknown = JSON.parse(competitorsJson);
+      competitors = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      competitors = [];
+    }
+  }
+  return { ...rest, competitors };
 }
 
 export function registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry: ToolRegistry) {
@@ -67,21 +84,27 @@ export function registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry: T
     execute: async (args) => {
       const parsed = inputSchema.parse(args);
 
-      const catalog = config.athena.catalog;
       const limitTopN = parsed.limit ?? 200;
 
       const companyIdsSql = parsed.company_ids.map((n) => String(n)).join(', ');
       const companyFilterSql = `t.company_id IN (${companyIdsSql})`;
 
+      // Callers pass country codes; uploads key on the canonical marketplace id,
+      // so match either representation.
+      const marketplaceTokens = (parsed.marketplaces ?? []).map((m) => sqlStringLiteral(m.toLowerCase()));
+      const marketplaceFilterSql =
+        marketplaceTokens.length > 0
+          ? `lower(t.marketplace_id) IN (${marketplaceTokens.join(', ')}) ` +
+            `OR lower(ifNull(mk.country_code, '')) IN (${marketplaceTokens.join(', ')})`
+          : '1';
+
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
-        term_intents_cte_sql: termIntentsCteSql(catalog, parsed.company_ids),
+        term_intents_cte_sql: termIntentsCteSql(parsed.company_ids),
         company_filter_sql: companyFilterSql,
-        marketplace_filter_sql: arrayInClause(parsed.marketplaces, 't.marketplace'),
+        marketplace_filter_sql: marketplaceFilterSql,
         keyword_filter_sql: arrayInClause(parsed.keywords, 't.keyword', true),
         intent_terms_filter_sql: intentTermsFilterClauseSql(
-          catalog,
           parsed.company_ids,
           parsed.intent_ids,
           't.keyword',
@@ -94,15 +117,9 @@ export function registerBrandAnalyticsListSqpQueryDetailsUploadsTool(registry: T
         limit_top_n: limitTopN,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
-      return { items: athenaResult.rows ?? [] };
+      return { items: (result.rows ?? []).map(hydrateCompetitors) };
     },
   });
 }

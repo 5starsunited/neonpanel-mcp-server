@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_get_search_term_momentum",
-  "description": "Returns weekly search term momentum data from the Brand Analytics smart snapshot: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When search_terms is omitted, ALL search terms are considered but only the top N by sort order are returned. A company may have thousands of tracked search terms. To explore different keyword groups: (1) change sort field/direction to surface different terms, (2) use search_terms filter with match_type='contains' to drill into a keyword theme (e.g., ['ring'] returns all ring-related terms), or (3) use brand/product_family/category filters to narrow by product line.\n\nPortfolio aggregation: By default this tool returns detail rows at search term × ASIN × marketplace grain. To get portfolio-level keyword momentum, set query.aggregation.group_by, for example ['search_term', 'marketplace']. In grouped mode, search_volume is de-duplicated with MAX instead of summed across ASIN rows, and momentum fields are recomputed from weekly portfolio click share.\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
+  "description": "Returns weekly search term momentum data from Brand Analytics search query performance: your click share, WoW delta, 4-week and 12-week rolling averages, top-3 competitor ASINs with click/conversion shares, and a computed momentum signal.\n\nUse this tool to:\n- Track how your click share on a search term is trending (accelerating, growing, stable, declining, collapsing)\n- Identify search terms where you are losing or gaining momentum vs competitors\n- See which competitor ASINs hold the top 3 positions and their conversion shares\n- Find weak leader opportunities where rank-1 has low conversion share\n- Spot defensive priorities where competitors are gaining share on your keywords\n\nIMPORTANT: Results are capped by the 'limit' parameter (default 100). When search_terms is omitted, ALL search terms are considered but only the top N by sort order are returned. A company may have thousands of tracked search terms. To explore different keyword groups: (1) change sort field/direction to surface different terms, (2) use search_terms filter with match_type='contains' to drill into a keyword theme (e.g., ['ring'] returns all ring-related terms), or (3) use brand/product_family filters to narrow by product line.\n\nPortfolio aggregation: By default this tool returns detail rows at search term × ASIN × marketplace grain. To get portfolio-level keyword momentum, set query.aggregation.group_by, for example ['search_term', 'marketplace']. In grouped mode, search_volume is de-duplicated with MAX instead of summed across ASIN rows, and momentum fields are recomputed from weekly portfolio click share.\n\nMomentum signals explained:\n- accelerating: WoW up AND 4-week avg above 12-week avg (sustained upward trend)\n- growing: WoW up (recent positive movement)\n- stable: no significant WoW change\n- declining: WoW down (recent negative movement)\n- collapsing: WoW down AND 4-week avg below 12-week avg (sustained downward trend)\n- new: first appearance (no prior week data)\n\nIntegration note: Use with brand_analytics_get_keyword_funnel_metrics to understand the full funnel behind a search term, or with brand_analytics_get_competitive_landscape for raw report-level detail.\n\nKnowledge base: https://help.neonpanel.com/en/articles/brand-analytics-competitive",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -55,13 +55,6 @@
                   "type": "string"
                 },
                 "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported."
-              },
-              "category": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Optional: filter by department/category name (matches against top-3 departments)."
               },
               "brand": {
                 "type": "array",
@@ -138,12 +131,11 @@
                     "company",
                     "brand",
                     "product_family",
-                    "category",
                     "asin"
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share.\n\nOutput columns by dimension:\n- 'intent' → intent_id, primary_intent_label\n- 'search_term' → search_term\n- 'marketplace' → marketplace\n- 'company' → company_id\n- 'brand' → my_brand\n- 'product_family' → product_family\n- 'category' → category\n- 'asin' → asin"
+                "description": "Optional dimensions for grouped/portfolio output (max 3). Empty or omitted returns detail rows per search term × ASIN × marketplace. Use ['search_term', 'marketplace'] for one portfolio row per keyword per marketplace, or ['intent'] for portfolio momentum bucketed by primary intent. In grouped mode, search_volume is de-duplicated and click-share trend metrics are recomputed from weekly portfolio share.\n\nOutput columns by dimension:\n- 'intent' → intent_id, primary_intent_label\n- 'search_term' → search_term\n- 'marketplace' → marketplace\n- 'company' → company_id\n- 'brand' → my_brand\n- 'product_family' → product_family\n- 'asin' → asin"
               },
               "time": {
                 "type": "object",
@@ -216,7 +208,6 @@
                 "company_name",
                 "marketplace",
                 "currency",
-                "category",
                 "search_volume",
                 "period_start",
                 "period_end",
@@ -235,7 +226,6 @@
                 "marketplace_count",
                 "revenue_abcd_class",
                 "pareto_abc_class",
-                "asin_class",
                 "product_family",
                 "revenue_share",
                 "total_revenue_share",
@@ -245,18 +235,12 @@
                 "portfolio_asins",
                 "top_asin_by_click_share",
                 "rank_1_asin",
-                "rank_1_itemname",
-                "rank_1_department",
                 "rank_1_clickshare",
                 "rank_1_conversionshare",
                 "rank_2_asin",
-                "rank_2_itemname",
-                "rank_2_department",
                 "rank_2_clickshare",
                 "rank_2_conversionshare",
                 "rank_3_asin",
-                "rank_3_itemname",
-                "rank_3_department",
                 "rank_3_clickshare",
                 "rank_3_conversionshare",
                 "my_position",
@@ -379,10 +363,6 @@
               "type": "string",
               "description": "Currency code for the marketplace (e.g., 'USD', 'EUR', 'GBP')."
             },
-            "category": {
-              "type": "string",
-              "description": "Product department/category associated with this search term."
-            },
             "search_volume": {
               "type": [
                 "number",
@@ -469,10 +449,6 @@
               "type": "string",
               "description": "Pareto ABC class (A=top 80% revenue, C=long tail)."
             },
-            "asin_class": {
-              "type": "string",
-              "description": "Combined ASIN classification."
-            },
             "product_family": {
               "type": "string",
               "description": "Product family grouping from ASIN attributes."
@@ -521,14 +497,6 @@
               "type": "string",
               "description": "ASIN with the highest click share (position #1)."
             },
-            "rank_1_itemname": {
-              "type": "string",
-              "description": "Product title of the #1 clicked ASIN."
-            },
-            "rank_1_department": {
-              "type": "string",
-              "description": "Department of the #1 clicked ASIN."
-            },
             "rank_1_clickshare": {
               "type": [
                 "number",
@@ -547,14 +515,6 @@
               "type": "string",
               "description": "ASIN with the 2nd highest click share."
             },
-            "rank_2_itemname": {
-              "type": "string",
-              "description": "Product title of the #2 clicked ASIN."
-            },
-            "rank_2_department": {
-              "type": "string",
-              "description": "Department of the #2 clicked ASIN."
-            },
             "rank_2_clickshare": {
               "type": [
                 "number",
@@ -572,14 +532,6 @@
             "rank_3_asin": {
               "type": "string",
               "description": "ASIN with the 3rd highest click share."
-            },
-            "rank_3_itemname": {
-              "type": "string",
-              "description": "Product title of the #3 clicked ASIN."
-            },
-            "rank_3_department": {
-              "type": "string",
-              "description": "Department of the #3 clicked ASIN."
             },
             "rank_3_clickshare": {
               "type": [
@@ -789,13 +741,13 @@
       }
     },
     {
-      "description": "High-volume keywords in 'Health' category where I have some click share but trail the leader",
+      "description": "High-volume keywords in a product family where I have some click share but trail the leader",
       "request": {
         "query": {
           "filters": {
             "company_id": 42,
-            "category": [
-              "Health & Household"
+            "product_family": [
+              "Supplements"
             ],
             "marketplace": [
               "US"

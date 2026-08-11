@@ -1,32 +1,34 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
-import { loadTextFile } from '../../../runtime/load-assets';
-import { renderSqlTemplate } from '../../../runtime/render-sql';
+import {
+  deactivateCompanyState,
+  insertBrandAnalyticsState,
+  nowVersion,
+  resolveMarketplaceIds,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
 };
 
-function sqlEscape(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlString(value: string): string {
-  return `'${sqlEscape(value)}'`;
-}
-
-function sqlNullableString(value: string | null | undefined): string {
-  return value == null || value === '' ? 'NULL' : sqlString(value);
-}
-
-function sqlNullableInt(value: number | null | undefined): string {
-  return value == null ? 'NULL' : String(Math.trunc(value));
-}
+const STATE_TABLE = 'analytics.ba_competitor_asins';
+const STATE_COLUMNS = [
+  'company_id',
+  'marketplace_id',
+  'competitor_asin',
+  'competitor_brand',
+  'competitor_label',
+  'against_my_asin',
+  'against_my_product_family',
+  'priority',
+  'added_by',
+  'added_at',
+  'is_active',
+  'version',
+];
 
 const writeItemSchema = z.object({
   marketplace: z.string().min(1).max(10),
@@ -70,39 +72,8 @@ async function isAuthorizedForCompany(companyId: number, context: ToolExecutionC
   return false;
 }
 
-function buildWritesValuesSql(
-  companyId: number,
-  userId: string,
-  isActive: boolean,
-  writes: Array<z.infer<typeof writeItemSchema>>,
-): string {
-  return writes
-    .map((w) => {
-      return (
-        `(${companyId}, ${sqlString(w.marketplace)}, ${sqlString(w.competitor_asin)}, ` +
-        `${sqlNullableString(w.competitor_brand ?? null)}, ${sqlNullableString(w.competitor_label ?? null)}, ` +
-        `${sqlNullableString(w.against_my_asin ?? null)}, ${sqlNullableString(w.against_my_product_family ?? null)}, ` +
-        `${sqlNullableInt(w.priority ?? null)}, ${sqlString(userId)}, current_timestamp, ${isActive ? 'TRUE' : 'FALSE'})`
-      );
-    })
-    .join(',\n  ');
-}
-
-function buildSlotsInClause(writes: Array<z.infer<typeof writeItemSchema>>): string {
-  return writes
-    .map(
-      (w) =>
-        `(${sqlString(w.marketplace)}, ${sqlString(w.competitor_asin)}, ` +
-        `${sqlString(w.against_my_asin ?? '')}, ${sqlString(w.against_my_product_family ?? '')})`,
-    )
-    .join(',\n    ');
-}
-
 export function registerBrandAnalyticsWriteCompetitorAsinsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const insertSqlPath = path.join(__dirname, 'insert.sql');
-  const deleteSlotsSqlPath = path.join(__dirname, 'delete_slots.sql');
-  const resetAllSqlPath = path.join(__dirname, 'reset_all.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -128,7 +99,6 @@ export function registerBrandAnalyticsWriteCompetitorAsinsTool(registry: ToolReg
       const action = parsed.action ?? 'write';
       const dryRun = parsed.dry_run !== false;
       const writes = parsed.writes ?? [];
-      const catalog = config.athena.catalog;
       const userId = context.subject ?? 'unknown';
 
       const authorized = await isAuthorizedForCompany(companyId, context);
@@ -147,22 +117,19 @@ export function registerBrandAnalyticsWriteCompetitorAsinsTool(registry: ToolReg
             message: `Dry run: would deactivate ALL competitor entries for company_id=${companyId}.`,
           };
         }
-        const resetTemplate = await loadTextFile(resetAllSqlPath);
-        const resetSql = renderSqlTemplate(resetTemplate, { catalog, company_id: companyId });
-        await runAthenaQuery({
-          query: resetSql,
-          database: 'brand_analytics_iceberg',
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 0,
+        const deactivated = await deactivateCompanyState({
+          table: STATE_TABLE,
+          columns: STATE_COLUMNS,
+          companyId,
+          version: nowVersion(),
         });
         return {
           dry_run: false,
           action: 'reset',
           accepted: 0,
           written: 0,
-          deactivated: -1,
-          message: `All competitor entries for company_id=${companyId} have been deactivated.`,
+          deactivated,
+          message: `${deactivated} competitor entr(ies) for company_id=${companyId} have been deactivated.`,
         };
       }
 
@@ -176,6 +143,26 @@ export function registerBrandAnalyticsWriteCompetitorAsinsTool(registry: ToolReg
         };
       }
 
+      // Callers supply a country code; state rows key on the canonical Amazon
+      // marketplace id so they stay joinable to the SQP/SCP contracts.
+      const marketplaceIds = await resolveMarketplaceIds(writes.map((w) => w.marketplace));
+      const unresolved = Array.from(
+        new Set(
+          writes
+            .map((w) => w.marketplace.trim())
+            .filter((m) => !marketplaceIds.has(m.toLowerCase())),
+        ),
+      );
+      if (unresolved.length > 0) {
+        return {
+          dry_run: dryRun,
+          action,
+          accepted: 0,
+          written: 0,
+          error: `Unknown marketplace(s): ${unresolved.join(', ')}.`,
+        };
+      }
+
       if (dryRun) {
         return {
           dry_run: true,
@@ -186,34 +173,29 @@ export function registerBrandAnalyticsWriteCompetitorAsinsTool(registry: ToolReg
         };
       }
 
-      // Step 1: delete existing rows for the same slots (upsert prep).
-      const deleteSlotsTemplate = await loadTextFile(deleteSlotsSqlPath);
-      const deleteSlotsSql = renderSqlTemplate(deleteSlotsTemplate, {
-        catalog,
-        company_id: companyId,
-        slots_in_clause: buildSlotsInClause(writes),
-      });
-      await runAthenaQuery({
-        query: deleteSlotsSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
-      });
-
-      // Step 2: insert fresh rows. For 'deactivate', insert with is_active=false so future reads skip them.
-      const isActive = action === 'write';
-      const insertTemplate = await loadTextFile(insertSqlPath);
-      const insertSql = renderSqlTemplate(insertTemplate, {
-        catalog,
-        writes_values_sql: buildWritesValuesSql(companyId, userId, isActive, writes),
-      });
-      await runAthenaQuery({
-        query: insertSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
+      // 'deactivate' writes a tombstone version of the same ORDER BY key instead
+      // of deleting: SharedReplacingMergeTree(version) collapses to it.
+      const isActive = action === 'write' ? 1 : 0;
+      const version = nowVersion();
+      await insertBrandAnalyticsState({
+        table: STATE_TABLE,
+        columns: STATE_COLUMNS,
+        rows: writes.map((w) => ({
+          company_id: companyId,
+          marketplace_id: marketplaceIds.get(w.marketplace.trim().toLowerCase()) ?? '',
+          competitor_asin: w.competitor_asin,
+          competitor_brand: w.competitor_brand ?? '',
+          competitor_label: w.competitor_label ?? '',
+          against_my_asin: w.against_my_asin ?? '',
+          against_my_product_family: w.against_my_product_family ?? '',
+          // The column is UInt16, not nullable; 0 is the "unset" sentinel that
+          // list_competitor_asins sorts last.
+          priority: w.priority ?? 0,
+          added_by: userId,
+          added_at: version,
+          is_active: isActive,
+          version,
+        })),
       });
 
       return {

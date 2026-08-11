@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { executeBrandAnalyticsQuery, sqlStringLiteral } from '../_clickhouse';
+
+const MAX_ROWS = 200;
 
 const inputSchema = z
   .object({
@@ -40,30 +41,21 @@ export function registerBrandAnalyticsListRygThresholdsTool(registry: ToolRegist
     execute: async (args) => {
       const parsed = inputSchema.parse(args);
 
-      const catalog = config.athena.catalog;
       const includeDefaults = parsed.include_defaults !== false;
 
-      const toolFilter = parsed.tool
-        ? `tool = '${parsed.tool}'`
-        : 'TRUE';
+      const toolFilter = parsed.tool ? `tool = ${sqlStringLiteral(parsed.tool)}` : '1';
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         company_id_sql: String(parsed.company_ids[0]),
-        include_defaults: includeDefaults ? 'TRUE' : 'FALSE',
+        include_defaults: includeDefaults ? '1' : '0',
         tool_filter_sql: toolFilter,
+        limit: MAX_ROWS,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 200,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
-      return { items: athenaResult.rows ?? [] };
+      return { items: result.rows ?? [] };
     },
   });
 }

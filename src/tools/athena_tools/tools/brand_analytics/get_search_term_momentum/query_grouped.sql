@@ -1,361 +1,353 @@
--- Tool: brand_analytics_get_search_term_momentum (grouped)
--- Purpose: Portfolio/group-level weekly search term momentum from the smart snapshot.
--- Notes:
--- - company_id filtering is REQUIRED for authorization + partition pruning.
--- - This query first de-duplicates ASIN-week rows, then aggregates to the requested group.
--- - search_volume is term-level and is de-duplicated with MAX; it is not summed across ASINs.
--- - Momentum fields are recomputed from weekly grouped portfolio click share.
+-- Tool query for brand_analytics_get_search_term_momentum (ClickHouse, grouped grain)
+--
+-- Same two sources and the same dropped fields as query.sql — see the header
+-- there. This variant de-duplicates to ASIN-week rows first, then aggregates to
+-- the requested group and recomputes the momentum baselines on the grouped
+-- portfolio click share.
+--
+-- search_volume is a term-level figure, so it is de-duplicated with max() and
+-- never summed across the ASINs of a group.
 
-WITH params AS (
-  SELECT
-    {{limit_top_n}}                   AS limit_top_n,
-    {{start_date_sql}}                AS start_date,
-    {{end_date_sql}}                  AS end_date,
-    CAST({{periods_back}} AS INTEGER) AS periods_back,
+WITH {{term_intents_cte_sql}},
 
-    -- REQUIRED (authorization + partition pruning)
-    {{company_ids_array}}             AS company_ids,
-
-    -- OPTIONAL filters (empty array => no filter)
-    {{search_terms_array}}            AS search_terms,
-    {{match_type_sql}}                AS match_type,
-    {{asins_array}}                   AS asins,
-    {{competitor_asins_array}}        AS competitor_asins,
-    {{marketplaces_array}}            AS marketplaces,
-    {{categories_array}}              AS categories,
-    {{brands_array}}                  AS brands,
-    {{revenue_abcd_class_array}}      AS revenue_abcd_class,
-    {{pareto_abc_class_array}}         AS pareto_abc_class,
-    {{product_families_array}}         AS product_families,
-    {{momentum_signals_array}}        AS momentum_signals,
-
-    -- Tool-specific thresholds
-    CAST({{weak_leader_max_conversion_share}} AS DOUBLE)  AS weak_leader_max_conversion_share,
-    CAST({{weak_leader_min_search_volume}} AS DOUBLE)     AS weak_leader_min_search_volume,
-    CAST({{min_click_share}} AS DOUBLE)                   AS min_click_share,
-    CAST({{min_search_volume}} AS DOUBLE)                 AS min_search_volume
+top3 AS (
+    SELECT
+        company_id AS company_id,
+        marketplace_id AS marketplace_id,
+        week_start AS week_start,
+        search_term AS search_term,
+        maxIf(ifNull(clicked_asin, ''), click_share_rank = 1) AS rank_1_asin,
+        maxIf(toNullable(click_share), click_share_rank = 1) AS rank_1_clickshare,
+        maxIf(toNullable(conversion_share), click_share_rank = 1) AS rank_1_conversionshare,
+        maxIf(ifNull(clicked_asin, ''), click_share_rank = 2) AS rank_2_asin,
+        maxIf(toNullable(click_share), click_share_rank = 2) AS rank_2_clickshare,
+        maxIf(toNullable(conversion_share), click_share_rank = 2) AS rank_2_conversionshare,
+        maxIf(ifNull(clicked_asin, ''), click_share_rank = 3) AS rank_3_asin,
+        maxIf(toNullable(click_share), click_share_rank = 3) AS rank_3_clickshare,
+        maxIf(toNullable(conversion_share), click_share_rank = 3) AS rank_3_conversionshare
+    FROM etl.ba_search_term_smart
+    WHERE has({{company_ids_array}}, company_id)
+      AND week_start >= addYears(today(), -3)
+    GROUP BY company_id, marketplace_id, week_start, search_term
 ),
-
-{{term_intents_cte_sql}},
 
 base_filtered AS (
-  SELECT s.*
-  FROM "{{catalog}}"."brand_analytics_iceberg"."search_term_smart_snapshot" s
-  CROSS JOIN params p
-  WHERE
-    contains(p.company_ids, s.company_id)
-    AND s.year >= year(current_date) - 2
+    SELECT
+        sqp.company_id AS company_id,
+        ifNull(companies.name, 'unknown') AS company_name,
+        lower(ifNull(marketplace.country_code, '')) AS marketplace,
+        sqp.marketplace_id AS marketplace_id,
+        marketplace.marketplace_currency AS currency,
+        sqp.week_start AS week_start,
+        sqp.search_query AS search_term,
+        sqp.asin AS asin,
+        ifNull(nullIf(sqp.brand, ''), 'unknown') AS my_brand,
+        ifNull(nullIf(sqp.product_family, ''), 'unknown') AS product_family,
+        ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D') AS revenue_abcd_class,
+        ifNull(nullIf(sqp.pareto_abc_class, ''), 'C') AS pareto_abc_class,
+        CAST(sqp.revenue_share AS Nullable(Float64)) AS revenue_share,
+        CAST(sqp.search_query_volume AS Nullable(Int64)) AS volume,
+        CAST(sqp.asin_click_share AS Nullable(Float64)) AS my_click_share,
+        top3.rank_1_asin AS rank_1_asin,
+        top3.rank_1_clickshare AS rank_1_clickshare,
+        top3.rank_1_conversionshare AS rank_1_conversionshare,
+        top3.rank_2_asin AS rank_2_asin,
+        top3.rank_2_clickshare AS rank_2_clickshare,
+        top3.rank_2_conversionshare AS rank_2_conversionshare,
+        top3.rank_3_asin AS rank_3_asin,
+        top3.rank_3_clickshare AS rank_3_clickshare,
+        top3.rank_3_conversionshare AS rank_3_conversionshare
+    FROM etl.ba_search_query_performance AS sqp
+    LEFT JOIN etl.ba_marketplaces AS marketplace
+        ON sqp.marketplace_id = marketplace.marketplace_id
+    LEFT JOIN app.app_companies AS companies
+        ON toString(companies.id) = toString(sqp.company_id)
+    LEFT JOIN top3
+        ON top3.company_id = sqp.company_id
+       AND top3.marketplace_id = sqp.marketplace_id
+       AND top3.week_start = sqp.week_start
+       AND top3.search_term = sqp.search_query
+    WHERE
+        has({{company_ids_array}}, sqp.company_id)
+        AND sqp.week_start >= addYears(today(), -3)
 
-    AND (
-      cardinality(p.search_terms) = 0
-      OR (
-        CASE p.match_type
-          WHEN 'exact' THEN
-            any_match(p.search_terms, t -> lower(t) = lower(s.search_term))
-          WHEN 'starts_with' THEN
-            any_match(p.search_terms, t -> lower(s.search_term) LIKE lower(t) || '%')
-          ELSE
-            any_match(p.search_terms, t -> lower(s.search_term) LIKE '%' || lower(t) || '%')
-        END
-      )
-    )
+        AND (
+            length({{search_terms_array}}) = 0
+            OR {{search_term_match_sql}}
+        )
 
-    AND ({{intent_terms_filter_sql}})
+        AND ({{intent_terms_filter_sql}})
 
-    AND (cardinality(p.marketplaces) = 0
-         OR any_match(p.marketplaces,
-            m -> lower(m) IN (lower(s.marketplace_country_code), lower(s.marketplace), lower(s.country))))
+        AND (
+            length({{marketplaces_array}}) = 0
+            OR arrayExists(
+                m -> lower(m) IN (
+                    lower(ifNull(marketplace.country_code, '')),
+                    lower(ifNull(marketplace.marketplace_name, '')),
+                    lower(sqp.marketplace_id)
+                ),
+                {{marketplaces_array}}
+            )
+        )
 
-    AND (cardinality(p.categories) = 0
-         OR any_match(p.categories, c ->
-              lower(c) IN (lower(s.rank_1_department), lower(s.rank_2_department), lower(s.rank_3_department))))
+        AND (
+            length({{brands_array}}) = 0
+            OR arrayExists(b -> lower(b) = lower(ifNull(sqp.brand, '')), {{brands_array}})
+        )
 
-    AND (cardinality(p.brands) = 0
-         OR any_match(p.brands, b -> lower(b) = lower(s.brand)))
+        AND (
+            length({{revenue_abcd_class_array}}) = 0
+            OR arrayExists(c -> upper(c) = upper(ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D')), {{revenue_abcd_class_array}})
+        )
 
-    AND (cardinality(p.asins) = 0
-         OR any_match(p.asins, a -> lower(a) = lower(s.asin)))
+        AND (
+            length({{pareto_abc_class_array}}) = 0
+            OR arrayExists(c -> upper(c) = upper(ifNull(nullIf(sqp.pareto_abc_class, ''), 'C')), {{pareto_abc_class_array}})
+        )
 
-    AND (cardinality(p.revenue_abcd_class) = 0
-         OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(s.revenue_abcd_class)))
+        AND (
+            length({{product_families_array}}) = 0
+            OR arrayExists(f -> lower(f) = lower(ifNull(sqp.product_family, '')), {{product_families_array}})
+        )
 
-    AND (cardinality(p.pareto_abc_class) = 0
-         OR any_match(p.pareto_abc_class, c -> upper(c) = upper(s.pareto_abc_class)))
-
-    AND (cardinality(p.product_families) = 0
-         OR any_match(p.product_families, f -> lower(f) = lower(s.product_family)))
-
-    AND (
-      (cardinality(p.asins) = 0 AND cardinality(p.competitor_asins) = 0)
-      OR any_match(p.asins, a -> lower(a) = lower(s.asin))
-      OR any_match(p.competitor_asins, a -> lower(a) IN (
-           lower(s.rank_1_asin), lower(s.rank_2_asin), lower(s.rank_3_asin)
-         ))
-    )
-),
-
-latest AS (
-  SELECT max(week_start) AS latest_week FROM base_filtered
+        AND (
+            (length({{asins_array}}) = 0 AND length({{competitor_asins_array}}) = 0)
+            OR arrayExists(a -> lower(a) = lower(sqp.asin), {{asins_array}})
+            OR arrayExists(
+                a -> lower(a) IN (
+                    lower(ifNull(top3.rank_1_asin, '')),
+                    lower(ifNull(top3.rank_2_asin, '')),
+                    lower(ifNull(top3.rank_3_asin, ''))
+                ),
+                {{competitor_asins_array}}
+            )
+        )
 ),
 
 date_bounds AS (
-  SELECT
-    COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week)) AS start_date,
-    COALESCE(p.end_date, l.latest_week)                                                 AS end_date
-  FROM params p
-  CROSS JOIN latest l
-),
-
-term_volumes AS (
-  SELECT search_term, MAX(volume) AS max_vol
-  FROM base_filtered f
-  CROSS JOIN date_bounds d
-  WHERE f.week_start BETWEEN d.start_date AND d.end_date
-  GROUP BY search_term
+    SELECT
+        ifNull({{start_date_sql}}, addWeeks(max(toNullable(week_start)), -1 * ({{periods_back}} - 1))) AS start_date,
+        ifNull({{end_date_sql}}, max(toNullable(week_start))) AS end_date,
+        addWeeks(ifNull({{start_date_sql}}, addWeeks(max(toNullable(week_start)), -1 * ({{periods_back}} - 1))), -12) AS lookback_start
+    FROM base_filtered
 ),
 
 top_terms AS (
-  SELECT search_term
-  FROM (
-    SELECT search_term,
-           ROW_NUMBER() OVER (ORDER BY max_vol DESC NULLS LAST) AS rn
-    FROM term_volumes
-  )
-  CROSS JOIN params p
-  WHERE rn <= GREATEST(p.limit_top_n * 10, 2000)
+    SELECT search_term
+    FROM (
+        SELECT search_term, max(volume) AS max_vol
+        FROM base_filtered
+        WHERE week_start >= (SELECT start_date FROM date_bounds)
+          AND week_start <= (SELECT end_date FROM date_bounds)
+        GROUP BY search_term
+    )
+    ORDER BY max_vol DESC NULLS LAST
+    LIMIT {{top_terms_limit}}
 ),
 
 expanded AS (
-  SELECT f.*
-  FROM base_filtered f
-  CROSS JOIN date_bounds d
-  INNER JOIN top_terms tt ON f.search_term = tt.search_term
-  WHERE f.week_start BETWEEN date_add('week', -12, d.start_date) AND d.end_date
-    AND f.year BETWEEN year(date_add('week', -12, d.start_date)) AND year(d.end_date)
+    SELECT *
+    FROM base_filtered
+    WHERE week_start >= (SELECT lookback_start FROM date_bounds)
+      AND week_start <= (SELECT end_date FROM date_bounds)
+      AND search_term IN (SELECT search_term FROM top_terms)
 ),
 
+-- ─── One row per ASIN × term × week, with its intent labels attached ────────
 asin_weekly AS (
-  SELECT
-    e.company_id,
-    MAX(e.company) AS company_name,
-    e.marketplace_country_code AS marketplace,
-    MAX(e.currency) AS currency,
-    e.search_term,
-    e.week_start,
-    e.asin,
-    MAX(e.brand) AS my_brand,
-    MAX(e.product_family) AS product_family,
-    MAX(e.revenue_abcd_class) AS revenue_abcd_class,
-    MAX(e.pareto_abc_class) AS pareto_abc_class,
-    MAX(e.asin_class) AS asin_class,
-    MAX(e.rank_1_department) AS category,
-    MAX(e.volume) AS search_volume,
-    MAX(e.my_click_share) AS my_click_share,
-    MAX(e.revenue_share) AS revenue_share,
-    MAX(e.rank_1_asin) AS rank_1_asin,
-    MAX(e.rank_1_itemname) AS rank_1_itemname,
-    MAX(e.rank_1_department) AS rank_1_department,
-    MAX(e.rank_1_clickshare) AS rank_1_clickshare,
-    MAX(e.rank_1_conversionshare) AS rank_1_conversionshare,
-    MAX(e.rank_2_asin) AS rank_2_asin,
-    MAX(e.rank_2_itemname) AS rank_2_itemname,
-    MAX(e.rank_2_department) AS rank_2_department,
-    MAX(e.rank_2_clickshare) AS rank_2_clickshare,
-    MAX(e.rank_2_conversionshare) AS rank_2_conversionshare,
-    MAX(e.rank_3_asin) AS rank_3_asin,
-    MAX(e.rank_3_itemname) AS rank_3_itemname,
-    MAX(e.rank_3_department) AS rank_3_department,
-    MAX(e.rank_3_clickshare) AS rank_3_clickshare,
-    MAX(e.rank_3_conversionshare) AS rank_3_conversionshare,
-    MAX(ti.primary_intent_id)    AS primary_intent_id,
-    MAX(ti.primary_intent_label) AS primary_intent_label
-  FROM expanded e
-  LEFT JOIN term_intents ti
-    ON ti.company_id = e.company_id
-   AND ti.term_norm  = lower(e.search_term)
-  GROUP BY
-    e.company_id,
-    e.marketplace_country_code,
-    e.search_term,
-    e.week_start,
-    e.asin
+    SELECT
+        e.company_id AS company_id,
+        max(e.company_name) AS company_name,
+        e.marketplace AS marketplace,
+        max(e.currency) AS currency,
+        e.search_term AS search_term,
+        e.week_start AS week_start,
+        e.asin AS asin,
+        max(e.my_brand) AS my_brand,
+        max(e.product_family) AS product_family,
+        max(e.revenue_abcd_class) AS revenue_abcd_class,
+        max(e.pareto_abc_class) AS pareto_abc_class,
+        max(e.volume) AS search_volume,
+        max(e.my_click_share) AS my_click_share,
+        max(e.revenue_share) AS revenue_share,
+        max(e.rank_1_asin) AS rank_1_asin,
+        max(e.rank_1_clickshare) AS rank_1_clickshare,
+        max(e.rank_1_conversionshare) AS rank_1_conversionshare,
+        max(e.rank_2_asin) AS rank_2_asin,
+        max(e.rank_2_clickshare) AS rank_2_clickshare,
+        max(e.rank_2_conversionshare) AS rank_2_conversionshare,
+        max(e.rank_3_asin) AS rank_3_asin,
+        max(e.rank_3_clickshare) AS rank_3_clickshare,
+        max(e.rank_3_conversionshare) AS rank_3_conversionshare,
+        max(ti.primary_intent_id) AS primary_intent_id,
+        max(ti.primary_intent_label) AS primary_intent_label
+    FROM expanded AS e
+    LEFT JOIN term_intents AS ti
+        ON ti.company_id = e.company_id
+       AND ti.term_norm = lower(e.search_term)
+    GROUP BY
+        e.company_id,
+        e.marketplace,
+        e.search_term,
+        e.week_start,
+        e.asin
 ),
 
 weekly_grouped AS (
-  SELECT
-    MAX(aw.primary_intent_label) AS primary_intent_label,
-    {{group_by_select_clause}},
-    aw.week_start AS period_start,
-    date_add('day', 6, aw.week_start) AS period_end,
-    MAX(aw.currency) AS currency,
-    MAX(aw.company_name) AS company_name,
-    COUNT(DISTINCT aw.company_id) AS company_count,
-    COUNT(DISTINCT aw.marketplace) AS marketplace_count,
-    MAX(aw.search_volume) AS search_volume,
-    LEAST(1.0, SUM(COALESCE(aw.my_click_share, 0.0))) AS portfolio_click_share,
-    SUM(COALESCE(aw.my_click_share, 0.0)) AS portfolio_click_share_uncapped,
-    LEAST(1.0, SUM(COALESCE(aw.my_click_share, 0.0))) AS my_click_share,
-    AVG(aw.my_click_share) AS avg_asin_click_share,
-    MAX(aw.my_click_share) AS max_asin_click_share,
-    COUNT(DISTINCT aw.asin) AS asin_count,
-    array_join(slice(array_sort(array_distinct(array_agg(CAST(aw.asin AS VARCHAR)))), 1, 25), ',') AS portfolio_asins,
-    MAX_BY(aw.asin, COALESCE(aw.my_click_share, -1.0)) AS top_asin_by_click_share,
-    SUM(COALESCE(aw.revenue_share, 0.0)) AS total_revenue_share,
-    MAX(aw.rank_1_asin) AS rank_1_asin,
-    MAX(aw.rank_1_itemname) AS rank_1_itemname,
-    MAX(aw.rank_1_department) AS rank_1_department,
-    MAX(aw.rank_1_clickshare) AS rank_1_clickshare,
-    MAX(aw.rank_1_conversionshare) AS rank_1_conversionshare,
-    MAX(aw.rank_2_asin) AS rank_2_asin,
-    MAX(aw.rank_2_itemname) AS rank_2_itemname,
-    MAX(aw.rank_2_department) AS rank_2_department,
-    MAX(aw.rank_2_clickshare) AS rank_2_clickshare,
-    MAX(aw.rank_2_conversionshare) AS rank_2_conversionshare,
-    MAX(aw.rank_3_asin) AS rank_3_asin,
-    MAX(aw.rank_3_itemname) AS rank_3_itemname,
-    MAX(aw.rank_3_department) AS rank_3_department,
-    MAX(aw.rank_3_clickshare) AS rank_3_clickshare,
-    MAX(aw.rank_3_conversionshare) AS rank_3_conversionshare
-  FROM asin_weekly aw
-  GROUP BY {{group_by_clause}}, aw.week_start
+    SELECT
+        max(aw.primary_intent_label) AS primary_intent_label,
+        {{group_by_select_clause}},
+        aw.week_start AS period_start,
+        addDays(aw.week_start, 6) AS period_end,
+        max(aw.currency) AS currency,
+        max(aw.company_name) AS company_name,
+        uniqExact(aw.company_id) AS company_count,
+        uniqExact(aw.marketplace) AS marketplace_count,
+        max(aw.search_volume) AS search_volume,
+        least(1.0, sum(ifNull(aw.my_click_share, 0.0))) AS portfolio_click_share,
+        sum(ifNull(aw.my_click_share, 0.0)) AS portfolio_click_share_uncapped,
+        least(1.0, sum(ifNull(aw.my_click_share, 0.0))) AS my_click_share,
+        avg(aw.my_click_share) AS avg_asin_click_share,
+        max(aw.my_click_share) AS max_asin_click_share,
+        uniqExact(aw.asin) AS asin_count,
+        arrayStringConcat(arraySlice(arraySort(groupUniqArray(aw.asin)), 1, 25), ',') AS portfolio_asins,
+        argMax(aw.asin, ifNull(aw.my_click_share, -1.0)) AS top_asin_by_click_share,
+        sum(ifNull(aw.revenue_share, 0.0)) AS total_revenue_share,
+        max(aw.rank_1_asin) AS rank_1_asin,
+        max(aw.rank_1_clickshare) AS rank_1_clickshare,
+        max(aw.rank_1_conversionshare) AS rank_1_conversionshare,
+        max(aw.rank_2_asin) AS rank_2_asin,
+        max(aw.rank_2_clickshare) AS rank_2_clickshare,
+        max(aw.rank_2_conversionshare) AS rank_2_conversionshare,
+        max(aw.rank_3_asin) AS rank_3_asin,
+        max(aw.rank_3_clickshare) AS rank_3_clickshare,
+        max(aw.rank_3_conversionshare) AS rank_3_conversionshare
+    FROM asin_weekly AS aw
+    GROUP BY {{group_by_clause}}, aw.week_start
 ),
 
 with_momentum AS (
-  SELECT
-    g.*,
-    LAG(g.my_click_share, 1) OVER w AS prev_week_share,
-    g.my_click_share - LAG(g.my_click_share, 1) OVER w AS wow_delta,
-    AVG(g.my_click_share) OVER (
-      PARTITION BY {{partition_by_clause}}
-      ORDER BY g.period_start
-      ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
-    ) AS avg_share_l4w,
-    AVG(g.my_click_share) OVER (
-      PARTITION BY {{partition_by_clause}}
-      ORDER BY g.period_start
-      ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
-    ) AS avg_share_l12w
-  FROM weekly_grouped g
-  WINDOW w AS (
-    PARTITION BY {{partition_by_clause}}
-    ORDER BY g.period_start
-  )
+    SELECT
+        *,
+        lagInFrame(my_click_share, 1) OVER w AS prev_week_share,
+        my_click_share - lagInFrame(my_click_share, 1) OVER w AS wow_delta,
+        avg(my_click_share) OVER (
+            PARTITION BY {{partition_by_clause}}
+            ORDER BY period_start
+            ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+        ) AS avg_share_l4w,
+        avg(my_click_share) OVER (
+            PARTITION BY {{partition_by_clause}}
+            ORDER BY period_start
+            ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
+        ) AS avg_share_l12w
+    FROM weekly_grouped
+    WINDOW w AS (
+        PARTITION BY {{partition_by_clause}}
+        ORDER BY period_start
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    )
 ),
 
 windowed AS (
-  SELECT
-    m.*,
-    CASE
-      WHEN m.wow_delta IS NULL                                        THEN 'new'
-      WHEN m.wow_delta > 0 AND m.avg_share_l4w > m.avg_share_l12w    THEN 'accelerating'
-      WHEN m.wow_delta > 0                                            THEN 'growing'
-      WHEN m.wow_delta < 0 AND m.avg_share_l4w < m.avg_share_l12w    THEN 'collapsing'
-      WHEN m.wow_delta < 0                                            THEN 'declining'
-      ELSE 'stable'
-    END AS momentum_signal
-  FROM with_momentum m
-  CROSS JOIN date_bounds d
-  WHERE m.period_start BETWEEN d.start_date AND d.end_date
+    SELECT
+        *,
+        multiIf(
+            wow_delta IS NULL,                                'new',
+            wow_delta > 0 AND avg_share_l4w > avg_share_l12w, 'accelerating',
+            wow_delta > 0,                                    'growing',
+            wow_delta < 0 AND avg_share_l4w < avg_share_l12w, 'collapsing',
+            wow_delta < 0,                                    'declining',
+                                                              'stable'
+        ) AS momentum_signal
+    FROM with_momentum
+    WHERE period_start >= (SELECT start_date FROM date_bounds)
+      AND period_start <= (SELECT end_date FROM date_bounds)
 ),
 
 current_rows AS (
-  SELECT *
-  FROM (
-    SELECT w.*,
-      ROW_NUMBER() OVER (
-        PARTITION BY {{partition_by_clause}}
-        ORDER BY w.period_start DESC
-      ) AS rn
-    FROM windowed w
-  )
-  WHERE rn = 1
+    SELECT *
+    FROM (
+        SELECT
+            *,
+            row_number() OVER (
+                PARTITION BY {{partition_by_clause}}
+                ORDER BY period_start DESC
+            ) AS rn
+        FROM windowed
+    )
+    WHERE rn = 1
 ),
 
 enriched AS (
-  SELECT
-    c.*,
-    ROUND(c.wow_delta, 6) AS wow_delta_rounded,
-    ROUND(c.avg_share_l4w, 6) AS avg_share_l4w_rounded,
-    ROUND(c.avg_share_l12w, 6) AS avg_share_l12w_rounded,
-    CASE
-      WHEN c.rank_1_conversionshare IS NULL THEN false
-      WHEN c.rank_1_conversionshare <= p.weak_leader_max_conversion_share
-        AND COALESCE(c.search_volume, 0) >= p.weak_leader_min_search_volume
-        THEN true
-      ELSE false
-    END AS is_weak_leader,
-    COALESCE(c.rank_1_conversionshare, 0.0) AS leader_conversion_share,
-    CASE
-      WHEN c.rank_1_conversionshare IS NULL THEN 0.0
-      ELSE GREATEST(0.0, (1.0 - c.rank_1_conversionshare))
-           * COALESCE(c.search_volume, 0)
-           / 1000.0
-    END AS displacement_opportunity_score,
-    CASE
-      WHEN c.my_click_share IS NOT NULL AND c.rank_1_clickshare IS NOT NULL
-        THEN c.rank_1_clickshare - c.my_click_share
-      ELSE NULL
-    END AS click_share_to_leader
-  FROM current_rows c
-  CROSS JOIN params p
+    SELECT
+        {{final_group_by_select_clause}},
+        c.period_start AS period_start,
+        c.period_end AS period_end,
+        c.currency AS currency,
+        c.primary_intent_label AS primary_intent_label,
+        c.company_name AS company_name,
+        c.company_count AS company_count,
+        c.marketplace_count AS marketplace_count,
+        c.search_volume AS search_volume,
+        c.portfolio_click_share AS portfolio_click_share,
+        c.portfolio_click_share_uncapped AS portfolio_click_share_uncapped,
+        c.my_click_share AS my_click_share,
+        c.prev_week_share AS prev_week_share,
+        round(c.wow_delta, 6) AS wow_delta,
+        round(c.avg_share_l4w, 6) AS avg_share_l4w,
+        round(c.avg_share_l12w, 6) AS avg_share_l12w,
+        c.momentum_signal AS momentum_signal,
+        c.avg_asin_click_share AS avg_asin_click_share,
+        c.max_asin_click_share AS max_asin_click_share,
+        c.asin_count AS asin_count,
+        c.portfolio_asins AS portfolio_asins,
+        c.top_asin_by_click_share AS top_asin_by_click_share,
+        c.total_revenue_share AS total_revenue_share,
+        nullIf(c.rank_1_asin, '') AS rank_1_asin,
+        c.rank_1_clickshare AS rank_1_clickshare,
+        c.rank_1_conversionshare AS rank_1_conversionshare,
+        nullIf(c.rank_2_asin, '') AS rank_2_asin,
+        c.rank_2_clickshare AS rank_2_clickshare,
+        c.rank_2_conversionshare AS rank_2_conversionshare,
+        nullIf(c.rank_3_asin, '') AS rank_3_asin,
+        c.rank_3_clickshare AS rank_3_clickshare,
+        c.rank_3_conversionshare AS rank_3_conversionshare,
+        multiIf(
+            c.rank_1_conversionshare IS NULL, false,
+            c.rank_1_conversionshare <= {{weak_leader_max_conversion_share}}
+                AND ifNull(c.search_volume, 0) >= {{weak_leader_min_search_volume}}, true,
+            false
+        ) AS is_weak_leader,
+        ifNull(c.rank_1_conversionshare, 0.0) AS leader_conversion_share,
+        if(
+            c.rank_1_conversionshare IS NULL,
+            0.0,
+            greatest(0.0, 1.0 - c.rank_1_conversionshare) * ifNull(c.search_volume, 0) / 1000.0
+        ) AS displacement_opportunity_score,
+        if(
+            c.my_click_share IS NOT NULL AND c.rank_1_clickshare IS NOT NULL,
+            c.rank_1_clickshare - c.my_click_share,
+            CAST(NULL AS Nullable(Float64))
+        ) AS click_share_to_leader
+    FROM current_rows AS c
 ),
 
-final_rows AS (
-  SELECT
-    {{final_group_by_select_clause}},
-    e.period_start,
-    e.period_end,
-    e.currency,
-    e.primary_intent_label,
-    e.company_name,
-    e.company_count,
-    e.marketplace_count,
-    e.search_volume,
-    e.portfolio_click_share,
-    e.portfolio_click_share_uncapped,
-    e.my_click_share,
-    e.prev_week_share,
-    e.wow_delta_rounded AS wow_delta,
-    e.avg_share_l4w_rounded AS avg_share_l4w,
-    e.avg_share_l12w_rounded AS avg_share_l12w,
-    e.momentum_signal,
-    e.avg_asin_click_share,
-    e.max_asin_click_share,
-    e.asin_count,
-    e.portfolio_asins,
-    e.top_asin_by_click_share,
-    e.total_revenue_share,
-    e.rank_1_asin,
-    e.rank_1_itemname,
-    e.rank_1_department,
-    e.rank_1_clickshare,
-    e.rank_1_conversionshare,
-    e.rank_2_asin,
-    e.rank_2_itemname,
-    e.rank_2_department,
-    e.rank_2_clickshare,
-    e.rank_2_conversionshare,
-    e.rank_3_asin,
-    e.rank_3_itemname,
-    e.rank_3_department,
-    e.rank_3_clickshare,
-    e.rank_3_conversionshare,
-    e.is_weak_leader,
-    e.leader_conversion_share,
-    e.displacement_opportunity_score,
-    e.click_share_to_leader
-  FROM enriched e
+filtered AS (
+    SELECT *
+    FROM enriched
+    WHERE
+        (
+            length({{momentum_signals_array}}) = 0
+            OR arrayExists(s -> lower(s) = lower(momentum_signal), {{momentum_signals_array}})
+        )
+        AND ({{min_click_share}} = 0 OR ifNull(my_click_share, 0) >= {{min_click_share}})
+        AND ({{min_search_volume}} = 0 OR ifNull(search_volume, 0) >= {{min_search_volume}})
 )
 
 SELECT
-  ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
-  f.*
-FROM final_rows f
-CROSS JOIN params p
-WHERE
-  (cardinality(p.momentum_signals) = 0
-   OR any_match(p.momentum_signals, s -> lower(s) = lower(f.momentum_signal)))
-  AND (p.min_click_share = 0 OR COALESCE(f.my_click_share, 0) >= p.min_click_share)
-  AND (p.min_search_volume = 0 OR COALESCE(f.search_volume, 0) >= p.min_search_volume)
+    row_number() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+    f.*
+FROM filtered AS f
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
-LIMIT {{limit_top_n}};
+LIMIT {{limit_top_n}}

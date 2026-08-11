@@ -1,12 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
-import { loadTextFile } from '../../../runtime/load-assets';
-import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { deactivateCompanyState, insertBrandAnalyticsState, nowVersion } from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -16,13 +13,21 @@ type CompaniesWithPermissionResponse = {
   }>;
 };
 
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
+const STATE_TABLE = 'analytics.ba_ryg_thresholds';
+const STATE_COLUMNS = [
+  'company_id',
+  'user_id',
+  'tool',
+  'signal_group',
+  'metric',
+  'color',
+  'threshold_value',
+  'signal_code',
+  'signal_description',
+  'is_active',
+  'version',
+  'updated_at',
+];
 
 const writeItemSchema = z.object({
   tool: z.enum(['sqp', 'scp', 'global', 'growth_machine']),
@@ -80,25 +85,8 @@ async function isAuthorizedForCompany(companyId: number, context: ToolExecutionC
   return false;
 }
 
-function buildWritesValuesSql(companyId: number, writes: Array<z.infer<typeof writeItemSchema>>): string {
-  return writes
-    .map((w) => {
-      return `(${companyId}, 'default', ${sqlStringLiteral(w.tool)}, ${sqlStringLiteral(w.signal_group)}, ${sqlStringLiteral(w.metric)}, ${sqlStringLiteral(w.color)}, ${w.threshold_value}, ${sqlStringLiteral(w.signal_code)}, ${sqlStringLiteral(w.signal_description)}, current_timestamp)`;
-    })
-    .join(',\n  ');
-}
-
-function buildSlotsInClause(writes: Array<z.infer<typeof writeItemSchema>>): string {
-  return writes
-    .map((w) => `(${sqlStringLiteral(w.tool)}, ${sqlStringLiteral(w.signal_group)}, ${sqlStringLiteral(w.metric)}, ${sqlStringLiteral(w.color)})`)
-    .join(',\n    ');
-}
-
 export function registerBrandAnalyticsWriteRygThresholdsTool(registry: ToolRegistry) {
   const toolJsonPath = path.join(__dirname, 'tool.json');
-  const insertSqlPath = path.join(__dirname, 'insert.sql');
-  const deleteSlotsSqlPath = path.join(__dirname, 'delete_slots.sql');
-  const deleteAllSqlPath = path.join(__dirname, 'delete_all.sql');
 
   let specJson: ToolSpecJson | undefined;
   try {
@@ -138,22 +126,17 @@ export function registerBrandAnalyticsWriteRygThresholdsTool(registry: ToolRegis
             accepted: 0,
             written: 0,
             deleted: 0,
-            message: `Dry run: would delete ALL threshold overrides for company_id=${companyId}.`,
+            message: `Dry run: would deactivate ALL threshold overrides for company_id=${companyId}.`,
           };
         }
 
-        const deleteAllTemplate = await loadTextFile(deleteAllSqlPath);
-        const deleteAllSql = renderSqlTemplate(deleteAllTemplate, {
-          catalog: config.athena.catalog,
-          company_id: companyId,
-        });
-
-        await runAthenaQuery({
-          query: deleteAllSql,
-          database: 'brand_analytics_iceberg',
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: 0,
+        // Company overrides are deactivated, never deleted; the seeded defaults
+        // carry company_id = NULL so they are untouched and take over again.
+        const deleted = await deactivateCompanyState({
+          table: STATE_TABLE,
+          columns: STATE_COLUMNS,
+          companyId,
+          version: nowVersion(),
         });
 
         return {
@@ -161,8 +144,8 @@ export function registerBrandAnalyticsWriteRygThresholdsTool(registry: ToolRegis
           action: 'reset',
           accepted: 0,
           written: 0,
-          deleted: -1, // Iceberg DELETE doesn't return count
-          message: `All threshold overrides for company_id=${companyId} have been deleted. System defaults now apply.`,
+          deleted,
+          message: `${deleted} threshold override(s) for company_id=${companyId} have been deactivated. System defaults now apply.`,
         };
       }
 
@@ -191,37 +174,27 @@ export function registerBrandAnalyticsWriteRygThresholdsTool(registry: ToolRegis
         };
       }
 
-      const catalog = config.athena.catalog;
-
-      // Step 1: Delete existing rows for the same slots
-      const deleteSlotsTemplate = await loadTextFile(deleteSlotsSqlPath);
-      const deleteSlotsSql = renderSqlTemplate(deleteSlotsTemplate, {
-        catalog,
-        company_id: companyId,
-        slots_in_clause: buildSlotsInClause(writes),
-      });
-
-      await runAthenaQuery({
-        query: deleteSlotsSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
-      });
-
-      // Step 2: Insert new rows
-      const insertTemplate = await loadTextFile(insertSqlPath);
-      const insertSql = renderSqlTemplate(insertTemplate, {
-        catalog,
-        writes_values_sql: buildWritesValuesSql(companyId, writes),
-      });
-
-      await runAthenaQuery({
-        query: insertSql,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 0,
+      // The table is a SharedReplacingMergeTree keyed on
+      // (company_id, tool, signal_group, metric, color), so inserting a newer
+      // version replaces the previous override for the same slot.
+      const version = nowVersion();
+      await insertBrandAnalyticsState({
+        table: STATE_TABLE,
+        columns: STATE_COLUMNS,
+        rows: writes.map((w) => ({
+          company_id: companyId,
+          user_id: 'default',
+          tool: w.tool,
+          signal_group: w.signal_group,
+          metric: w.metric,
+          color: w.color,
+          threshold_value: w.threshold_value,
+          signal_code: w.signal_code,
+          signal_description: w.signal_description,
+          is_active: 1,
+          version,
+          updated_at: version,
+        })),
       });
 
       return {

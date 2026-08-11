@@ -1,12 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import {
+  executeBrandAnalyticsQuery,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlUInt64ArrayExpr,
+} from '../_clickhouse';
 import { applySelectFields } from '../select-fields';
 
 type CompaniesWithPermissionResponse = {
@@ -16,30 +20,6 @@ type CompaniesWithPermissionResponse = {
     id?: number;
   }>;
 };
-
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
-}
 
 const querySchema = z
   .object({
@@ -183,9 +163,6 @@ export function registerBrandAnalyticsGetConversionLeakAnalysisTool(registry: To
         return { items: [] };
       }
 
-      const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
-
       const marketplaces = query.filters.marketplaces.map((m: string) => m.trim()).filter(Boolean);
       const asins = (query.filters.asin ?? []).map((a) => a.trim()).filter(Boolean);
       const parentAsins = (query.filters.parent_asin ?? []).map((a) => a.trim()).filter(Boolean);
@@ -210,18 +187,17 @@ export function registerBrandAnalyticsGetConversionLeakAnalysisTool(registry: To
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
         limit_top_n: Number(limitTopN),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        asins_array: sqlVarcharArrayExpr(asins),
-        parent_asins_array: sqlVarcharArrayExpr(parentAsins),
-        brands_array: sqlVarcharArrayExpr(brands),
-        revenue_abcd_class_array: sqlVarcharArrayExpr(revenueClass),
-        pareto_abc_class_array: sqlVarcharArrayExpr(paretoClass),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        asins_array: sqlStringArrayExpr(asins),
+        parent_asins_array: sqlStringArrayExpr(parentAsins),
+        brands_array: sqlStringArrayExpr(brands),
+        revenue_abcd_class_array: sqlStringArrayExpr(revenueClass),
+        pareto_abc_class_array: sqlStringArrayExpr(paretoClass),
         impression_to_click_min: Number(impressionToClickMin),
         click_to_cart_min: Number(clickToCartMin),
         cart_to_purchase_min: Number(cartToPurchaseMin),
@@ -229,16 +205,8 @@ export function registerBrandAnalyticsGetConversionLeakAnalysisTool(registry: To
         sort_direction: sortDirection.toUpperCase(),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
-
-      const rows = athenaResult.rows ?? [];
-      return applySelectFields(rows, selectFields);
+      const result = await executeBrandAnalyticsQuery(rendered);
+      return applySelectFields(result.rows ?? [], selectFields);
     },
   });
 }

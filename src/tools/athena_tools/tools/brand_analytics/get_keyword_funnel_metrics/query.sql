@@ -1,187 +1,173 @@
 -- Tool: brand_analytics_get_keyword_funnel_metrics
 -- Purpose: Raw funnel stage metrics (Impressions → Clicks → Cart Adds → Purchases)
 --          with brand share vs total market at each stage, plus WoW trending.
+-- Source:  etl.ba_search_query_performance (ClickHouse) — the SQP weekly report
+--          joined to ASIN attributes; etl.ba_marketplaces supplies country_code.
 -- Difference from analyze_search_query_performance:
 --   • Keyword-centric (optional keywords filter with match_type, returns all if omitted)
 --   • Returns raw funnel totals + shares, NOT scored RYG signals
 --   • Computes funnel stage drop-off rates
---   • Optionally includes competitor context (top 3 ASINs from search_term_smart_snapshot)
+-- NOTE: revenue_abcd_class / pareto_abc_class are rolling last-30-day, as-of
+--       attributes of the ASIN, not the class in effect during a past report week.
 
-WITH params AS (
-  SELECT
-    {{limit_top_n}}                   AS limit_top_n,
-    {{start_date_sql}}                AS start_date,
-    {{end_date_sql}}                  AS end_date,
-    CAST({{periods_back}} AS INTEGER) AS periods_back,
-
-    -- REQUIRED (authorization + partition pruning)
-    {{company_ids_array}}             AS company_ids,
-    transform({{company_ids_array}}, x -> CAST(x AS VARCHAR)) AS company_ids_str,
-
-    -- REQUIRED keyword filter
-    {{keywords_array}}                AS keywords,
-    {{match_type_sql}}                AS match_type,
-
-    -- OPTIONAL filters
-    {{marketplaces_array}}            AS marketplaces,
-    {{asins_array}}                   AS asins,
-    {{brands_array}}                  AS brands,
-    {{product_families_array}}         AS product_families,
-    {{revenue_abcd_class_array}}       AS revenue_abcd_class,
-    {{pareto_abc_class_array}}         AS pareto_abc_class,
-
-    -- Tool-specific thresholds
-    CAST({{min_search_frequency_rank}} AS INTEGER) AS min_search_frequency_rank,
-    CAST({{min_impressions}} AS INTEGER)           AS min_impressions
-),
-
-{{term_intents_cte_sql}},
+WITH {{term_intents_cte_sql}},
 
 -- ─── 1. Pull raw SQP rows, apply keyword + standard filters ────────────────
 raw AS (
-  SELECT r.*
-  FROM "{{catalog}}"."brand_analytics_iceberg"."search_query_performance_snapshot" r
-  CROSS JOIN params p
+  SELECT
+    sqp.search_query AS search_query,
+    ifNull(marketplace.country_code, '') AS marketplace,
+    sqp.week_start AS week_start,
+    sqp.search_query_volume AS search_query_volume,
+    sqp.search_query_score AS search_query_score,
+    ifNull(sqp.total_query_impression_count, 0) AS total_query_impression_count,
+    ifNull(sqp.asin_impression_count, 0) AS asin_impression_count,
+    ifNull(sqp.total_click_count, 0) AS total_click_count,
+    ifNull(sqp.asin_click_count, 0) AS asin_click_count,
+    ifNull(sqp.total_cart_add_count, 0) AS total_cart_add_count,
+    ifNull(sqp.asin_cart_add_count, 0) AS asin_cart_add_count,
+    ifNull(sqp.total_purchase_count, 0) AS total_purchase_count,
+    ifNull(sqp.asin_purchase_count, 0) AS asin_purchase_count
+  FROM etl.ba_search_query_performance AS sqp
+  LEFT JOIN etl.ba_marketplaces AS marketplace
+    ON sqp.marketplace_id = marketplace.marketplace_id
   WHERE
-    -- Partition pruning: company_id is VARCHAR in the table
-    contains(p.company_ids_str, r.company_id)
+    has({{company_ids_array}}, sqp.company_id)
 
-    -- Keyword matching (optional — when empty, returns all keywords)
+    -- Keyword matching (optional — when empty, returns all keywords).
+    -- startsWith/position rather than LIKE: a keyword containing % or _ would
+    -- otherwise act as a wildcard and silently widen the match.
     AND (
-      cardinality(p.keywords) = 0
-      OR (
-        CASE p.match_type
-          WHEN 'exact' THEN
-            any_match(p.keywords, k -> lower(k) = lower(r.searchquerydata_searchquery))
-          WHEN 'starts_with' THEN
-            any_match(p.keywords, k -> lower(r.searchquerydata_searchquery) LIKE lower(k) || '%')
-          ELSE -- 'contains'
-            any_match(p.keywords, k -> lower(r.searchquerydata_searchquery) LIKE '%' || lower(k) || '%')
-        END
-      )
+      length({{keywords_array}}) = 0
+      OR multiIf(
+           {{match_type_sql}} = 'exact',
+             arrayExists(k -> lower(k) = lower(sqp.search_query), {{keywords_array}}),
+           {{match_type_sql}} = 'starts_with',
+             arrayExists(k -> startsWith(lower(sqp.search_query), lower(k)), {{keywords_array}}),
+           arrayExists(k -> position(lower(sqp.search_query), lower(k)) > 0, {{keywords_array}})
+         )
     )
 
     AND ({{intent_terms_filter_sql}})
 
     -- Optional marketplace
     AND (
-      cardinality(p.marketplaces) = 0
-      OR any_match(
-        p.marketplaces,
-        m -> lower(m) IN (lower(r.marketplace_country_code), lower(r.marketplace))
-      )
+      length({{marketplaces_array}}) = 0
+      OR arrayExists(
+           m -> lower(m) IN (lower(ifNull(marketplace.country_code, '')), lower(ifNull(marketplace.marketplace_name, ''))),
+           {{marketplaces_array}}
+         )
     )
 
     -- Optional ASIN filter
-    AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(r.asin)))
+    AND (length({{asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(sqp.asin), {{asins_array}}))
 
     -- Optional brand filter
-    AND (cardinality(p.brands) = 0 OR any_match(p.brands, b -> lower(b) = lower(r.brand)))
+    AND (length({{brands_array}}) = 0 OR arrayExists(b -> lower(b) = lower(ifNull(sqp.brand, '')), {{brands_array}}))
 
     -- Optional product family
-    AND (cardinality(p.product_families) = 0
-         OR any_match(p.product_families, f -> lower(f) = lower(r.product_family)))
+    AND (length({{product_families_array}}) = 0
+         OR arrayExists(f -> lower(f) = lower(ifNull(sqp.product_family, '')), {{product_families_array}}))
 
     -- Optional revenue ABCD class
-    AND (cardinality(p.revenue_abcd_class) = 0
-         OR any_match(p.revenue_abcd_class, c -> upper(c) = upper(r.revenue_abcd_class)))
+    AND (length({{revenue_abcd_class_array}}) = 0
+         OR arrayExists(c -> upper(c) = upper(ifNull(sqp.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
 
     -- Optional Pareto ABC class
-    AND (cardinality(p.pareto_abc_class) = 0
-         OR any_match(p.pareto_abc_class, c -> upper(c) = upper(r.pareto_abc_class)))
-
-    -- Only child rows for funnel (parent rows aggregate differently)
-    AND r.row_type = 'child'
+    AND (length({{pareto_abc_class_array}}) = 0
+         OR arrayExists(c -> upper(c) = upper(ifNull(sqp.pareto_abc_class, '')), {{pareto_abc_class_array}}))
 ),
 
 -- ─── 2. Determine date window ──────────────────────────────────────────────
-latest AS (
-  SELECT max(week_start) AS latest_week FROM raw
-),
-
+-- lookback_start reaches one week further back so the LAG has a prior row even
+-- when periods_back = 1.
 date_bounds AS (
   SELECT
-    COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week)) AS start_date,
-    COALESCE(p.end_date, l.latest_week) AS end_date,
-    -- 1-week lookback so LAG has a prior row even when periods_back = 1
-    date_add('week', -1, COALESCE(p.start_date, date_add('week', -1 * (p.periods_back - 1), l.latest_week))) AS lookback_start
-  FROM params p
-  CROSS JOIN latest l
+    ifNull({{start_date_sql}}, addWeeks(max(week_start), -1 * ({{periods_back}} - 1))) AS start_date,
+    ifNull({{end_date_sql}}, max(week_start)) AS end_date,
+    addWeeks(ifNull({{start_date_sql}}, addWeeks(max(week_start), -1 * ({{periods_back}} - 1))), -1) AS lookback_start
+  FROM raw
 ),
 
 windowed AS (
-  SELECT r.*
-  FROM raw r
-  CROSS JOIN date_bounds d
-  WHERE r.week_start BETWEEN d.lookback_start AND d.end_date
-    AND r.year BETWEEN year(d.lookback_start) AND year(d.end_date)
+  SELECT *
+  FROM raw
+  WHERE week_start >= (SELECT lookback_start FROM date_bounds)
+    AND week_start <= (SELECT end_date FROM date_bounds)
 ),
 
 -- ─── 3. Aggregate to keyword × period level ────────────────────────────────
 -- One keyword can appear across multiple ASINs; we aggregate brand-level shares.
 keyword_agg AS (
   SELECT
-    w.searchquerydata_searchquery                                 AS keyword,
-    w.marketplace_country_code                                    AS marketplace,
+    w.search_query                                                AS keyword,
+    w.marketplace                                                 AS marketplace,
     w.week_start                                                  AS period_start,
-    date_add('day', 6, w.week_start)                              AS period_end,
+    addDays(w.week_start, 6)                                      AS period_end,
 
     -- Search volume and score (use max since it's the same per keyword per period)
-    MAX(w.searchquerydata_searchqueryvolume)                      AS search_query_volume,
-    MAX(w.searchquerydata_searchqueryscore)                       AS search_query_score,
+    MAX(w.search_query_volume)                                    AS search_query_volume,
+    MAX(w.search_query_score)                                     AS search_query_score,
 
-    -- Impressions (total is same per keyword; brand = sum across ASINs)
-    MAX(w.impressiondata_totalqueryimpressioncount)               AS total_impressions,
-    SUM(w.impressiondata_asinimpressioncount)                     AS brand_impressions,
-    CASE WHEN MAX(w.impressiondata_totalqueryimpressioncount) > 0
-      THEN SUM(w.impressiondata_asinimpressioncount) / MAX(w.impressiondata_totalqueryimpressioncount)
+    -- Impressions (total repeats on every ASIN row for the query-week, so MAX
+    -- takes it once; brand = sum across this company's ASINs)
+    MAX(w.total_query_impression_count)                           AS total_impressions,
+    SUM(w.asin_impression_count)                                  AS brand_impressions,
+    CASE WHEN MAX(w.total_query_impression_count) > 0
+      THEN SUM(w.asin_impression_count) / MAX(w.total_query_impression_count)
       ELSE 0 END                                                  AS brand_impression_share,
 
     -- Clicks
-    MAX(w.clickdata_totalclickcount)                              AS total_clicks,
-    SUM(w.clickdata_asinclickcount)                               AS brand_clicks,
-    CASE WHEN MAX(w.clickdata_totalclickcount) > 0
-      THEN SUM(w.clickdata_asinclickcount) / MAX(w.clickdata_totalclickcount)
+    MAX(w.total_click_count)                                      AS total_clicks,
+    SUM(w.asin_click_count)                                       AS brand_clicks,
+    CASE WHEN MAX(w.total_click_count) > 0
+      THEN SUM(w.asin_click_count) / MAX(w.total_click_count)
       ELSE 0 END                                                  AS brand_click_share,
 
     -- Cart Adds
-    MAX(w.cartadddata_totalcartaddcount)                          AS total_cart_adds,
-    SUM(w.cartadddata_asincartaddcount)                           AS brand_cart_adds,
-    CASE WHEN MAX(w.cartadddata_totalcartaddcount) > 0
-      THEN SUM(w.cartadddata_asincartaddcount) / MAX(w.cartadddata_totalcartaddcount)
+    MAX(w.total_cart_add_count)                                   AS total_cart_adds,
+    SUM(w.asin_cart_add_count)                                    AS brand_cart_adds,
+    CASE WHEN MAX(w.total_cart_add_count) > 0
+      THEN SUM(w.asin_cart_add_count) / MAX(w.total_cart_add_count)
       ELSE 0 END                                                  AS brand_cart_add_share,
 
     -- Purchases
-    MAX(w.purchasedata_totalpurchasecount)                        AS total_purchases,
-    SUM(w.purchasedata_asinpurchasecount)                         AS brand_purchases,
-    CASE WHEN MAX(w.purchasedata_totalpurchasecount) > 0
-      THEN SUM(w.purchasedata_asinpurchasecount) / MAX(w.purchasedata_totalpurchasecount)
+    MAX(w.total_purchase_count)                                   AS total_purchases,
+    SUM(w.asin_purchase_count)                                    AS brand_purchases,
+    CASE WHEN MAX(w.total_purchase_count) > 0
+      THEN SUM(w.asin_purchase_count) / MAX(w.total_purchase_count)
       ELSE 0 END                                                  AS brand_purchase_share
 
   FROM windowed w
   GROUP BY
-    w.searchquerydata_searchquery,
-    w.marketplace_country_code,
+    w.search_query,
+    w.marketplace,
     w.week_start
 ),
 
--- ─── 4. WoW trends via LAG ────────────────────────────────────────────────
+-- ─── 4. WoW trends via lagInFrame ─────────────────────────────────────────
+-- toNullable + explicit NULL default reproduces LAG semantics: no prior week
+-- yields NULL, not a fabricated 0 delta. The ROWS frame is required — the
+-- default RANGE frame would not step back exactly one row.
 with_trends AS (
   SELECT
     k.*,
 
-    -- WoW delta for each brand share metric
-    k.brand_impression_share - LAG(k.brand_impression_share)
-      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start)
+    k.brand_impression_share - lagInFrame(toNullable(k.brand_impression_share), 1, NULL)
+      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
       AS brand_impression_share_wow,
-    k.brand_click_share - LAG(k.brand_click_share)
-      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start)
+    k.brand_click_share - lagInFrame(toNullable(k.brand_click_share), 1, NULL)
+      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
       AS brand_click_share_wow,
-    k.brand_cart_add_share - LAG(k.brand_cart_add_share)
-      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start)
+    k.brand_cart_add_share - lagInFrame(toNullable(k.brand_cart_add_share), 1, NULL)
+      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
       AS brand_cart_add_share_wow,
-    k.brand_purchase_share - LAG(k.brand_purchase_share)
-      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start)
+    k.brand_purchase_share - lagInFrame(toNullable(k.brand_purchase_share), 1, NULL)
+      OVER (PARTITION BY k.keyword, k.marketplace ORDER BY k.period_start
+            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
       AS brand_purchase_share_wow
 
   FROM keyword_agg k
@@ -234,9 +220,9 @@ latest_period AS (
 final AS (
   SELECT
     f.*,
-    ti.intent_ids,
-    ti.primary_intent_id,
-    ti.primary_intent_label
+    ti.intent_ids AS intent_ids,
+    ti.primary_intent_id AS primary_intent_id,
+    ti.primary_intent_label AS primary_intent_label
   FROM with_funnel f
   INNER JOIN latest_period lp
     ON  f.keyword     = lp.keyword
@@ -245,23 +231,22 @@ final AS (
   -- Intent enrichment: flatten across companies (keyword_agg is not split by company).
   LEFT JOIN (
     SELECT
-      term_norm,
-      array_distinct(flatten(array_agg(intent_ids))) AS intent_ids,
-      arbitrary(primary_intent_id)                   AS primary_intent_id,
-      arbitrary(primary_intent_label)                AS primary_intent_label
+      term_norm AS term_norm,
+      arrayDistinct(arrayFlatten(groupArray(intent_ids))) AS intent_ids,
+      any(primary_intent_id)                              AS primary_intent_id,
+      any(primary_intent_label)                           AS primary_intent_label
     FROM term_intents
     GROUP BY term_norm
-  ) ti ON ti.term_norm = lower(f.keyword)
-  CROSS JOIN params p
+  ) AS ti ON ti.term_norm = lower(f.keyword)
   WHERE
     -- Optional min_search_query_score filter
-    (p.min_search_frequency_rank = 0 OR f.search_query_score <= p.min_search_frequency_rank)
+    ({{min_search_frequency_rank}} = 0 OR f.search_query_score <= {{min_search_frequency_rank}})
     -- Optional min_impressions
-    AND (p.min_impressions = 0 OR COALESCE(f.total_impressions, 0) >= p.min_impressions)
+    AND ({{min_impressions}} = 0 OR COALESCE(f.total_impressions, 0) >= {{min_impressions}})
 )
 
 SELECT
-  ROW_NUMBER() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+  row_number() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
   final.*
 FROM final
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
