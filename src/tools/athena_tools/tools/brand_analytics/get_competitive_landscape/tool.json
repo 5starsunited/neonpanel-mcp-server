@@ -56,13 +56,6 @@
                   "type": "string"
                 },
                 "description": "Amazon marketplace code(s) (e.g., 'US', 'UK', 'DE'). Multiple markets supported. Strongly recommended — without it, results span all marketplaces and may include globally popular terms not specific to your products."
-              },
-              "category": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "Optional: Filter by browse node category."
               }
             },
             "required": [
@@ -110,12 +103,11 @@
                   "enum": [
                     "intent",
                     "marketplace",
-                    "category",
                     "search_term"
                   ]
                 },
                 "default": [],
-                "description": "Optional dimensions for portfolio rollup (max 3). When non-empty, the tool returns weighted competitive aggregates per bucket in the `aggregations` array instead of per-term `items`. Weighting uses 1/(1+search_frequency_rank) so popular keywords dominate.\n\nOutput columns by dimension:\n- 'intent' → intent_id, intent_label\n- 'marketplace' → marketplace\n- 'category' → category\n- 'search_term' → search_term"
+                "description": "Optional dimensions for portfolio rollup (max 3). When non-empty, the tool returns weighted competitive aggregates per bucket in the `aggregations` array instead of per-term `items`. Weighting uses 1/(1+search_frequency_rank) so popular keywords dominate.\n\nOutput columns by dimension:\n- 'intent' → intent_id, intent_label\n- 'marketplace' → marketplace\n- 'search_term' → search_term"
               }
             },
             "additionalProperties": false
@@ -313,10 +305,18 @@
                     "type": "string"
                   },
                   "title": {
-                    "type": "string"
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Product title. Only available for your own ASINs; null for competitor ASINs."
                   },
                   "brand": {
-                    "type": "string"
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Brand name. Only available for your own ASINs; null for competitor ASINs."
                   },
                   "is_mine": {
                     "type": "boolean"

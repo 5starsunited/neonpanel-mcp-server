@@ -229,8 +229,13 @@ weekly_grouped AS (
 with_momentum AS (
     SELECT
         *,
-        lagInFrame(my_click_share, 1) OVER w AS prev_week_share,
-        my_click_share - lagInFrame(my_click_share, 1) OVER w AS wow_delta,
+        -- toNullable is REQUIRED. my_click_share here is least(1.0, sum(...)),
+        -- a non-nullable Float64, and lagInFrame returns the type default (0.0)
+        -- rather than NULL when there is no preceding row. Unwrapped, a first
+        -- week would report wow_delta = its whole click share and could never
+        -- be classified 'new'.
+        lagInFrame(toNullable(my_click_share), 1) OVER w AS prev_week_share,
+        my_click_share - lagInFrame(toNullable(my_click_share), 1) OVER w AS wow_delta,
         avg(my_click_share) OVER (
             PARTITION BY {{partition_by_clause}}
             ORDER BY period_start

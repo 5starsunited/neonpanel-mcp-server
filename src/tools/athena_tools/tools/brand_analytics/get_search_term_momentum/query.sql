@@ -191,8 +191,12 @@ expanded AS (
 with_momentum AS (
     SELECT
         *,
-        lagInFrame(my_click_share, 1) OVER w AS prev_week_share,
-        my_click_share - lagInFrame(my_click_share, 1) OVER w AS wow_delta,
+        -- toNullable pins the "no preceding row" case to NULL. lagInFrame
+        -- otherwise returns the column type's default, which would report a
+        -- first week as a gain of its entire click share and hide the 'new'
+        -- signal.
+        lagInFrame(toNullable(my_click_share), 1) OVER w AS prev_week_share,
+        my_click_share - lagInFrame(toNullable(my_click_share), 1) OVER w AS wow_delta,
         avg(my_click_share) OVER (
             PARTITION BY search_term, asin, marketplace_id, company_id
             ORDER BY week_start

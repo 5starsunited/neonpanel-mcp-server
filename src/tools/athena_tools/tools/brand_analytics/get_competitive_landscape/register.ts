@@ -1,14 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { intentTermsFilterClauseSql, termIntentsCteSql } from '../_intent_common';
+import {
+  allowListedSql,
+  executeBrandAnalyticsQuery,
+  intentTermsFilterClauseSql,
+  sqlNullableDateExpr,
+  sqlStringArrayExpr,
+  sqlUInt64ArrayExpr,
+  termIntentsCteSql,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -21,28 +27,23 @@ type CompaniesWithPermissionResponse = {
   }>;
 };
 
-function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+type Periodicity = 'week' | 'month' | 'quarter';
+
+/** Period bucketing is picked from an allow-list, never interpolated as a value. */
+function periodTruncSql(periodicity: Periodicity): string {
+  return allowListedSql<Periodicity>(
+    periodicity,
+    { week: 'toMonday', month: 'toStartOfMonth', quarter: 'toStartOfQuarter' },
+    'week',
+  );
 }
 
-function sqlStringLiteral(value: string): string {
-  return `'${sqlEscapeString(value)}'`;
-}
-
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
-}
-
-function sqlCompanyIdArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
-}
-
-function sqlDateExpr(value?: string): string {
-  const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
+function periodAddSql(periodicity: Periodicity): string {
+  return allowListedSql<Periodicity>(
+    periodicity,
+    { week: 'addWeeks', month: 'addMonths', quarter: 'addQuarters' },
+    'week',
+  );
 }
 
 const querySchema = z
@@ -55,7 +56,6 @@ const querySchema = z
         competitor_asins: z.array(z.string()).optional(),
         my_asins: z.array(z.string()).optional(),
         marketplaces: z.array(z.string()).optional(),
-        category: z.array(z.string()).optional(),
       })
       .strict(),
     aggregation: z
@@ -68,10 +68,7 @@ const querySchema = z
             periods_back: z.coerce.number().int().min(1).max(26).default(4).optional(),
           })
           .optional(),
-        group_by: z
-          .array(z.enum(['intent', 'marketplace', 'category', 'search_term']))
-          .max(3)
-          .optional(),
+        group_by: z.array(z.enum(['intent', 'marketplace', 'search_term'])).max(3).optional(),
       })
       .optional(),
     sort: z
@@ -174,18 +171,14 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
         return { items: [] };
       }
 
-      const catalog = config.athena.catalog;
-      const database = 'sp_api_iceberg';
-
       const marketplaces = (query.filters.marketplaces ?? []).map((m) => m.trim()).filter(Boolean);
       const searchTerms = (query.filters.search_terms ?? []).map((t) => t.trim()).filter(Boolean);
       const intentIds = (query.filters.intent_ids ?? []).map((t) => t.trim()).filter(Boolean);
       const competitorAsins = (query.filters.competitor_asins ?? []).map((a) => a.trim()).filter(Boolean);
       const myAsins = (query.filters.my_asins ?? []).map((a) => a.trim()).filter(Boolean);
-      const categories = (query.filters.category ?? []).map((c) => c.trim()).filter(Boolean);
 
       const time = query.aggregation?.time;
-      const periodicity = time?.periodicity ?? 'week';
+      const periodicity: Periodicity = time?.periodicity ?? 'week';
       const periodsBack = time?.periods_back ?? 4;
       const selectFields = query.select_fields;
 
@@ -193,15 +186,37 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
       const weakLeaderMinRank = toolSpecific?.weak_leader_detection?.min_search_volume_rank ?? 50000;
       const weakLeaderRequireMine = toolSpecific?.weak_leader_detection?.require_my_presence ?? false;
 
+      const sharedVars = {
+        term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
+        period_trunc_sql: periodTruncSql(periodicity),
+        period_add_sql: periodAddSql(periodicity),
+        periods_back: Number(periodsBack),
+        start_date_sql: sqlNullableDateExpr(time?.start_date),
+        end_date_sql: sqlNullableDateExpr(time?.end_date),
+        company_ids_array: sqlUInt64ArrayExpr(allowedCompanyIds),
+        search_terms_array: sqlStringArrayExpr(searchTerms),
+        intent_terms_filter_sql: intentTermsFilterClauseSql(
+          allowedCompanyIds,
+          intentIds,
+          'st.search_term',
+        ),
+        competitor_asins_array: sqlStringArrayExpr(competitorAsins),
+        my_asins_array: sqlStringArrayExpr(myAsins),
+        marketplaces_array: sqlStringArrayExpr(marketplaces),
+        limit_top_n: Number(query.limit ?? 100),
+      };
+
       // ── Grouped aggregation path ──────────────────────────────────────────
       const groupByDims = query.aggregation?.group_by ?? [];
       const isGrouped = groupByDims.length > 0;
       if (isGrouped) {
         const dimMap: Record<string, { select: string; group: string }> = {
-          intent:      { select: 'e.primary_intent_id AS intent_id, e.primary_intent_label AS intent_label', group: 'e.primary_intent_id, e.primary_intent_label' },
-          marketplace: { select: 'e.marketplace AS marketplace',              group: 'e.marketplace' },
-          category:    { select: 'e.category AS category',                    group: 'e.category' },
-          search_term: { select: 'e.searchterm AS search_term',               group: 'e.searchterm' },
+          intent: {
+            select: 'e.primary_intent_id AS intent_id, e.primary_intent_label AS intent_label',
+            group: 'e.primary_intent_id, e.primary_intent_label',
+          },
+          marketplace: { select: 'e.marketplace AS marketplace', group: 'e.marketplace' },
+          search_term: { select: 'e.search_term AS search_term', group: 'e.search_term' },
         };
         const selects: string[] = [];
         const groups: string[] = [];
@@ -214,38 +229,13 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
 
         const groupedTemplate = await loadTextFile(sqlGroupedPath);
         const renderedGrouped = renderSqlTemplate(groupedTemplate, {
-          catalog,
-          term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
-          periodicity_sql: sqlStringLiteral(periodicity),
-          periods_back: Number(periodsBack),
-          start_date_sql: sqlDateExpr(time?.start_date),
-          end_date_sql: sqlDateExpr(time?.end_date),
-          company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-          search_terms_array: sqlVarcharArrayExpr(searchTerms),
-          intent_terms_filter_sql: intentTermsFilterClauseSql(
-            catalog,
-            allowedCompanyIds,
-            intentIds,
-            'r.searchterm',
-          ),
-          competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),
-          my_asins_array: sqlVarcharArrayExpr(myAsins),
-          marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-          categories_array: sqlVarcharArrayExpr(categories),
-          limit_top_n: Number(query.limit ?? 100),
-          group_by_select_clause: selects.join(',\n    '),
+          ...sharedVars,
+          group_by_select_clause: selects.join(',\n        '),
           group_by_clause: groups.join(', '),
         });
 
-        const athenaGrouped = await runAthenaQuery({
-          query: renderedGrouped,
-          database,
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: query.limit ?? 100,
-        });
-
-        const aggregations = athenaGrouped.rows ?? [];
+        const groupedResult = await executeBrandAnalyticsQuery(renderedGrouped);
+        const aggregations = groupedResult.rows ?? [];
         return {
           items: [],
           aggregations,
@@ -255,37 +245,13 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog,
-        term_intents_cte_sql: termIntentsCteSql(catalog, allowedCompanyIds),
-        periodicity_sql: sqlStringLiteral(periodicity),
-        periods_back: Number(periodsBack),
-        start_date_sql: sqlDateExpr(time?.start_date),
-        end_date_sql: sqlDateExpr(time?.end_date),
-        company_ids_array: sqlCompanyIdArrayExpr(allowedCompanyIds),
-        search_terms_array: sqlVarcharArrayExpr(searchTerms),
-        intent_terms_filter_sql: intentTermsFilterClauseSql(
-          catalog,
-          allowedCompanyIds,
-          intentIds,
-          'r.searchterm',
-        ),
-        competitor_asins_array: sqlVarcharArrayExpr(competitorAsins),
-        my_asins_array: sqlVarcharArrayExpr(myAsins),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        categories_array: sqlVarcharArrayExpr(categories),
-        limit_top_n: Number(query.limit ?? 100),
+        ...sharedVars,
         weak_leader_max_conversion_share: Number(weakLeaderMax),
         weak_leader_min_search_volume_rank: Number(weakLeaderMinRank),
-        weak_leader_require_my_presence: weakLeaderRequireMine ? 'TRUE' : 'FALSE',
+        weak_leader_require_my_presence: weakLeaderRequireMine ? 1 : 0,
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database,
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: query.limit ?? 100,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
       // --- Seller Central deep-link enrichment ---
       // Amazon does NOT expose Search Query Details data via SP-API.
@@ -297,7 +263,7 @@ export function registerBrandAnalyticsGetCompetitiveLandscapeTool(registry: Tool
         periodicity === 'week' ? 'weekly' : periodicity === 'month' ? 'monthly' : 'quarterly';
       const primaryAsin = myAsins[0] ?? '';
 
-      const enrichedRows = (athenaResult.rows ?? []).map((row: Record<string, unknown>) => {
+      const enrichedRows = (result.rows ?? []).map((row: Record<string, unknown>) => {
         const searchTerm = String(row.search_term ?? '');
         const periodEnd = String(row.period_end ?? '');
 

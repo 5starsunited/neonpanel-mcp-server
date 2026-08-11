@@ -18,6 +18,7 @@ infrastructure/cdk.out.*/
 .cdk.staging/
 *.js.map
 coverage/
+tmp/
 
 # Local one-off exports
 Fba_replenishment_list.csv
