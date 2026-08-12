@@ -1,31 +1,47 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolExecutionContext, ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { termIntentsCteSql } from '../_intent_common';
+import {
+  executeBrandAnalyticsQuery,
+  resolveMarketplaceIds,
+  sqlStringArrayExpr,
+  sqlStringLiteral,
+  termIntentsCteSql,
+} from '../_clickhouse';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
 };
 
-function sqlString(v: string): string {
-  return `'${v.replace(/'/g, "''")}'`;
+function sqlDateLiteral(value: string): string {
+  return `toDate(${sqlStringLiteral(value)})`;
 }
 
-function buildStringArraySql(values: string[] | undefined): string {
-  if (!values || values.length === 0) return 'CAST(ARRAY[] AS ARRAY<VARCHAR>)';
-  return `ARRAY[${values.map((v) => sqlString(v)).join(', ')}]`;
+/**
+ * screenshot_competitors is a JSON string in ClickHouse (the Athena source held
+ * a real array<row<...>>). Parse it back so the tool's output contract keeps
+ * exposing an array rather than leaking the storage encoding to the caller.
+ */
+function parseScreenshotCompetitors(row: Record<string, unknown>): Record<string, unknown> {
+  const raw = row.screenshot_competitors;
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return { ...row, screenshot_competitors: null };
+  }
+  try {
+    return { ...row, screenshot_competitors: JSON.parse(raw) };
+  } catch {
+    return { ...row, screenshot_competitors: null };
+  }
 }
 
 const inputSchema = z
   .object({
     company_id: z.coerce.number().int().min(1),
-    marketplace: z.string().min(1).max(10).default('us').optional(),
+    marketplace: z.string().min(1).max(20).default('us').optional(),
     period_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     grain: z
@@ -145,17 +161,55 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
         };
       }
 
-      const catalog = config.athena.catalog;
+      const marketplaceIds = await resolveMarketplaceIds([marketplace]);
+      const marketplaceId = marketplaceIds.get(marketplace.trim().toLowerCase());
+      if (!marketplaceId) {
+        return {
+          header: {
+            company_id: companyId,
+            marketplace,
+            period_start: parsed.period_start,
+            period_end: parsed.period_end,
+            grain,
+            focus,
+            rows_returned: 0,
+            keywords_in_scope: 0,
+            normalization_match_rate: null,
+            use_tracked_search_terms: useTracked,
+            use_competitor_registry: useCompetitors,
+            error: `Unknown marketplace: ${marketplace}.`,
+          },
+          items: [],
+        };
+      }
+
+      const sharedTokens = {
+        company_id: companyId,
+        marketplace_id_literal: sqlStringLiteral(marketplaceId),
+        marketplace_code_upper_literal: sqlStringLiteral(marketplace.trim().toUpperCase()),
+        period_start_literal: sqlDateLiteral(parsed.period_start),
+        period_end_literal: sqlDateLiteral(parsed.period_end),
+        grain_literal: sqlStringLiteral(grain),
+        focus_literal: sqlStringLiteral(focus),
+        entity_ids_array_sql: sqlStringArrayExpr(entityIds),
+        keywords_array_sql: sqlStringArrayExpr(keywords),
+        intent_ids_array_sql: sqlStringArrayExpr(
+          (parsed.intent_ids ?? []).map((s) => s.trim()).filter(Boolean),
+        ),
+        use_tracked_search_terms_sql: useTracked ? '1' : '0',
+        use_competitor_registry_sql: useCompetitors ? '1' : '0',
+        limit_top_n: limitTopN,
+      };
 
       // ── Grouped aggregation path ──────────────────────────────────────────
       const groupByDims = parsed.group_by ?? [];
       if (groupByDims.length > 0) {
         const dimMap: Record<string, { select: string; group: string }> = {
-          intent:         { select: "e.intent_id AS intent_id, e.intent_label AS intent_label",       group: 'e.intent_id, e.intent_label' },
-          prescription:   { select: 'e.prescription AS prescription',                                  group: 'e.prescription' },
-          product_family: { select: "COALESCE(e.product_family, '__UNKNOWN__') AS product_family",    group: "COALESCE(e.product_family, '__UNKNOWN__')" },
-          brand:          { select: "COALESCE(e.brand, '__UNKNOWN__') AS brand",                      group: "COALESCE(e.brand, '__UNKNOWN__')" },
-          parent_asin:    { select: 'e.parent_asin AS parent_asin',                                    group: 'e.parent_asin' },
+          intent:         { select: 'e.intent_id AS intent_id, e.intent_label AS intent_label',      group: 'e.intent_id, e.intent_label' },
+          prescription:   { select: 'e.prescription AS prescription',                                group: 'e.prescription' },
+          product_family: { select: "ifNull(e.product_family, '__UNKNOWN__') AS product_family",     group: "ifNull(e.product_family, '__UNKNOWN__')" },
+          brand:          { select: "ifNull(e.brand, '__UNKNOWN__') AS brand",                       group: "ifNull(e.brand, '__UNKNOWN__')" },
+          parent_asin:    { select: 'e.parent_asin AS parent_asin',                                  group: 'e.parent_asin' },
         };
         const selects: string[] = [];
         const groups: string[] = [];
@@ -169,33 +223,15 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
         const sqlGroupedPath = path.join(__dirname, 'query_grouped.sql');
         const groupedTemplate = await loadTextFile(sqlGroupedPath);
         const renderedGrouped = renderSqlTemplate(groupedTemplate, {
-          catalog,
-          term_intents_cte_sql: termIntentsCteSql(catalog, [companyId]),
-          company_id: companyId,
-          marketplace_literal: sqlString(marketplace),
-          period_start_literal: sqlString(parsed.period_start),
-          period_end_literal: sqlString(parsed.period_end),
-          grain_literal: sqlString(grain),
-          focus_literal: sqlString(focus),
-          entity_ids_array_sql: buildStringArraySql(entityIds),
-          keywords_array_sql: buildStringArraySql(keywords),
-          intent_ids_array_sql: buildStringArraySql((parsed.intent_ids ?? []).map((s) => s.trim()).filter(Boolean)),
-          use_tracked_search_terms_sql: useTracked ? 'TRUE' : 'FALSE',
-          use_competitor_registry_sql: useCompetitors ? 'TRUE' : 'FALSE',
-          limit_top_n: limitTopN,
-          group_by_select_clause: selects.join(',\n    '),
+          ...sharedTokens,
+          term_intents_cte_sql: termIntentsCteSql([companyId]),
+          group_by_select_clause: selects.join(',\n        '),
           group_by_clause: groups.join(', '),
         });
 
-        const athenaGrouped = await runAthenaQuery({
-          query: renderedGrouped,
-          database: 'brand_analytics_iceberg',
-          workGroup: config.athena.workgroup,
-          outputLocation: config.athena.outputLocation,
-          maxRows: limitTopN,
-        });
+        const grouped = await executeBrandAnalyticsQuery(renderedGrouped);
 
-        const aggregations = athenaGrouped.rows ?? [];
+        const aggregations = grouped.rows ?? [];
         return {
           header: {
             company_id: companyId,
@@ -217,35 +253,19 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
       }
 
       const template = await loadTextFile(sqlPath);
-      const rendered = renderSqlTemplate(template, {
-        catalog,
-        company_id: companyId,
-        marketplace_literal: sqlString(marketplace),
-        period_start_literal: sqlString(parsed.period_start),
-        period_end_literal: sqlString(parsed.period_end),
-        grain_literal: sqlString(grain),
-        focus_literal: sqlString(focus),
-        entity_ids_array_sql: buildStringArraySql(entityIds),
-        keywords_array_sql: buildStringArraySql(keywords),
-        intent_ids_array_sql: buildStringArraySql((parsed.intent_ids ?? []).map((s) => s.trim()).filter(Boolean)),
-        use_tracked_search_terms_sql: useTracked ? 'TRUE' : 'FALSE',
-        use_competitor_registry_sql: useCompetitors ? 'TRUE' : 'FALSE',
-        limit_top_n: limitTopN,
-      });
+      const rendered = renderSqlTemplate(template, sharedTokens);
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'brand_analytics_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await executeBrandAnalyticsQuery(rendered);
 
-      const items = athenaResult.rows ?? [];
+      const items = (result.rows ?? []).map((row) =>
+        parseScreenshotCompetitors(row as Record<string, unknown>),
+      );
       const keywordsInScope = new Set<string>();
+      let ppcAttributedRows = 0;
       for (const it of items) {
-        const k = (it as Record<string, unknown>).keyword_normalized;
+        const k = it.keyword_normalized;
         if (typeof k === 'string') keywordsInScope.add(k);
+        if (it.ppc_impressions !== null && it.ppc_impressions !== undefined) ppcAttributedRows += 1;
       }
 
       return {
@@ -261,6 +281,10 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
           normalization_match_rate: null,
           use_tracked_search_terms: useTracked,
           use_competitor_registry: useCompetitors,
+          // NULL ppc_* means "not attributable", not "zero spend": the upstream
+          // PPC table does not yet populate the promoted ASIN. Surfaced so a
+          // caller can tell an absent PPC leg from a genuinely idle keyword.
+          ppc_attributed_rows: ppcAttributedRows,
         },
         items,
       };
