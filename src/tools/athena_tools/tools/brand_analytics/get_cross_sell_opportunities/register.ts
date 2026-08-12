@@ -6,6 +6,8 @@ import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import {
+  asinClassCteSql,
+  asinClassJoinSql,
   executeBrandAnalyticsQuery,
   sqlNullableDateExpr,
   sqlStringArrayExpr,
@@ -173,6 +175,8 @@ export function registerBrandAnalyticsGetCrossSellOpportunitiesTool(registry: To
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
+        asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
+        asin_class_join_sql: asinClassJoinSql('a'),
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlNullableDateExpr(time?.start_date),
         end_date_sql: sqlNullableDateExpr(time?.end_date),

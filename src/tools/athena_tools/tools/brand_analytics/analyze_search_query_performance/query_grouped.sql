@@ -6,7 +6,9 @@
 -- snapshot table used to materialize. Only the columns the aggregation needs are
 -- carried. See query.sql for the parent-grain and filter-ordering notes.
 
-WITH {{term_intents_cte_sql}},
+WITH {{asin_class_cte_sql}},
+
+{{term_intents_cte_sql}},
 
 base_child AS (
     SELECT
@@ -14,8 +16,8 @@ base_child AS (
         lower(ifNull(marketplace.marketplace_name, 'unknown')) AS marketplace,
         lower(ifNull(marketplace.country_code, 'unknown')) AS marketplace_country_code,
         ifNull(nullIf(sqp.parent_asin, ''), sqp.asin) AS parent_asin,
-        ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D') AS revenue_abcd_class,
-        ifNull(nullIf(sqp.pareto_abc_class, ''), 'C') AS pareto_abc_class,
+        ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
+        ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         ifNull(nullIf(sqp.brand, ''), 'unknown') AS brand,
         sqp.asin AS asin,
         sqp.search_query AS searchquerydata_searchquery,
@@ -40,6 +42,7 @@ base_child AS (
         CAST('child' AS String) AS row_type,
         ifNull(nullIf(sqp.product_family, ''), 'unknown') AS product_family
     FROM etl.ba_search_query_performance AS sqp
+    {{asin_class_join_sql}}
     LEFT JOIN etl.ba_marketplaces AS marketplace
         ON sqp.marketplace_id = marketplace.marketplace_id
     LEFT JOIN app.app_companies AS companies
@@ -74,11 +77,11 @@ base_child AS (
         -- "no filter". This reproduces the Athena params default.
         AND has(
             arrayMap(x -> upper(x), if(length({{revenue_abcd_class_array}}) = 0, ['A', 'B'], {{revenue_abcd_class_array}})),
-            upper(ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D'))
+            upper(ifNull(cls.revenue_abcd_class, 'D'))
         )
         AND (
             length({{pareto_abc_class_array}}) = 0
-            OR arrayExists(c -> upper(c) = upper(ifNull(nullIf(sqp.pareto_abc_class, ''), 'C')), {{pareto_abc_class_array}})
+            OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, 'C')), {{pareto_abc_class_array}})
         )
 ),
 

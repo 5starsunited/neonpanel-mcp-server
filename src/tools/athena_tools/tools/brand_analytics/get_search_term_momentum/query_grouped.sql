@@ -8,7 +8,9 @@
 -- search_volume is a term-level figure, so it is de-duplicated with max() and
 -- never summed across the ASINs of a group.
 
-WITH {{term_intents_cte_sql}},
+WITH {{asin_class_cte_sql}},
+
+{{term_intents_cte_sql}},
 
 top3 AS (
     SELECT
@@ -43,8 +45,8 @@ base_filtered AS (
         sqp.asin AS asin,
         ifNull(nullIf(sqp.brand, ''), 'unknown') AS my_brand,
         ifNull(nullIf(sqp.product_family, ''), 'unknown') AS product_family,
-        ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D') AS revenue_abcd_class,
-        ifNull(nullIf(sqp.pareto_abc_class, ''), 'C') AS pareto_abc_class,
+        ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
+        ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         CAST(sqp.revenue_share AS Nullable(Float64)) AS revenue_share,
         CAST(sqp.search_query_volume AS Nullable(Int64)) AS volume,
         CAST(sqp.asin_click_share AS Nullable(Float64)) AS my_click_share,
@@ -58,6 +60,7 @@ base_filtered AS (
         top3.rank_3_clickshare AS rank_3_clickshare,
         top3.rank_3_conversionshare AS rank_3_conversionshare
     FROM etl.ba_search_query_performance AS sqp
+    {{asin_class_join_sql}}
     LEFT JOIN etl.ba_marketplaces AS marketplace
         ON sqp.marketplace_id = marketplace.marketplace_id
     LEFT JOIN app.app_companies AS companies
@@ -97,12 +100,12 @@ base_filtered AS (
 
         AND (
             length({{revenue_abcd_class_array}}) = 0
-            OR arrayExists(c -> upper(c) = upper(ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D')), {{revenue_abcd_class_array}})
+            OR arrayExists(c -> upper(c) = upper(ifNull(cls.revenue_abcd_class, 'D')), {{revenue_abcd_class_array}})
         )
 
         AND (
             length({{pareto_abc_class_array}}) = 0
-            OR arrayExists(c -> upper(c) = upper(ifNull(nullIf(sqp.pareto_abc_class, ''), 'C')), {{pareto_abc_class_array}})
+            OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, 'C')), {{pareto_abc_class_array}})
         )
 
         AND (

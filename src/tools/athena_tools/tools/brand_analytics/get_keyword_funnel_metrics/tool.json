@@ -74,7 +74,7 @@
                     "D"
                   ]
                 },
-                "description": "Optional: filter by revenue classification (A=top revenue, D=lowest)."
+                "description": "Optional: filter by revenue classification (A=top revenue, D=lowest). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
               },
               "pareto_abc_class": {
                 "type": "array",
@@ -86,7 +86,7 @@
                     "C"
                   ]
                 },
-                "description": "Optional: filter by Pareto ABC classification (A=top 80% revenue, B=next 15%, C=bottom 5%)."
+                "description": "Optional: filter by Pareto ABC classification (A=top 80% revenue, B=next 15%, C=bottom 5%). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
               }
             },
             "required": [

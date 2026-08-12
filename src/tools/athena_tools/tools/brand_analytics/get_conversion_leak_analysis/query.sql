@@ -8,15 +8,17 @@
 -- classes from etl.sku_classification_last30_by_marketplace, not the class that was
 -- in effect during a past report week.
 
-WITH raw AS (
+WITH {{asin_class_cte_sql}},
+
+raw AS (
     SELECT
         sqp.asin AS asin,
         sqp.parent_asin AS parent_asin,
         sqp.brand AS brand,
         sqp.title AS title,
         sqp.product_family AS product_family,
-        sqp.revenue_abcd_class AS revenue_abcd_class,
-        sqp.pareto_abc_class AS pareto_abc_class,
+        cls.revenue_abcd_class AS revenue_abcd_class,
+        cls.pareto_abc_class AS pareto_abc_class,
         sqp.week_start AS week_start,
         sqp.search_query AS search_query,
         ifNull(marketplace.country_code, '') AS marketplace,
@@ -29,6 +31,7 @@ WITH raw AS (
         ifNull(sqp.total_cart_add_count, 0) AS total_cart_add_count,
         ifNull(sqp.total_purchase_count, 0) AS total_purchase_count
     FROM etl.ba_search_query_performance AS sqp
+    {{asin_class_join_sql}}
     LEFT JOIN etl.ba_marketplaces AS marketplace
         ON sqp.marketplace_id = marketplace.marketplace_id
     WHERE
@@ -43,8 +46,8 @@ WITH raw AS (
         AND (length({{asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(sqp.asin), {{asins_array}}))
         AND (length({{parent_asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(ifNull(sqp.parent_asin, '')), {{parent_asins_array}}))
         AND (length({{brands_array}}) = 0 OR arrayExists(b -> lower(b) = lower(ifNull(sqp.brand, '')), {{brands_array}}))
-        AND (length({{revenue_abcd_class_array}}) = 0 OR arrayExists(c -> upper(c) = upper(ifNull(sqp.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
-        AND (length({{pareto_abc_class_array}}) = 0 OR arrayExists(c -> upper(c) = upper(ifNull(sqp.pareto_abc_class, '')), {{pareto_abc_class_array}}))
+        AND (length({{revenue_abcd_class_array}}) = 0 OR arrayExists(c -> upper(c) = upper(ifNull(cls.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
+        AND (length({{pareto_abc_class_array}}) = 0 OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, '')), {{pareto_abc_class_array}}))
 ),
 
 date_bounds AS (
@@ -248,7 +251,9 @@ final AS (
     FROM with_leaks w
 )
 
-SELECT *
+SELECT
+    *,
+    (SELECT max(classification_as_of) FROM asin_revenue_class) AS classification_as_of
 FROM final
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
 LIMIT {{limit_top_n}};

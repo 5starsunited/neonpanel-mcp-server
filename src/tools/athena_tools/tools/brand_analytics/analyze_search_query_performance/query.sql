@@ -35,10 +35,15 @@
 -- Parent-level filters (marketplaces, parent_asins, product_family, the revenue
 -- and pareto classes) are unaffected because every child of a parent shares them.
 --
--- NOTE: revenue_abcd_class / pareto_abc_class / revenue_share are rolling
--- last-30-day, as-of ASIN attributes, not the class in effect during a past week.
+-- NOTE: revenue_abcd_class / pareto_abc_class / revenue_share come from the
+-- inventory-planning snapshot (see asin_class), NOT from the class denormalised
+-- onto etl.ba_search_query_performance. They remain as-of ASIN attributes rather
+-- than the class in effect during a past week, but they are now stable between
+-- runs. `classification_as_of` on every row carries the snapshot load date.
 
-WITH {{term_intents_cte_sql}},
+WITH {{asin_class_cte_sql}},
+
+{{term_intents_cte_sql}},
 
 -- ─── RYG threshold values (pivoted into one row) ────────────────────────────
 -- Company-specific overrides win over system defaults (company_id IS NULL).
@@ -91,10 +96,10 @@ base_child AS (
         lower(ifNull(marketplace.marketplace_name, 'unknown')) AS marketplace,
         lower(ifNull(marketplace.country_code, 'unknown')) AS marketplace_country_code,
         ifNull(nullIf(sqp.parent_asin, ''), sqp.asin) AS parent_asin,
-        ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D') AS revenue_abcd_class,
-        ifNull(nullIf(sqp.pareto_abc_class, ''), 'C') AS pareto_abc_class,
+        ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
+        ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         ifNull(nullIf(sqp.brand, ''), 'unknown') AS brand,
-        CAST(sqp.revenue_share AS Nullable(Float64)) AS revenue_share,
+        cls.revenue_share AS revenue_share,
         CAST(nullIf(sqp.title, '') AS Nullable(String)) AS title,
         CAST(parseDateTimeBestEffortOrNull(JSONExtractString(sqp.raw_payload, 'date')) AS Nullable(Date)) AS `date`,
         JSONExtract(sqp.raw_payload, 'rspec_marketplaceids', 'Array(String)') AS rspec_marketplaceids,
@@ -156,6 +161,7 @@ base_child AS (
         CAST('child' AS String) AS row_type,
         ifNull(nullIf(sqp.product_family, ''), 'unknown') AS product_family
     FROM etl.ba_search_query_performance AS sqp
+    {{asin_class_join_sql}}
     LEFT JOIN etl.ba_marketplaces AS marketplace
         ON sqp.marketplace_id = marketplace.marketplace_id
     -- toString on both sides: app_companies.id and company_id are not guaranteed
@@ -190,13 +196,15 @@ base_child AS (
         )
         -- Deliberate: an empty revenue_abcd_class filter means A+B only, not
         -- "no filter". This reproduces the Athena params default.
+        -- An ASIN the snapshot does not classify falls back to 'D' and is
+        -- therefore excluded by that default, same as before.
         AND has(
             arrayMap(x -> upper(x), if(length({{revenue_abcd_class_array}}) = 0, ['A', 'B'], {{revenue_abcd_class_array}})),
-            upper(ifNull(nullIf(sqp.revenue_abcd_class, ''), 'D'))
+            upper(ifNull(cls.revenue_abcd_class, 'D'))
         )
         AND (
             length({{pareto_abc_class_array}}) = 0
-            OR arrayExists(c -> upper(c) = upper(ifNull(nullIf(sqp.pareto_abc_class, ''), 'C')), {{pareto_abc_class_array}})
+            OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, 'C')), {{pareto_abc_class_array}})
         )
 ),
 
@@ -766,7 +774,13 @@ final AS (
     FROM with_tier_prep AS d
 )
 
-SELECT f.*
+SELECT
+    f.*,
+    -- Constant for the whole result: the load date of the snapshot the classes
+    -- above were read from. Scalar subquery rather than a carried column so it
+    -- does not have to be threaded through the parent rollups, whose column
+    -- lists are order-coupled to `windowed`.
+    (SELECT max(classification_as_of) FROM asin_revenue_class) AS classification_as_of
 FROM final AS f
 WHERE
     f.week_start >= (SELECT start_date FROM date_bounds)

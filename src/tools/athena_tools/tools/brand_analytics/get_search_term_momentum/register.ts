@@ -8,6 +8,8 @@ import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   allowListedSql,
+  asinClassCteSql,
+  asinClassJoinSql,
   executeBrandAnalyticsQuery,
   intentTermsFilterClauseSql,
   sqlNullableDateExpr,
@@ -257,6 +259,8 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const sqlPath = path.join(__dirname, isGrouped ? 'query_grouped.sql' : 'query.sql');
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
+        asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
+        asin_class_join_sql: asinClassJoinSql('sqp'),
         term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
         limit_top_n: Number(limitTopN),
         // Cap on the number of terms carried into the window functions.

@@ -7,6 +7,8 @@ import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
+  asinClassCteSql,
+  asinClassJoinSql,
   executeBrandAnalyticsQuery,
   intentTermsFilterClauseSql,
   sqlNullableDateExpr,
@@ -226,6 +228,8 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
 
         const groupedTemplate = await loadTextFile(sqlGroupedPath);
         const renderedGrouped = renderSqlTemplate(groupedTemplate, {
+          asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
+          asin_class_join_sql: asinClassJoinSql('sqp'),
           limit_top_n: Number(limitTopN),
           start_date_sql: sqlNullableDateExpr(time?.start_date),
           end_date_sql: sqlNullableDateExpr(time?.end_date),
@@ -260,6 +264,8 @@ export function registerBrandAnalyticsAnalyzeSearchQueryPerformanceTool(registry
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
+        asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
+        asin_class_join_sql: asinClassJoinSql('sqp'),
         ryg_company_id: Number(rygCompanyId),
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlNullableDateExpr(time?.start_date),

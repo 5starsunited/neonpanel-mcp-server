@@ -7,7 +7,9 @@
 --     grain, repeated per ASIN. We collapse to that grain first (MAX for totals,
 --     SUM for brand metrics) so the outer aggregation does not double-count.
 
-WITH {{term_intents_cte_sql}},
+WITH {{asin_class_cte_sql}},
+
+{{term_intents_cte_sql}},
 
 raw AS (
   SELECT
@@ -26,6 +28,7 @@ raw AS (
     ifNull(sqp.total_purchase_count, 0) AS total_purchase_count,
     ifNull(sqp.asin_purchase_count, 0) AS asin_purchase_count
   FROM etl.ba_search_query_performance AS sqp
+  {{asin_class_join_sql}}
   LEFT JOIN etl.ba_marketplaces AS marketplace
     ON sqp.marketplace_id = marketplace.marketplace_id
   WHERE
@@ -53,9 +56,9 @@ raw AS (
     AND (length({{product_families_array}}) = 0
          OR arrayExists(f -> lower(f) = lower(ifNull(sqp.product_family, '')), {{product_families_array}}))
     AND (length({{revenue_abcd_class_array}}) = 0
-         OR arrayExists(c -> upper(c) = upper(ifNull(sqp.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
+         OR arrayExists(c -> upper(c) = upper(ifNull(cls.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
     AND (length({{pareto_abc_class_array}}) = 0
-         OR arrayExists(c -> upper(c) = upper(ifNull(sqp.pareto_abc_class, '')), {{pareto_abc_class_array}}))
+         OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, '')), {{pareto_abc_class_array}}))
 ),
 
 date_bounds AS (

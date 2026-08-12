@@ -21,23 +21,39 @@
 -- JSONExtractFloat returns 0.0 for an absent key, which reproduces the
 -- COALESCE(..., 0) the Athena version applied.
 
-WITH
+WITH {{asin_class_cte_sql}},
+
 -- ─── Own-catalog attributes, pre-collapsed ──────────────────────────────────
 -- Grouped before the join: ba_asin_attributes can hold more than one row per
 -- (company, marketplace, asin), and a fan-out would multiply the aggregates.
+--
+-- The classification columns deliberately do NOT come from ba_asin_attributes.
+-- That view resolves through etl.sku_classification_last30_by_marketplace, which
+-- recomputes from a rolling 30-day window on every query, so the same ASIN can
+-- change class between two runs minutes apart. asin_revenue_class reads the
+-- inventory-planning snapshot instead, which is stable.
 asin_attrs AS (
     SELECT
-        ifNull(company_id, 0) AS company_id,
-        ifNull(marketplace_id, '') AS marketplace_id,
-        asin AS asin,
-        any(product_family) AS product_family,
-        any(brand) AS brand,
-        any(pareto_abc_class) AS pareto_abc_class,
-        any(revenue_abcd_class) AS revenue_abcd_class,
-        toFloat64(any(revenue_share)) AS revenue_share
-    FROM etl.ba_asin_attributes
-    WHERE has({{company_ids_array}}, ifNull(company_id, 0))
-    GROUP BY company_id, marketplace_id, asin
+        a.company_id AS company_id,
+        a.marketplace_id AS marketplace_id,
+        a.asin AS asin,
+        a.product_family AS product_family,
+        a.brand AS brand,
+        cls.pareto_abc_class AS pareto_abc_class,
+        cls.revenue_abcd_class AS revenue_abcd_class,
+        cls.revenue_share AS revenue_share
+    FROM (
+        SELECT
+            ifNull(company_id, 0) AS company_id,
+            ifNull(marketplace_id, '') AS marketplace_id,
+            asin AS asin,
+            any(product_family) AS product_family,
+            any(brand) AS brand
+        FROM etl.ba_asin_attributes
+        WHERE has({{company_ids_array}}, ifNull(company_id, 0))
+        GROUP BY company_id, marketplace_id, asin
+    ) AS a
+    {{asin_class_join_sql}}
 ),
 
 -- ─── Base rows ──────────────────────────────────────────────────────────────
@@ -346,7 +362,8 @@ SELECT
     first_seen,
     last_seen,
     window_start,
-    window_end
+    window_end,
+    (SELECT max(classification_as_of) FROM asin_revenue_class) AS classification_as_of
 FROM ranked
 ORDER BY `rank` ASC
 LIMIT {{limit_top_n}}

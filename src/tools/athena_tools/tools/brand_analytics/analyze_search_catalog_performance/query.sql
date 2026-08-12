@@ -20,10 +20,13 @@
 -- parent rows, so deriving both also removes a child/parent inconsistency.
 -- kpi_click_rate is derived as clicks / impressions for the same reason.
 --
--- NOTE: revenue_abcd_class / pareto_abc_class / revenue_share are rolling
--- last-30-day, as-of ASIN attributes, not the class in effect during a past week.
+-- NOTE: revenue_abcd_class / pareto_abc_class / revenue_share come from the
+-- inventory-planning snapshot (see asin_revenue_class), so they are stable
+-- between runs but remain as-of ASIN attributes, not the class in effect during
+-- a past week. `classification_as_of` carries the snapshot load date.
 
-WITH
+WITH {{asin_class_cte_sql}},
+
 -- ─── RYG threshold values (pivoted into one row) ────────────────────────────
 -- Company-specific overrides win over system defaults (company_id IS NULL).
 ryg_ranked AS (
@@ -67,11 +70,11 @@ base_child AS (
         lower(ifNull(marketplace.marketplace_name, 'unknown')) AS marketplace,
         lower(ifNull(marketplace.country_code, 'unknown')) AS marketplace_country_code,
         ifNull(nullIf(scp.parent_asin, ''), scp.asin) AS parent_asin,
-        ifNull(nullIf(scp.revenue_abcd_class, ''), 'D') AS revenue_abcd_class,
-        ifNull(nullIf(scp.pareto_abc_class, ''), 'C') AS pareto_abc_class,
+        ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
+        ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         ifNull(nullIf(scp.brand, ''), 'unknown') AS brand,
         ifNull(nullIf(scp.product_family, ''), 'unknown') AS product_family,
-        CAST(scp.revenue_share AS Nullable(Float64)) AS revenue_share,
+        cls.revenue_share AS revenue_share,
         CAST(nullIf(scp.title, '') AS Nullable(String)) AS title,
         scp.asin AS asin,
         scp.week_start AS week_start,
@@ -126,6 +129,7 @@ base_child AS (
         ) AS kpi_sales_per_impression,
         CAST('child' AS String) AS row_type
     FROM etl.ba_search_catalog_performance AS scp
+    {{asin_class_join_sql}}
     LEFT JOIN etl.ba_marketplaces AS marketplace
         ON scp.marketplace_id = marketplace.marketplace_id
     -- toString on both sides: app_companies.id and company_id are not guaranteed
@@ -157,11 +161,11 @@ base_child AS (
         -- "no filter". This reproduces the Athena params default.
         AND has(
             arrayMap(x -> upper(x), if(length({{revenue_abcd_class_array}}) = 0, ['A', 'B'], {{revenue_abcd_class_array}})),
-            upper(ifNull(nullIf(scp.revenue_abcd_class, ''), 'D'))
+            upper(ifNull(cls.revenue_abcd_class, 'D'))
         )
         AND (
             length({{pareto_abc_class_array}}) = 0
-            OR arrayExists(pc -> upper(pc) = upper(ifNull(nullIf(scp.pareto_abc_class, ''), 'C')), {{pareto_abc_class_array}})
+            OR arrayExists(pc -> upper(pc) = upper(ifNull(cls.pareto_abc_class, 'C')), {{pareto_abc_class_array}})
         )
 ),
 
@@ -515,7 +519,9 @@ final AS (
     CROSS JOIN thresholds AS t
 )
 
-SELECT f.*
+SELECT
+    f.*,
+    (SELECT max(classification_as_of) FROM asin_revenue_class) AS classification_as_of
 FROM final AS f
 WHERE
     f.week_start >= (SELECT start_date FROM date_bounds)

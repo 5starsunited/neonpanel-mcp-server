@@ -211,11 +211,11 @@
             },
             "pareto_abc_class": {
               "type": "string",
-              "description": "Pareto ABC class (A/B/C) based on volume contribution. 'unknown' if not mapped."
+              "description": "Pareto ABC class (A/B/C) based on volume contribution. 'unknown' if not mapped. Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
             },
             "revenue_abcd_class": {
               "type": "string",
-              "description": "Revenue ABCD class (A/B/C/D) based on revenue contribution. 'unknown' if not mapped."
+              "description": "Revenue ABCD class (A/B/C/D) based on revenue contribution. 'unknown' if not mapped. Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
             },
             "revenue_share": {
               "type": [
@@ -386,6 +386,10 @@
               "type": "string",
               "format": "date",
               "description": "Start of the analysis window."
+            },
+            "classification_as_of": {
+              "type": ["string", "null"],
+              "description": "Date of the etl.inventory_planning_snapshot load that supplied revenue_abcd_class / pareto_abc_class / revenue_share. The classification reflects the trailing 30 days as of THIS date, not the reporting week and not today. Treat classes as stale if this date is old."
             },
             "window_end": {
               "type": "string",

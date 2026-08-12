@@ -74,7 +74,7 @@
                     "D"
                   ]
                 },
-                "description": "Optional: filter by revenue classification (A=top revenue, D=lowest)."
+                "description": "Optional: filter by revenue classification (A=top revenue, D=lowest). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
               },
               "pareto_abc_class": {
                 "type": "array",
@@ -86,7 +86,7 @@
                     "C"
                   ]
                 },
-                "description": "Optional: filter by Pareto ABC classification (A=top 80% revenue, B=next 15%, C=bottom 5%)."
+                "description": "Optional: filter by Pareto ABC classification (A=top 80% revenue, B=next 15%, C=bottom 5%). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
               },
               "product_family": {
                 "type": "array",
@@ -443,11 +443,11 @@
             },
             "revenue_abcd_class": {
               "type": "string",
-              "description": "Revenue ABCD class of the ASIN (A=highest revenue, D=lowest)."
+              "description": "Revenue ABCD class of the ASIN (A=highest revenue, D=lowest). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
             },
             "pareto_abc_class": {
               "type": "string",
-              "description": "Pareto ABC class (A=top 80% revenue, C=long tail)."
+              "description": "Pareto ABC class (A=top 80% revenue, C=long tail). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
             },
             "product_family": {
               "type": "string",
@@ -591,6 +591,10 @@
             "primary_intent_id": {
               "type": ["string", "null"],
               "description": "Highest-confidence intent_id slug for this search_term."
+            },
+            "classification_as_of": {
+              "type": ["string", "null"],
+              "description": "Date of the etl.inventory_planning_snapshot load that supplied revenue_abcd_class / pareto_abc_class / revenue_share. The classification reflects the trailing 30 days as of THIS date, not the reporting week and not today. Treat classes as stale if this date is old."
             },
             "primary_intent_label": {
               "type": ["string", "null"],

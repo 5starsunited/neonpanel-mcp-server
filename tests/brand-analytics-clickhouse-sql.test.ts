@@ -177,3 +177,122 @@ test('SQL assets declare no unresolved template tokens outside {{...}} placehold
   }
   assert.deepEqual(violations, [], `malformed template tokens:\n${violations.join('\n')}`);
 });
+
+test('revenue/Pareto classification is read only from the inventory-planning snapshot', () => {
+  // etl.ba_asin_attributes derives revenue_abcd_class / pareto_abc_class from
+  // etl.sku_classification_last30_by_marketplace, which is a plain View: it is
+  // recomputed from a rolling trailing-30-day window at query time. A historical
+  // week therefore came back stamped with TODAY's class, and the same query re-run
+  // an hour later returned different classes for the same week -- silently.
+  //
+  // Classification now comes from the etl.inventory_planning_snapshot materialised
+  // snapshot, exposed as the `asin_revenue_class` CTE. Downstream CTEs may pass the
+  // columns along under their own aliases; what must never happen is reading them
+  // back off a live source. So the check resolves each alias to the table it is
+  // bound to, rather than whitelisting alias names.
+  const classColumn = /(?:revenue_abcd_class|pareto_abc_class)/;
+  const liveClassSources = new Set([
+    'etl.ba_asin_attributes',
+    'etl.ba_search_query_performance',
+    'etl.ba_search_catalog_performance',
+    'etl.sku_classification_last30_by_marketplace',
+  ]);
+  const violations: string[] = [];
+
+  for (const dir of registeredTools) {
+    for (const { file, text } of readAll(dir, ['.sql'])) {
+      if (!classColumn.test(text)) continue;
+      const relative = path.relative(process.cwd(), file);
+
+      const boundToLiveSource = new Map<string, string>();
+      for (const [, table, alias] of text.matchAll(
+        /(?:FROM|JOIN)\s+(etl\.\w+)\s+AS\s+(\w+)/gi,
+      )) {
+        if (liveClassSources.has(table.toLowerCase())) {
+          boundToLiveSource.set(alias, table);
+        }
+      }
+
+      for (const [, alias] of text.matchAll(
+        /\b(\w+)\.(?:revenue_abcd_class|pareto_abc_class)\b/g,
+      )) {
+        const table = boundToLiveSource.get(alias);
+        if (table) {
+          violations.push(`${relative}: reads ${alias}.<class> off the live ${table}`);
+        }
+      }
+
+      // The rolling view must not be reintroduced under any alias.
+      if (/sku_classification_last30_by_marketplace/.test(text)) {
+        violations.push(`${relative}: references the rolling classification view`);
+      }
+
+      // Classification columns are only legitimate if the snapshot CTE is in scope.
+      if (!/\{\{\s*asin_class_cte_sql\s*\}\}/.test(text)) {
+        violations.push(`${relative}: uses class columns without the {{asin_class_cte_sql}} token`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    [...new Set(violations)],
+    [],
+    `classification must come from etl.inventory_planning_snapshot:\n${violations.join('\n')}`,
+  );
+});
+
+test('queries that expose a class column also expose classification_as_of', () => {
+  // The snapshot is not refreshed daily, so a class can be weeks stale. Every
+  // response that carries a class must carry the as-of date beside it, otherwise
+  // a caller reads a stale class as current.
+  //
+  // Whether a class column survives to the response cannot be decided by pattern
+  // matching: the grouped variants project a class in their base CTE and then
+  // aggregate it away, so they look identical to the detail variants in the text.
+  // The two sets below were established by running each query and reading the
+  // returned column names, and are asserted to cover every query that uses the
+  // classification CTE -- so a new query cannot join the group unclassified.
+  const exposesClass = new Set([
+    'analyze_search_query_performance/query.sql',
+    'analyze_search_catalog_performance/query.sql',
+    'get_conversion_leak_analysis/query.sql',
+    'get_search_term_momentum/query.sql',
+    'analyze_repeat_purchases/query.sql',
+    'get_cross_sell_opportunities/query.sql',
+  ]);
+  // Filters on class but aggregates it out of the projection.
+  const filtersOnly = new Set([
+    'analyze_search_query_performance/query_grouped.sql',
+    'get_search_term_momentum/query_grouped.sql',
+    'get_keyword_funnel_metrics/query.sql',
+    'get_keyword_funnel_metrics/query_grouped.sql',
+  ]);
+
+  const usingCte: string[] = [];
+  const missingAsOf: string[] = [];
+  const unexpectedAsOf: string[] = [];
+
+  for (const dir of registeredTools) {
+    for (const { file, text } of readAll(dir, ['.sql'])) {
+      if (!/\{\{\s*asin_class_cte_sql\s*\}\}/.test(text)) continue;
+      const id = `${path.basename(dir)}/${path.basename(file)}`;
+      usingCte.push(id);
+      const hasAsOf = /classification_as_of/.test(text);
+      if (exposesClass.has(id) && !hasAsOf) missingAsOf.push(id);
+      if (filtersOnly.has(id) && hasAsOf) unexpectedAsOf.push(id);
+    }
+  }
+
+  assert.deepEqual(
+    usingCte.sort(),
+    [...exposesClass, ...filtersOnly].sort(),
+    'a query started using the classification CTE without being classified as exposing or filtering it',
+  );
+  assert.deepEqual(missingAsOf, [], `class exposed without classification_as_of:\n${missingAsOf.join('\n')}`);
+  assert.deepEqual(
+    unexpectedAsOf,
+    [],
+    `filter-only query now returns classification_as_of; move it to exposesClass:\n${unexpectedAsOf.join('\n')}`,
+  );
+});
+

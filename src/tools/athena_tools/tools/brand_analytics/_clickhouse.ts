@@ -217,6 +217,114 @@ export function intentTermsFilterClauseSql(
 }
 
 /**
+ * Body of an `asin_revenue_class` CTE exposing the ABCD / Pareto revenue
+ * classification for one (company_id, marketplace_id, asin). Paste into a WITH
+ * clause and join with asinClassJoinSql().
+ *
+ * Named `asin_revenue_class`, not `asin_class`: the latter was a legacy
+ * snapshot-ETL column over a pareto percentile that no longer exists, and
+ * several queries carry comments explaining why it was dropped.
+ *
+ * SOURCE OF TRUTH: etl.inventory_planning_snapshot. The alternative — the
+ * classification denormalised onto etl.ba_search_query_performance, which
+ * resolves through the etl.sku_classification_last30_by_marketplace VIEW — is
+ * recomputed on every single query from a rolling 30-day sales window. That
+ * makes it both non-reproducible (the same historical week returns a different
+ * class minutes later) and far less complete (it classified 20-70% of SQP rows
+ * against this snapshot's 75-100%).
+ *
+ * KNOWN LIMITATION: the snapshot is not refreshed daily. Only two loads exist
+ * and the useful one is 2026-07-18, so ASINs that started selling after that
+ * date carry no class. Queries expose the load date as `classification_as_of`
+ * so a caller can tell a stale class from a missing one.
+ *
+ * Three impedance mismatches with the etl.ba_* views are handled here:
+ *  - company_id is Int64 in the snapshot and UInt64 in the views. An uncast
+ *    join fails outright with "Code: 386 ... no supertype for types Int64,
+ *    UInt64", so it is narrowed to UInt64 on this side.
+ *  - marketplace_id is an internal Int64 id in the snapshot, not the Amazon
+ *    marketplace string the views key on. etl.ba_marketplaces is a clean 1:1
+ *    map (27 rows, 27 distinct country codes, 27 distinct marketplace ids), so
+ *    country_code bridges the two. The join is INNER: a country that does not
+ *    resolve must drop out rather than collapse onto an empty marketplace_id
+ *    and cross-join every marketplace.
+ *  - the snapshot is per SKU, so an ASIN sold under several SKUs appears more
+ *    than once and 146 such keys disagree about the class. argMax over
+ *    (revenue_30d, inventory_id) picks the dominant SKU deterministically;
+ *    without the inventory_id tiebreaker equal-revenue SKUs would alternate
+ *    between runs.
+ */
+export function asinClassCteSql(companyIds: number | readonly number[]): string {
+  const companyClause = companyIdListClause(companyIds) ?? '1 = 0';
+  // Zero-padded strings, so lexicographic MAX is chronological. Scoped per
+  // company because a partial load did land once (2026-06-03 wrote 21 rows for
+  // a single company); a global MAX would let a repeat of that wipe out the
+  // classification for every other company.
+  return (
+    `asin_revenue_class AS (\n` +
+    `  SELECT\n` +
+    `    toUInt64(snap.company_id) AS company_id,\n` +
+    `    mk.marketplace_id AS marketplace_id,\n` +
+    `    snap.asin AS asin,\n` +
+    `    argMax(nullIf(ifNull(snap.revenue_abcd_class, ''), ''), snap.pick_order) AS revenue_abcd_class,\n` +
+    `    argMax(nullIf(ifNull(snap.pareto_abc_class, ''), ''), snap.pick_order) AS pareto_abc_class,\n` +
+    `    argMax(CAST(snap.revenue_share AS Nullable(Float64)), snap.pick_order) AS revenue_share,\n` +
+    `    argMax(CAST(snap.cumulative_revenue_share AS Nullable(Float64)), snap.pick_order) AS cumulative_revenue_share,\n` +
+    `    max(snap.day_key) AS classification_as_of\n` +
+    `  FROM (\n` +
+    `    SELECT\n` +
+    `      company_id,\n` +
+    `      country_code,\n` +
+    `      asin,\n` +
+    `      revenue_abcd_class,\n` +
+    `      pareto_abc_class,\n` +
+    `      revenue_share,\n` +
+    `      cumulative_revenue_share,\n` +
+    `      concat(ifNull(year, ''), '-', ifNull(month, ''), '-', ifNull(day, '')) AS day_key,\n` +
+    `      (ifNull(revenue_30d, 0), ifNull(inventory_id, 0)) AS pick_order\n` +
+    `    FROM etl.inventory_planning_snapshot\n` +
+    `    WHERE ${companyClause}\n` +
+    `      AND ifNull(asin, '') != ''\n` +
+    `  ) AS snap\n` +
+    `  INNER JOIN (\n` +
+    `    SELECT company_id AS latest_company_id, max(day_key) AS latest_day_key\n` +
+    `    FROM (\n` +
+    `      SELECT\n` +
+    `        company_id,\n` +
+    `        concat(ifNull(year, ''), '-', ifNull(month, ''), '-', ifNull(day, '')) AS day_key,\n` +
+    `        revenue_abcd_class\n` +
+    `      FROM etl.inventory_planning_snapshot\n` +
+    `      WHERE ${companyClause}\n` +
+    `    )\n` +
+    `    WHERE ifNull(revenue_abcd_class, '') != ''\n` +
+    `    GROUP BY company_id\n` +
+    `  ) AS latest\n` +
+    `    ON latest.latest_company_id = snap.company_id\n` +
+    `   AND latest.latest_day_key = snap.day_key\n` +
+    `  INNER JOIN etl.ba_marketplaces AS mk\n` +
+    `    ON upper(ifNull(mk.country_code, '')) = upper(ifNull(snap.country_code, ''))\n` +
+    `  GROUP BY company_id, marketplace_id, asin\n` +
+    `)`
+  );
+}
+
+/**
+ * LEFT JOIN binding `asin_revenue_class` to a fact alias. LEFT, not INNER: an
+ * unclassified ASIN must still return its report rows with a NULL class,
+ * otherwise the snapshot's coverage gaps would silently delete traffic from
+ * every report.
+ */
+export function asinClassJoinSql(factAlias: string, asinColumnSql?: string): string {
+  const asinSql = asinColumnSql ?? `${factAlias}.asin`;
+  return (
+    `LEFT JOIN asin_revenue_class AS cls\n` +
+    `    ON cls.company_id = ${factAlias}.company_id\n` +
+    `   AND cls.marketplace_id = ${factAlias}.marketplace_id\n` +
+    `   AND cls.asin = ${asinSql}`
+  );
+}
+
+/**
  * Body of a `term_intents` CTE mapping (company_id, lower(search_term)) to its
  * intent ids plus the highest-confidence one. Paste into a WITH clause.
  *

@@ -7,6 +7,8 @@ import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
+  asinClassCteSql,
+  asinClassJoinSql,
   executeBrandAnalyticsQuery,
   intentTermsFilterClauseSql,
   sqlNullableDateExpr,
@@ -224,6 +226,8 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
 
         const groupedTemplate = await loadTextFile(sqlGroupedPath);
         const renderedGrouped = renderSqlTemplate(groupedTemplate, {
+          asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
+          asin_class_join_sql: asinClassJoinSql('sqp'),
           term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
           limit_top_n: Number(limitTopN),
           start_date_sql: sqlNullableDateExpr(time?.start_date),
@@ -262,6 +266,8 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
+        asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
+        asin_class_join_sql: asinClassJoinSql('sqp'),
         term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
         limit_top_n: Number(limitTopN),
         start_date_sql: sqlNullableDateExpr(time?.start_date),

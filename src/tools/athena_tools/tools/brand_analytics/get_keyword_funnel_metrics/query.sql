@@ -7,10 +7,14 @@
 --   • Keyword-centric (optional keywords filter with match_type, returns all if omitted)
 --   • Returns raw funnel totals + shares, NOT scored RYG signals
 --   • Computes funnel stage drop-off rates
--- NOTE: revenue_abcd_class / pareto_abc_class are rolling last-30-day, as-of
---       attributes of the ASIN, not the class in effect during a past report week.
+-- NOTE: revenue_abcd_class / pareto_abc_class come from the inventory-planning
+--       snapshot (see asin_class), so they are stable between runs but remain
+--       as-of attributes of the ASIN, not the class in effect during a past
+--       report week. `classification_as_of` carries the snapshot load date.
 
-WITH {{term_intents_cte_sql}},
+WITH {{asin_class_cte_sql}},
+
+{{term_intents_cte_sql}},
 
 -- ─── 1. Pull raw SQP rows, apply keyword + standard filters ────────────────
 raw AS (
@@ -29,6 +33,7 @@ raw AS (
     ifNull(sqp.total_purchase_count, 0) AS total_purchase_count,
     ifNull(sqp.asin_purchase_count, 0) AS asin_purchase_count
   FROM etl.ba_search_query_performance AS sqp
+  {{asin_class_join_sql}}
   LEFT JOIN etl.ba_marketplaces AS marketplace
     ON sqp.marketplace_id = marketplace.marketplace_id
   WHERE
@@ -71,11 +76,11 @@ raw AS (
 
     -- Optional revenue ABCD class
     AND (length({{revenue_abcd_class_array}}) = 0
-         OR arrayExists(c -> upper(c) = upper(ifNull(sqp.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
+         OR arrayExists(c -> upper(c) = upper(ifNull(cls.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
 
     -- Optional Pareto ABC class
     AND (length({{pareto_abc_class_array}}) = 0
-         OR arrayExists(c -> upper(c) = upper(ifNull(sqp.pareto_abc_class, '')), {{pareto_abc_class_array}}))
+         OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, '')), {{pareto_abc_class_array}}))
 ),
 
 -- ─── 2. Determine date window ──────────────────────────────────────────────
