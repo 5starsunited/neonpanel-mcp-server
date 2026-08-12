@@ -331,9 +331,17 @@ filtered AS (
         AND ({{min_search_volume}} = 0 OR ifNull(search_volume, 0) >= {{min_search_volume}})
 )
 
+-- The window ORDER BY and the final ORDER BY must be identical and total.
+-- With only {{sort_column}} to order by, ties are broken independently by the
+-- window and by the final sort, so a LIMITed "top N" can come back carrying
+-- arbitrary rank values. Ordering the result by the computed rank, and giving
+-- both sorts the same key tiebreakers, keeps the two in lockstep.
 SELECT
-    row_number() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+    row_number() OVER (
+        ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST,
+                 search_term ASC, my_asin ASC, marketplace_id ASC
+    ) AS `rank`,
     f.*
 FROM filtered AS f
-ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
+ORDER BY `rank` ASC
 LIMIT {{limit_top_n}}

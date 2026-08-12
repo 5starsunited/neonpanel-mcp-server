@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_list_competitor_asins",
-  "description": "Lists the company's registered competitor ASINs from brand_analytics_iceberg.competitor_asins.\n\nUse this tool to:\n- See which ASINs the company tracks as competitors\n- Filter by rivalry scope: against a specific ASIN, parent, or product family\n- Audit `is_active` rows before running competitive analysis\n\nWritten by brand_analytics_write_competitor_asins. Consumed by brand_analytics_growth_machine_diagnosis (flags is_competitor, competitor_won_keyword) and optionally by brand_analytics_get_competitive_landscape.",
+  "description": "Lists the company's registered competitor ASINs from analytics.ba_competitor_asins.\n\nUse this tool to:\n- See which ASINs the company tracks as competitors\n- Filter by rivalry scope: against a specific ASIN, parent, or product family\n- Audit `is_active` rows before running competitive analysis\n\nWritten by brand_analytics_write_competitor_asins. Consumed by brand_analytics_growth_machine_diagnosis (flags is_competitor, competitor_won_keyword) and optionally by brand_analytics_get_competitive_landscape.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",

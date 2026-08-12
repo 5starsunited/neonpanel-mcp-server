@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_list_tracked_search_terms",
-  "description": "Lists the company's tracked search terms (keyword cores) from brand_analytics_iceberg.tracked_search_terms.\n\nUse this tool to:\n- See which keywords the company is tracking for a given ASIN, parent, or product family\n- Audit priority and intent assignments before running diagnostics\n- Retrieve the keyword list that brand_analytics_growth_machine_diagnosis auto-scopes to when use_tracked_search_terms=true\n\nScope: one row per (company_id, marketplace, keyword, asin, parent_asin, product_family). Null scope means the keyword applies company-wide.",
+  "description": "Lists the company's tracked search terms (keyword cores) from analytics.ba_tracked_search_terms.\n\nUse this tool to:\n- See which keywords the company is tracking for a given ASIN, parent, or product family\n- Audit priority and intent assignments before running diagnostics\n- Retrieve the keyword list that brand_analytics_growth_machine_diagnosis auto-scopes to when use_tracked_search_terms=true\n\nScope: one row per (company_id, marketplace, keyword, asin, parent_asin, product_family). Null scope means the keyword applies company-wide.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",

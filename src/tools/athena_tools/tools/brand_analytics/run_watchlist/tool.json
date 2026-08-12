@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_run_watchlist",
-  "description": "Executes a saved analytics watchlist: reads its config from brand_analytics_iceberg.analytics_watchlist, expands it into the parameters you would pass to brand_analytics_growth_machine_diagnosis (grain + entity_ids + focus + cadence-derived time window), and bumps last_run_at.\n\nIn v1 this tool is MANUAL-TRIGGER ONLY (no scheduler). The caller then invokes brand_analytics_growth_machine_diagnosis with the returned `diagnosis_parameters` (or a future orchestrator can chain them automatically).\n\nCadence -> default time window:\n- weekly    -> last 7 days\n- monthly   -> last 30 days\n- quarterly -> last 90 days\n\nUpserts last_run_at to current_timestamp if dry_run=false.",
+  "description": "Executes a saved analytics watchlist: reads its config from analytics.ba_analytics_watchlist, expands it into the parameters you would pass to brand_analytics_growth_machine_diagnosis (grain + entity_ids + focus + cadence-derived time window), and bumps last_run_at.\n\nIn v1 this tool is MANUAL-TRIGGER ONLY (no scheduler). The caller then invokes brand_analytics_growth_machine_diagnosis with the returned `diagnosis_parameters` (or a future orchestrator can chain them automatically).\n\nCadence -> default time window:\n- weekly    -> last 7 days\n- monthly   -> last 30 days\n- quarterly -> last 90 days\n\nUpserts last_run_at to current_timestamp if dry_run=false.",
   "isConsequential": true,
   "inputSchema": {
     "type": "object",

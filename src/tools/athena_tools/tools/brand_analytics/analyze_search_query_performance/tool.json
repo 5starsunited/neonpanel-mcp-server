@@ -32,7 +32,7 @@
               "intent_ids": {
                 "type": "array",
                 "items": { "type": "string", "minLength": 1, "maxLength": 64 },
-                "description": "Optional: filter to search queries mapped to any of these intent_ids (via brand_analytics_iceberg.search_term_to_intent). Combined with `search_terms` as AND (intersection). Get available intent_ids from brand_analytics_list_user_intent_clusters."
+                "description": "Optional: filter to search queries mapped to any of these intent_ids (via etl.ba_search_term_to_intent_current). Combined with `search_terms` as AND (intersection). Get available intent_ids from brand_analytics_list_user_intent_clusters."
               },
               "parent_asins": {
                 "type": "array",
@@ -764,7 +764,7 @@
                 "string",
                 "null"
               ],
-              "description": "Human-readable name of the primary intent cluster (from brand_analytics_iceberg.user_intents.intent_name)."
+              "description": "Human-readable name of the primary intent cluster (from etl.ba_user_intents_current.intent_name)."
             }
           },
           "additionalProperties": true

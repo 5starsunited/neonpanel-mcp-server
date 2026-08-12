@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_list_analytics_watchlist",
-  "description": "Lists the company's saved analytics watchlists from brand_analytics_iceberg.analytics_watchlist. Read-only.\n\nEach row is a named bundle of entities + cadence + focus used by brand_analytics_run_watchlist to drive a recurring diagnosis via brand_analytics_growth_machine_diagnosis.\n\nUpsert key: (company_id, marketplace, LOWER(watchlist_name)).",
+  "description": "Lists the company's saved analytics watchlists from analytics.ba_analytics_watchlist. Read-only.\n\nEach row is a named bundle of entities + cadence + focus used by brand_analytics_run_watchlist to drive a recurring diagnosis via brand_analytics_growth_machine_diagnosis.\n\nUpsert key: (company_id, marketplace, LOWER(watchlist_name)).",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",

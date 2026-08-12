@@ -211,8 +211,14 @@ with_funnel AS (
 
 -- ─── 6. Keep only latest period per keyword for the final output ───────────
 -- (trend rows from earlier periods were only needed for the LAG calculation)
+-- The key columns are renamed: when a name exists on both sides of a join,
+-- ClickHouse's analyzer emits the wildcard side's copy qualified (`f.keyword`),
+-- which would leak that qualified name all the way out to the tool's output.
 latest_period AS (
-  SELECT keyword, marketplace, MAX(period_start) AS max_period_start
+  SELECT
+    keyword           AS lp_keyword,
+    marketplace       AS lp_marketplace,
+    MAX(period_start) AS lp_max_period_start
   FROM with_funnel
   GROUP BY keyword, marketplace
 ),
@@ -225,9 +231,9 @@ final AS (
     ti.primary_intent_label AS primary_intent_label
   FROM with_funnel f
   INNER JOIN latest_period lp
-    ON  f.keyword     = lp.keyword
-    AND f.marketplace = lp.marketplace
-    AND f.period_start = lp.max_period_start
+    ON  f.keyword      = lp.lp_keyword
+    AND f.marketplace  = lp.lp_marketplace
+    AND f.period_start = lp.lp_max_period_start
   -- Intent enrichment: flatten across companies (keyword_agg is not split by company).
   LEFT JOIN (
     SELECT
@@ -245,9 +251,17 @@ final AS (
     AND ({{min_impressions}} = 0 OR COALESCE(f.total_impressions, 0) >= {{min_impressions}})
 )
 
+-- The window ORDER BY and the final ORDER BY must be identical and total.
+-- With only {{sort_column}} to order by, ties are broken independently by the
+-- window and by the final sort, so a LIMITed "top N" can come back carrying
+-- arbitrary rank values. Ordering the result by the computed rank, and giving
+-- both sorts the same key tiebreakers, keeps the two in lockstep.
 SELECT
-  row_number() OVER (ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST) AS rank,
+  row_number() OVER (
+    ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST,
+             keyword ASC, marketplace ASC, period_start ASC
+  ) AS `rank`,
   final.*
 FROM final
-ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
+ORDER BY `rank` ASC
 LIMIT {{limit_top_n}};
