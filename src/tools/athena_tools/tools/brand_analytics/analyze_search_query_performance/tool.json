@@ -88,7 +88,7 @@
                   "A",
                   "B"
                 ],
-                "description": "Filter by revenue classification (A=top 70%, B=next 20%, C=next 8%, D=bottom 2%). Default: A,B. Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
+                "description": "Filter by revenue classification (A=top 70%, B=next 20%, C=next 8%, D=bottom 2%). Default: A,B. Source: etl.asin_revenue_class_daily, rebuilt every day at 07:00 UTC; see the classification_as_of field for the date it was computed on."
               },
               "pareto_abc_class": {
                 "type": "array",
@@ -100,7 +100,7 @@
                     "C"
                   ]
                 },
-                "description": "Filter by Pareto classification (A=top 80%, B=next 15%, C=bottom 5%). Source: the etl.inventory_planning_snapshot materialized snapshot; see the classification_as_of field for the snapshot date it was computed on."
+                "description": "Filter by Pareto classification (A=top 80%, B=next 15%, C=bottom 5%). Source: etl.asin_revenue_class_daily, rebuilt every day at 07:00 UTC; see the classification_as_of field for the date it was computed on."
               },
               "strength_colors": {
                 "type": "array",
@@ -761,7 +761,7 @@
             },
             "classification_as_of": {
               "type": ["string", "null"],
-              "description": "Date of the etl.inventory_planning_snapshot load that supplied revenue_abcd_class / pareto_abc_class / revenue_share. The classification reflects the trailing 30 days as of THIS date, not the reporting week and not today. Treat classes as stale if this date is old."
+              "description": "Date etl.asin_revenue_class_daily was rebuilt for the row that supplied revenue_abcd_class / pareto_abc_class / revenue_share. The classification reflects the trailing 30 days as of THIS date, not the reporting week. The table is rebuilt daily at 07:00 UTC, so treat classes as stale if this date is not today or yesterday."
             },
             "primary_intent_label": {
               "type": [

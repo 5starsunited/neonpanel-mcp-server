@@ -178,18 +178,19 @@ test('SQL assets declare no unresolved template tokens outside {{...}} placehold
   assert.deepEqual(violations, [], `malformed template tokens:\n${violations.join('\n')}`);
 });
 
-test('revenue/Pareto classification is read only from the inventory-planning snapshot', () => {
+test('revenue/Pareto classification is read only from the dated daily table', () => {
   // etl.ba_asin_attributes derives revenue_abcd_class / pareto_abc_class from
   // etl.sku_classification_last30_by_marketplace, which is a plain View: it is
   // recomputed from a rolling trailing-30-day window at query time. A historical
   // week therefore came back stamped with TODAY's class, and the same query re-run
   // an hour later returned different classes for the same week -- silently.
   //
-  // Classification now comes from the etl.inventory_planning_snapshot materialised
-  // snapshot, exposed as the `asin_revenue_class` CTE. Downstream CTEs may pass the
-  // columns along under their own aliases; what must never happen is reading them
-  // back off a live source. So the check resolves each alias to the table it is
-  // bound to, rather than whitelisting alias names.
+  // Classification now comes from etl.asin_revenue_class_daily, rebuilt and
+  // date-stamped once a day by clickhouse_etl migration 0054, exposed as the
+  // `asin_revenue_class` CTE. Downstream CTEs may pass the columns along under
+  // their own aliases; what must never happen is reading them back off a live
+  // source. So the check resolves each alias to the table it is bound to, rather
+  // than whitelisting alias names.
   const classColumn = /(?:revenue_abcd_class|pareto_abc_class)/;
   const liveClassSources = new Set([
     'etl.ba_asin_attributes',
@@ -227,7 +228,7 @@ test('revenue/Pareto classification is read only from the inventory-planning sna
         violations.push(`${relative}: references the rolling classification view`);
       }
 
-      // Classification columns are only legitimate if the snapshot CTE is in scope.
+      // Classification columns are only legitimate if the dated CTE is in scope.
       if (!/\{\{\s*asin_class_cte_sql\s*\}\}/.test(text)) {
         violations.push(`${relative}: uses class columns without the {{asin_class_cte_sql}} token`);
       }
@@ -237,14 +238,14 @@ test('revenue/Pareto classification is read only from the inventory-planning sna
   assert.deepEqual(
     [...new Set(violations)],
     [],
-    `classification must come from etl.inventory_planning_snapshot:\n${violations.join('\n')}`,
+    `classification must come from etl.asin_revenue_class_daily:\n${violations.join('\n')}`,
   );
 });
 
 test('queries that expose a class column also expose classification_as_of', () => {
-  // The snapshot is not refreshed daily, so a class can be weeks stale. Every
-  // response that carries a class must carry the as-of date beside it, otherwise
-  // a caller reads a stale class as current.
+  // The class is a point-in-time fact rebuilt daily, and a refresh can lag or
+  // fail. Every response that carries a class must carry the as-of date beside
+  // it, otherwise a caller reads a stale class as current.
   //
   // Whether a class column survives to the response cannot be decided by pattern
   // matching: the grouped variants project a class in their base CTE and then

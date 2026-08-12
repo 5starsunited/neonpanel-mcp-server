@@ -225,85 +225,77 @@ export function intentTermsFilterClauseSql(
  * snapshot-ETL column over a pareto percentile that no longer exists, and
  * several queries carry comments explaining why it was dropped.
  *
- * SOURCE OF TRUTH: etl.inventory_planning_snapshot. The alternative — the
- * classification denormalised onto etl.ba_search_query_performance, which
- * resolves through the etl.sku_classification_last30_by_marketplace VIEW — is
- * recomputed on every single query from a rolling 30-day sales window. That
- * makes it both non-reproducible (the same historical week returns a different
- * class minutes later) and far less complete (it classified 20-70% of SQP rows
- * against this snapshot's 75-100%).
+ * SOURCE OF TRUTH: etl.asin_revenue_class_daily (clickhouse_etl migration
+ * 0054). A refreshable materialised view rebuilds it at 07:00 UTC every day and
+ * APPENDs the result under a `classification_date`, so a class is reproducible:
+ * the same query re-run an hour later returns the same answer.
  *
- * KNOWN LIMITATION: the snapshot is not refreshed daily. Only two loads exist
- * and the useful one is 2026-07-18, so ASINs that started selling after that
- * date carry no class. Queries expose the load date as `classification_as_of`
- * so a caller can tell a stale class from a missing one.
+ * The rejected alternatives, both of which were in use before:
+ *  - etl.ba_asin_attributes / the classification denormalised onto
+ *    etl.ba_search_query_performance. Both resolve through the
+ *    etl.sku_classification_last30_by_marketplace VIEW, which is recomputed on
+ *    every single query from a rolling 30-day sales window. A historical week
+ *    came back stamped with today's class, and re-running minutes later gave a
+ *    different one. Since A+B is the default class filter, that changed which
+ *    rows a caller saw between two identical calls.
+ *  - etl.inventory_planning_snapshot. Materialised, so reproducible, but it has
+ *    no producer: two loads exist ever and the useful one is 2026-07-18. It
+ *    could only get staler.
  *
- * Three impedance mismatches with the etl.ba_* views are handled here:
- *  - company_id is Int64 in the snapshot and UInt64 in the views. An uncast
- *    join fails outright with "Code: 386 ... no supertype for types Int64,
- *    UInt64", so it is narrowed to UInt64 on this side.
- *  - marketplace_id is an internal Int64 id in the snapshot, not the Amazon
- *    marketplace string the views key on. etl.ba_marketplaces is a clean 1:1
- *    map (27 rows, 27 distinct country codes, 27 distinct marketplace ids), so
- *    country_code bridges the two. The join is INNER: a country that does not
- *    resolve must drop out rather than collapse onto an empty marketplace_id
- *    and cross-join every marketplace.
- *  - the snapshot is per SKU, so an ASIN sold under several SKUs appears more
- *    than once and 146 such keys disagree about the class. argMax over
- *    (revenue_30d, inventory_id) picks the dominant SKU deterministically;
- *    without the inventory_id tiebreaker equal-revenue SKUs would alternate
- *    between runs.
+ * KNOWN LIMITATION: coverage, not freshness. The upstream classification only
+ * covers SKUs with `available > 0` in app.amazon_restock_inventory_recommendations,
+ * which for company 106 leaves 65 of 139 (marketplace, asin) pairs seen in SQP
+ * unclassified. That filter belongs to inventory planning, not to revenue
+ * classification, but relaxing it would move every ASIN's revenue_share (the
+ * shares are windowed over the classified population) and would change
+ * etl.ba_asin_attributes for its other consumers, so it needs a deliberate
+ * decision rather than a quiet widening here.
+ *
+ * Queries expose `classification_as_of` so a caller can tell a stale class from
+ * a missing one.
+ *
+ * Two things the daily table makes unnecessary, both of which the snapshot
+ * needed:
+ *  - No marketplace bridging. marketplace_id here is already the Amazon
+ *    marketplace id the etl.ba_* views key on. The snapshot carried an internal
+ *    numeric id plus a country_code and had to be joined through
+ *    etl.ba_marketplaces, which dropped marketplaces on the way.
+ *  - No per-SKU de-duplication. The daily table is already one row per
+ *    (company, marketplace, asin, date); the SKU-to-ASIN collapse happens
+ *    upstream, using the same rule as etl.ba_asin_attributes.
  */
 export function asinClassCteSql(companyIds: number | readonly number[]): string {
   const companyClause = companyIdListClause(companyIds) ?? '1 = 0';
-  // Zero-padded strings, so lexicographic MAX is chronological. Scoped per
-  // company because a partial load did land once (2026-06-03 wrote 21 rows for
-  // a single company); a global MAX would let a repeat of that wipe out the
-  // classification for every other company.
+  // FINAL because the table is a ReplacingMergeTree: a same-day re-refresh
+  // writes a second row per key that only collapses on merge. Without FINAL an
+  // unmerged duplicate would multiply rows through the LEFT JOIN below.
+  //
+  // The latest date is resolved PER COMPANY. A global max() would blank out
+  // every other company on any day a refresh only partially lands.
   return (
     `asin_revenue_class AS (\n` +
     `  SELECT\n` +
-    `    toUInt64(snap.company_id) AS company_id,\n` +
-    `    mk.marketplace_id AS marketplace_id,\n` +
-    `    snap.asin AS asin,\n` +
-    `    argMax(nullIf(ifNull(snap.revenue_abcd_class, ''), ''), snap.pick_order) AS revenue_abcd_class,\n` +
-    `    argMax(nullIf(ifNull(snap.pareto_abc_class, ''), ''), snap.pick_order) AS pareto_abc_class,\n` +
-    `    argMax(CAST(snap.revenue_share AS Nullable(Float64)), snap.pick_order) AS revenue_share,\n` +
-    `    argMax(CAST(snap.cumulative_revenue_share AS Nullable(Float64)), snap.pick_order) AS cumulative_revenue_share,\n` +
-    `    max(snap.day_key) AS classification_as_of\n` +
-    `  FROM (\n` +
-    `    SELECT\n` +
-    `      company_id,\n` +
-    `      country_code,\n` +
-    `      asin,\n` +
-    `      revenue_abcd_class,\n` +
-    `      pareto_abc_class,\n` +
-    `      revenue_share,\n` +
-    `      cumulative_revenue_share,\n` +
-    `      concat(ifNull(year, ''), '-', ifNull(month, ''), '-', ifNull(day, '')) AS day_key,\n` +
-    `      (ifNull(revenue_30d, 0), ifNull(inventory_id, 0)) AS pick_order\n` +
-    `    FROM etl.inventory_planning_snapshot\n` +
-    `    WHERE ${companyClause}\n` +
-    `      AND ifNull(asin, '') != ''\n` +
-    `  ) AS snap\n` +
+    `    daily.company_id AS company_id,\n` +
+    `    daily.marketplace_id AS marketplace_id,\n` +
+    `    daily.asin AS asin,\n` +
+    `    nullIf(daily.revenue_abcd_class, '') AS revenue_abcd_class,\n` +
+    `    nullIf(daily.pareto_abc_class, '') AS pareto_abc_class,\n` +
+    `    CAST(daily.revenue_share AS Nullable(Float64)) AS revenue_share,\n` +
+    `    CAST(daily.cumulative_revenue_share AS Nullable(Float64)) AS cumulative_revenue_share,\n` +
+    `    daily.classification_date AS classification_as_of\n` +
+    `  FROM etl.asin_revenue_class_daily AS daily FINAL\n` +
     `  INNER JOIN (\n` +
-    `    SELECT company_id AS latest_company_id, max(day_key) AS latest_day_key\n` +
-    `    FROM (\n` +
-    `      SELECT\n` +
-    `        company_id,\n` +
-    `        concat(ifNull(year, ''), '-', ifNull(month, ''), '-', ifNull(day, '')) AS day_key,\n` +
-    `        revenue_abcd_class\n` +
-    `      FROM etl.inventory_planning_snapshot\n` +
-    `      WHERE ${companyClause}\n` +
-    `    )\n` +
-    `    WHERE ifNull(revenue_abcd_class, '') != ''\n` +
+    `    SELECT\n` +
+    `      company_id AS latest_company_id,\n` +
+    `      max(classification_date) AS latest_classification_date\n` +
+    `    FROM etl.asin_revenue_class_daily\n` +
+    `    WHERE ${companyClause}\n` +
     `    GROUP BY company_id\n` +
     `  ) AS latest\n` +
-    `    ON latest.latest_company_id = snap.company_id\n` +
-    `   AND latest.latest_day_key = snap.day_key\n` +
-    `  INNER JOIN etl.ba_marketplaces AS mk\n` +
-    `    ON upper(ifNull(mk.country_code, '')) = upper(ifNull(snap.country_code, ''))\n` +
-    `  GROUP BY company_id, marketplace_id, asin\n` +
+    `    ON latest.latest_company_id = daily.company_id\n` +
+    `   AND latest.latest_classification_date = daily.classification_date\n` +
+    `  WHERE ${companyClause}\n` +
+    `    AND daily.asin != ''\n` +
     `)`
   );
 }
