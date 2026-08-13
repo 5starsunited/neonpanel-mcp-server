@@ -73,18 +73,13 @@ base_child AS (
             length({{product_families_array}}) = 0
             OR arrayExists(f -> lower(f) = lower(ifNull(sqp.product_family, '')), {{product_families_array}})
         )
-        -- Deliberate: an empty revenue_abcd_class filter means A+B only, not
-        -- "no filter". This reproduces the Athena params default.
-        AND has(
-            arrayMap(x -> upper(x), if(length({{revenue_abcd_class_array}}) = 0, ['A', 'B'], {{revenue_abcd_class_array}})),
-            upper(ifNull(cls.revenue_abcd_class, 'D'))
-        )
-        AND (
-            length({{pareto_abc_class_array}}) = 0
-            OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, 'C')), {{pareto_abc_class_array}})
-        )
 ),
 
+-- Derived from base_child BEFORE the revenue/pareto class filters are applied
+-- (those live in `windowed`). If the window were derived from the classified
+-- subset, a week in which none of the caller's classes happen to have traffic
+-- would push max(week_start) backwards and the tool would silently answer
+-- "latest week" with a months-old week.
 date_bounds AS (
     SELECT
         ifNull({{start_date_sql}}, addWeeks(max(week_start), -1 * ({{periods_back}} - 1))) AS start_date,
@@ -97,6 +92,18 @@ windowed AS (
     FROM base_child
     WHERE week_start >= (SELECT start_date FROM date_bounds)
       AND week_start <= (SELECT end_date FROM date_bounds)
+      -- An empty revenue_abcd_class filter means NO filter, matching every
+      -- other Brand Analytics tool. It used to default to A+B (an Athena
+      -- params artifact), which silently deleted most rows: classification
+      -- coverage is partial, and an unclassified ASIN falls back to 'D'.
+      AND (
+          length({{revenue_abcd_class_array}}) = 0
+          OR arrayExists(c -> upper(c) = upper(revenue_abcd_class), {{revenue_abcd_class_array}})
+      )
+      AND (
+          length({{pareto_abc_class_array}}) = 0
+          OR arrayExists(c -> upper(c) = upper(pareto_abc_class), {{pareto_abc_class_array}})
+      )
 ),
 
 -- Split in two: ClickHouse rejects an aggregate nested inside another expression

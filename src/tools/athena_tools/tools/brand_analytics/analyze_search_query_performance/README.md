@@ -41,12 +41,12 @@ Common filters include:
 - `parent_asins` / `asins`
 - `marketplace`
 - `row_type` (`child` or `parent`)
-- `revenue_abcd_class` (defaults to A/B)
+- `revenue_abcd_class` (no default; empty means all classes)
 - `pareto_abc_class`
 - signal color filters (`strength_colors`, `weakness_colors`, `opportunity_colors`, `threshold_colors`)
 
 ## Example requests
-### 1) Parent‑level weekly scan (default A/B)
+### 1) Parent‑level weekly scan (all classes)
 ```json
 {
   "query": {
