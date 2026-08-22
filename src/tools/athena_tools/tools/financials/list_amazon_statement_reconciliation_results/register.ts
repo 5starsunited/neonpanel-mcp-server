@@ -86,7 +86,7 @@ export function registerFinancialsListAmazonStatementReconciliationResultsTool(
   }
 
   registry.register({
-    name: 'financials_list_financial_transaction_reconciliation_results',
+    name: 'financials_list_transaction_reconciliations',
     description:
       'Lists previously saved Amazon statement reconciliation results. Returns summaries and optionally per-category detail rows.',
     isConsequential: false,

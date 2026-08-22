@@ -1,4 +1,4 @@
--- Tool: financials_list_financial_transaction_reconciliation_results
+-- Tool: financials_list_transaction_reconciliations
 -- Purpose: List reconciliation summaries (and optionally their detail rows) from Iceberg tables.
 -- Source tables:
 --   financial_accounting.amazon_payments_summaries             (one row per reconciliation)
