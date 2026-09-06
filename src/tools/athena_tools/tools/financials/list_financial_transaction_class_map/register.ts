@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -13,14 +12,14 @@ type CompaniesWithPermissionResponse = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+function chStringArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST([] AS Array(String))';
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 // How the classification engine applies these rules -- returned with every response so an AI
@@ -73,7 +72,7 @@ export function registerFinancialsListFinancialTransactionClassMapTool(registry:
   registry.register({
     name: 'financials_list_financial_transaction_class_map',
     description:
-      'Explains how financial-transaction SERVICES map to summary classes: returns the full classification rulebook (neonpanel_iceberg.financial_transaction_class_map) -- one rule per (service key, sign, fulfillment) -> summary_class / summary_subclass -- plus a plain-language description of how the engine resolves rules (sign flips subclass, AFN/MFN beats "*", unmapped -> Unclassified). Use financials_list_financial_transaction_services to see which services actually occur in a company\'s data.',
+      'Explains how financial-transaction services map to summary classes from the ClickHouse-owned classification map: one rule per (service key, sign, fulfillment) to summary class/subclass.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -112,23 +111,16 @@ export function registerFinancialsListFinancialTransactionClassMapTool(registry:
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
-        search: search ? sqlStringLiteral(search) : 'CAST(NULL AS VARCHAR)',
-        summary_classes_array: sqlVarcharArrayExpr(summaryClasses),
+        search: search ? sqlStringLiteral(search) : 'CAST(NULL AS Nullable(String))',
+        summary_classes_array: chStringArrayExpr(summaryClasses),
         limit_top_n: Number(limitTopN),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'neonpanel_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
       return {
         classification_rules: CLASSIFICATION_RULES,
-        items: athenaResult.rows ?? [],
+        items: result.rows ?? [],
       };
     },
   });

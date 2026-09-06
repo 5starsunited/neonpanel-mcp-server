@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -13,14 +12,14 @@ type CompaniesWithPermissionResponse = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+function chStringArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST([] AS Array(String))';
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 // Curated explanations of how each service arises from Amazon SP-API transaction data.
@@ -149,7 +148,7 @@ export function registerFinancialsListFinancialTransactionServicesTool(registry:
   registry.register({
     name: 'financials_list_financial_transaction_services',
     description:
-      'Catalogs the SERVICES (fee/charge line types) observed in a company\'s Amazon financial transactions (neonpanel_iceberg.financial_transaction_lines_v1): each service\'s key, an explanation of how it arises from Amazon transaction data (which transaction types/descriptions produce it), months active, volumes, and how each sign (charge vs refund) maps to summary classes. Use financials_list_financial_transaction_class_map for the full classification rulebook.',
+      'Catalogs fee and charge line types observed in a company\'s current-generation ClickHouse financial transactions, including origin, activity range, volume, and summary classification.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -190,23 +189,16 @@ export function registerFinancialsListFinancialTransactionServicesTool(registry:
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
         company_id: companyId,
-        report_months_array: sqlVarcharArrayExpr(reportMonths),
-        search: query.filters.search ? sqlStringLiteral(query.filters.search) : 'CAST(NULL AS VARCHAR)',
+        report_months_array: chStringArrayExpr(reportMonths),
+        search: query.filters.search ? sqlStringLiteral(query.filters.search) : 'CAST(NULL AS Nullable(String))',
         only_unclassified: query.filters.only_unclassified ? 'TRUE' : 'FALSE',
         limit_top_n: Number(limitTopN),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'neonpanel_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
-      const items = (athenaResult.rows ?? []).map((row) => {
+      const items = (result.rows ?? []).map((row) => {
         const r = row as Record<string, unknown>;
         return {
           ...r,

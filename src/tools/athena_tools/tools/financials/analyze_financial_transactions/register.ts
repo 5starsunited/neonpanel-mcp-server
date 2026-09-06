@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
+import { logger } from '../../../../../logging/logger';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -17,23 +18,20 @@ type CompaniesWithPermissionResponse = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
-
 
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
 
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+// ClickHouse array literal; empty arrays need an explicit type.
+function chStringArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST([] AS Array(String))';
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
-// Country/marketplace code -> [marketplace_name, marketplace_id]. Lets callers
-// filter by an intuitive country (e.g. 'US') in addition to the raw
-// marketplace_name ('Amazon.com') or marketplace_id ('ATVPDKIKX0DER'). Amazon's
-// unified reports are per-marketplace, so this is how you scope to a country report.
+// Resolve country aliases to the exact Amazon marketplace used by report filters.
 const COUNTRY_MARKETPLACES: Record<string, [string, string]> = {
   US: ['Amazon.com', 'ATVPDKIKX0DER'],
   CA: ['Amazon.ca', 'A2EUQ1WTGCTBG2'],
@@ -59,24 +57,6 @@ const COUNTRY_MARKETPLACES: Record<string, [string, string]> = {
   AU: ['Amazon.com.au', 'A39IBJ37TRP1C6'],
 };
 
-// MCF (multi-channel fulfillment) twin marketplaces per country. Seller Central's unified
-// statement for a country INCLUDES MCF fulfillment fees (marketplace_name 'Non-Amazon <CC>'),
-// so a country/marketplace filter must include the MCF twin or FBA transaction fees under-count
-// (verified against the Jun-2026 5SU statement: -102.70 of MCF fees live on A2ZV50J4W1RKNI).
-const MCF_MARKETPLACES: Record<string, [string, string]> = {
-  US: ['Non-Amazon US', 'A2ZV50J4W1RKNI'],
-  CA: ['Non-Amazon CA', 'A1MQXOICRS2Z7M'],
-  UK: ['Non-Amazon UK', 'AZMDEXL2RVFNN'],
-  GB: ['Non-Amazon UK', 'AZMDEXL2RVFNN'],
-  DE: ['Non-Amazon DE', 'A38D8NSA03LJTC'],
-  FR: ['Non-Amazon FR', 'A1ZFFQZ3HTUKT9'],
-  IT: ['Non-Amazon IT', 'A62U237T8HV6N'],
-  ES: ['Non-Amazon ES', 'AFQLKURYRPEL8'],
-  JP: ['Non-Amazon JP', 'A1VN0HAN483KP2'],
-};
-
-// Reverse lookup: marketplace name or id -> country code (so raw values like 'Amazon.com'
-// or 'ATVPDKIKX0DER' also pull in their MCF twin).
 const COUNTRY_BY_MARKETPLACE: Record<string, string> = Object.fromEntries(
   Object.entries(COUNTRY_MARKETPLACES).flatMap(([cc, [name, id]]) => [
     [name.toLowerCase(), cc],
@@ -94,11 +74,6 @@ function expandMarketplaces(values: string[]): string[] {
       out.add(mapped[0]);
       out.add(mapped[1]);
     }
-    const mcf = MCF_MARKETPLACES[cc ?? ''];
-    if (mcf) {
-      out.add(mcf[0]);
-      out.add(mcf[1]);
-    }
   }
   return [...out];
 }
@@ -113,6 +88,21 @@ const SORTABLE_FIELDS = [
   'net_amount',
   'line_count',
 ] as const;
+
+const PERIODICITIES = ['none', 'day', 'week', 'month', 'quarter', 'year'] as const;
+type Periodicity = (typeof PERIODICITIES)[number];
+
+// ClickHouse date-bucket expression over the marketplace-local posted day.
+// 'none' collapses to a single NULL bucket, preserving the legacy
+// (class, subclass, currency) grouping. week starts Monday (toMonday).
+const PERIOD_EXPR: Record<Periodicity, string> = {
+  none: 'CAST(NULL AS Nullable(Date))',
+  day: 'toDate(posted_date_day)',
+  week: 'toMonday(posted_date_day)',
+  month: 'toStartOfMonth(posted_date_day)',
+  quarter: 'toStartOfQuarter(posted_date_day)',
+  year: 'toStartOfYear(posted_date_day)',
+};
 
 const querySchema = z
   .object({
@@ -135,6 +125,7 @@ const querySchema = z
         direction: z.enum(['asc', 'desc']).default('asc').optional(),
       })
       .optional(),
+    periodicity: z.enum(PERIODICITIES).default('none').optional(),
     limit: z.coerce.number().int().min(1).max(500).default(200).optional(),
   })
   .strict();
@@ -146,6 +137,7 @@ const inputSchema = z
     query: querySchema.optional(),
     filters: z.unknown().optional(),
     sort: z.unknown().optional(),
+    periodicity: z.unknown().optional(),
     limit: z.unknown().optional(),
   })
   .strict();
@@ -166,7 +158,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
   registry.register({
     name: 'financials_analyze_financial_transactions',
     description:
-      'DEPRECATED - prefer financials_analyze_financial_transactions_ch (ClickHouse), which returns identical results faster and also supports periodicity (daily/weekly/monthly/quarterly/yearly) time-series breakouts. This Athena version is retained only for fallback while the ClickHouse pipeline is being made the single source of truth. Analyzes Amazon SP-API financial transactions (neonpanel_iceberg.financial_transaction_lines_v1, the long/leaf-grain table) into the same summary_class / summary_subclass structure used by monthly payment summary reports. Use this to reconcile a payment/summary report against financial transactions instead of Amazon statement settlement data. BOOKKEEPING METHOD: this is the ACCRUAL-method source (transactions recognized on posted date). It is also correct for cash-method reporting of Amazon activity by posted period; statement-based tools (financials_analyze_amazon_statement, financials_list_amazon_statements, financials_classify_amazon_statement_transactions, financials_list_unmapped_statement_transactions) are for the CASH method only.',
+      'Analyzes Amazon SP-API financial transactions summarized into summary_class / summary_subclass from the same current-generation ClickHouse source used by Profit Analytics. Supports periodicity: none (default), day, week, month, quarter, or year. Date filters use the marketplace-local posted day and are inclusive. Country aliases resolve to the exact Amazon marketplace and do not include Non-Amazon/MCF transactions.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -177,12 +169,14 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
         parsed.query ?? {
           filters: parsed.filters,
           sort: parsed.sort,
+          periodicity: parsed.periodicity,
           limit: parsed.limit,
         },
       ) as QueryInput;
 
       const permissions = ['view:quicksight_group.finance-new'];
 
+      const permStart = Date.now();
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {
         try {
@@ -207,6 +201,8 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
         }
       }
 
+      const permissionMs = Date.now() - permStart;
+
       const companyId = Math.trunc(query.filters.company_id);
       if (!allPermittedCompanyIds.has(companyId)) {
         return { items: [] };
@@ -220,40 +216,44 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
       );
       const summaryClasses = (query.filters.summary_classes ?? []).map((s) => s.trim()).filter(Boolean);
       const summarySubclasses = (query.filters.summary_subclasses ?? []).map((s) => s.trim()).filter(Boolean);
-      const sqlDateOrNull = (d?: string) =>
-        d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `DATE '${d}'` : 'CAST(NULL AS DATE)';
+      const chDateOrNull = (d?: string) =>
+        d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `toDate('${d}')` : 'CAST(NULL AS Nullable(Date))';
       const consolidationCurrency = query.filters.consolidation_currency?.toUpperCase();
       const limitTopN = query.limit ?? 200;
       const sortField = query.sort?.field ?? 'class_order';
       const sortDirection = query.sort?.direction ?? 'asc';
+      const periodicity: Periodicity = query.periodicity ?? 'none';
+      const periodExpr = PERIOD_EXPR[periodicity];
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
+        database: config.clickhouse.database,
         company_id: companyId,
-        report_months_array: sqlVarcharArrayExpr(reportMonths),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        start_date: sqlDateOrNull(query.filters.start_date),
-        end_date: sqlDateOrNull(query.filters.end_date),
+        report_months_array: chStringArrayExpr(reportMonths),
+        marketplaces_array: chStringArrayExpr(marketplaces),
+        start_date: chDateOrNull(query.filters.start_date),
+        end_date: chDateOrNull(query.filters.end_date),
         consolidation_currency: consolidationCurrency
-          ? sqlStringLiteral(consolidationCurrency)
-          : 'CAST(NULL AS VARCHAR)',
-        summary_classes_array: sqlVarcharArrayExpr(summaryClasses),
-        summary_subclasses_array: sqlVarcharArrayExpr(summarySubclasses),
+          ? `CAST(${sqlStringLiteral(consolidationCurrency)} AS Nullable(String))`
+          : 'CAST(NULL AS Nullable(String))',
+        summary_classes_array: chStringArrayExpr(summaryClasses),
+        summary_subclasses_array: chStringArrayExpr(summarySubclasses),
+        period_expr: periodExpr,
         limit_top_n: Number(limitTopN),
         sort_column: sortField,
         sort_direction: sortDirection.toUpperCase(),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'neonpanel_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const queryStart = Date.now();
+      const result = await runClickHouseQuery({ query: rendered });
+      const queryMs = Date.now() - queryStart;
 
-      return { items: athenaResult.rows ?? [] };
+      logger.info(
+        { tool: 'financials_analyze_financial_transactions', permissionMs, queryMs, rows: result.rows?.length ?? 0 },
+        'ch tool phase timing',
+      );
+
+      return { items: result.rows ?? [] };
     },
   });
 }

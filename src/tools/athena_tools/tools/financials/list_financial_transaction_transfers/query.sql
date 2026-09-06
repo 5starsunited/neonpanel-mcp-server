@@ -3,7 +3,7 @@
 --          transfer-class transaction: disbursements to the bank account, failed disbursements,
 --          account-level reserve holds/releases.
 --
--- Source: neonpanel_iceberg.financial_transaction_lines_v1. Transfer-class lines are selected
+-- Source: analytics.financial_transaction_lines_v1_current. Transfer-class lines are selected
 -- DYNAMICALLY via financial_transaction_class_map (summary_class = 'Transfers'), so newly mapped
 -- transfer-like services are picked up with no code change. Sign convention: payouts to the bank
 -- are NEGATIVE (money leaving the Amazon account balance); failed disbursements returning money
@@ -11,7 +11,7 @@
 
 WITH params AS (
     SELECT
-        CAST({{company_id}} AS BIGINT) AS company_id,
+        toInt64({{company_id}}) AS company_id,
         {{report_months_array}} AS report_months,
         {{marketplaces_array}} AS marketplaces,
         {{directions_array}} AS directions,
@@ -21,7 +21,7 @@ WITH params AS (
 ),
 cls AS (
     SELECT match_key, sign, summary_subclass
-    FROM "{{catalog}}"."neonpanel_iceberg"."financial_transaction_class_map"
+    FROM staging.financial_transaction_class_map
     WHERE summary_class = 'Transfers' AND fulfillment = '*'
 ),
 lines AS (
@@ -38,28 +38,28 @@ lines AS (
         r.marketplace_id,
         r.marketplace_name,
         r.currency,
-        CAST(r.amount AS DOUBLE) AS amount,
+        toFloat64(r.amount) AS amount,
         CASE
             WHEN r.breakdown_type IN ('Base', 'BaseTax')
                 THEN r.breakdown_type || ':' || COALESCE(r.description, '')
             WHEN r.breakdown_type = 'Promo' AND r.transaction_type = 'ServiceFee'
                 THEN r.breakdown_type || ':' || COALESCE(r.description, '')
-            WHEN r.breakdown_type = 'FBADisposalFee' AND r.posted_date_day < DATE '2026-06-19'
+            WHEN r.breakdown_type = 'FBADisposalFee' AND r.posted_date_day < toDate('2026-06-19')
                 THEN 'FBADisposalFee:legacy'
             WHEN r.breakdown_type = 'Tax' AND r.transaction_type = 'Adjustment'
                 THEN r.breakdown_type || ':' || COALESCE(r.description, '')
             ELSE r.breakdown_type
         END AS match_key
-    FROM "{{catalog}}"."neonpanel_iceberg"."financial_transaction_lines_v1" r
+    FROM analytics.financial_transaction_lines_v1_current r
     CROSS JOIN params p
-    WHERE CAST(r.company_id AS BIGINT) = p.company_id
-      AND (cardinality(p.report_months) = 0 OR contains(p.report_months, r.posted_month))
+        WHERE toInt64(r.company_id) = p.company_id
+            AND (length(p.report_months) = 0 OR has(p.report_months, r.posted_month))
       AND (p.start_date IS NULL OR r.posted_date_day >= p.start_date)
       AND (p.end_date   IS NULL OR r.posted_date_day <= p.end_date)
       AND (
-          cardinality(p.marketplaces) = 0
-          OR any_match(p.marketplaces, m -> lower(m) = lower(r.marketplace_name))
-          OR contains(p.marketplaces, r.marketplace_id)
+          length(p.marketplaces) = 0
+          OR arrayExists(m -> lower(m) = lower(r.marketplace_name), p.marketplaces)
+          OR has(p.marketplaces, r.marketplace_id)
       )
       AND r.amount IS NOT NULL AND r.amount <> 0
 ),
@@ -73,18 +73,18 @@ transfer_lines AS (
 txn AS (
     SELECT
         transaction_id,
-        arbitrary(transaction_type)          AS transaction_type,
-        arbitrary(direction)                 AS direction,
-        arbitrary(description)               AS description,
-        arbitrary(transaction_status)        AS transaction_status,
+        any(transaction_type)                AS transaction_type,
+        any(direction)                       AS direction,
+        any(description)                     AS description,
+        any(transaction_status)              AS transaction_status,
         min(posted_date)                     AS posted_date,
         min(posted_date_day)                 AS posted_date_day,
-        arbitrary(settlement_id)             AS settlement_id,
-        arbitrary(financial_event_group_id)  AS financial_event_group_id,
-        arbitrary(seller_id)                 AS seller_id,
-        arbitrary(marketplace_id)            AS marketplace_id,
-        arbitrary(marketplace_name)          AS marketplace_name,
-        arbitrary(currency)                  AS currency,
+        any(settlement_id)                   AS settlement_id,
+        any(financial_event_group_id)        AS financial_event_group_id,
+        any(seller_id)                       AS seller_id,
+        any(marketplace_id)                  AS marketplace_id,
+        any(marketplace_name)                AS marketplace_name,
+        any(currency)                        AS currency,
         SUM(amount)                          AS amount
     FROM transfer_lines
     GROUP BY transaction_id
@@ -106,7 +106,7 @@ SELECT
     t.transaction_id
 FROM txn t
 CROSS JOIN params p
-WHERE (cardinality(p.directions) = 0
-       OR any_match(p.directions, d -> lower(t.direction) LIKE '%' || lower(d) || '%'))
+WHERE (length(p.directions) = 0
+    OR arrayExists(d -> lower(t.direction) LIKE '%' || lower(d) || '%', p.directions))
 ORDER BY t.posted_date {{sort_direction}}, t.transaction_id
 LIMIT {{limit_top_n}}

@@ -3,7 +3,7 @@
 --          financial transactions -- what each service is, which transactions it comes from,
 --          and how it classifies into summary classes.
 --
--- Source: neonpanel_iceberg.financial_transaction_lines_v1 (long/leaf-grain; one row per
+-- Source: analytics.financial_transaction_lines_v1_current (long/leaf-grain; one row per
 -- breakdown leaf). A "service" == the classification key (match_key): the verbatim Amazon
 -- breakdownType, a composite '<type>:<description>' for ambiguous leaves, or
 -- 'TXN:<transactionType>[:<description>]' for breakdown-less transactions. The CASE below MUST
@@ -13,7 +13,7 @@
 
 WITH params AS (
     SELECT
-        CAST({{company_id}} AS BIGINT) AS company_id,
+        toInt64({{company_id}}) AS company_id,
         {{report_months_array}} AS report_months,
         {{search}} AS search,
         {{only_unclassified}} AS only_unclassified,
@@ -26,7 +26,7 @@ src AS (
                 THEN r.breakdown_type || ':' || COALESCE(r.description, '')
             WHEN r.breakdown_type = 'Promo' AND r.transaction_type = 'ServiceFee'
                 THEN r.breakdown_type || ':' || COALESCE(r.description, '')
-            WHEN r.breakdown_type = 'FBADisposalFee' AND r.posted_date_day < DATE '2026-06-19'
+            WHEN r.breakdown_type = 'FBADisposalFee' AND r.posted_date_day < toDate('2026-06-19')
                 THEN 'FBADisposalFee:legacy'
             WHEN r.breakdown_type = 'Tax' AND r.transaction_type = 'Adjustment'
                 THEN r.breakdown_type || ':' || COALESCE(r.description, '')
@@ -39,31 +39,31 @@ src AS (
         r.posted_month,
         r.transaction_id,
         r.amount
-    FROM "{{catalog}}"."neonpanel_iceberg"."financial_transaction_lines_v1" r
+    FROM analytics.financial_transaction_lines_v1_current r
     CROSS JOIN params p
-    WHERE CAST(r.company_id AS BIGINT) = p.company_id
-      AND (cardinality(p.report_months) = 0 OR contains(p.report_months, r.posted_month))
+        WHERE toInt64(r.company_id) = p.company_id
+            AND (length(p.report_months) = 0 OR has(p.report_months, r.posted_month))
       AND r.amount IS NOT NULL AND r.amount <> 0
 ),
 agg AS (
     SELECT
         service_key,
-        arbitrary(line_kind)                                                           AS line_kind,
-        array_join(slice(array_agg(DISTINCT transaction_type), 1, 6), ', ')            AS origin_transaction_types,
-        array_join(slice(array_agg(DISTINCT COALESCE(description, '')), 1, 6), ' | ')  AS origin_descriptions,
+        any(line_kind)                                                                 AS line_kind,
+        arrayStringConcat(arraySlice(groupUniqArray(transaction_type), 1, 6), ', ')     AS origin_transaction_types,
+        arrayStringConcat(arraySlice(groupUniqArray(COALESCE(description, '')), 1, 6), ' | ') AS origin_descriptions,
         min(posted_month)                                                              AS first_month,
         max(posted_month)                                                              AS last_month,
         count(*)                                                                       AS line_count,
-        count(DISTINCT transaction_id)                                                 AS transaction_count,
+        uniqExact(transaction_id)                                                      AS transaction_count,
         max(CASE WHEN amount > 0 THEN 1 ELSE 0 END)                                    AS has_pos,
         max(CASE WHEN amount < 0 THEN 1 ELSE 0 END)                                    AS has_neg,
-        array_join(array_agg(DISTINCT COALESCE(fulfillment_network, '')), ', ')        AS fulfillment_networks
+        arrayStringConcat(groupUniqArray(COALESCE(fulfillment_network, '')), ', ')     AS fulfillment_networks
     FROM src
     GROUP BY service_key
 ),
 cls AS (
     SELECT match_key, sign, fulfillment, summary_class, summary_subclass
-    FROM "{{catalog}}"."neonpanel_iceberg"."financial_transaction_class_map"
+    FROM staging.financial_transaction_class_map
 )
 SELECT
     a.service_key,

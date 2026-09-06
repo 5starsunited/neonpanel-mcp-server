@@ -79,12 +79,12 @@ export class NeonpanelMcpStack extends cdk.Stack {
           // ATHENA_OUTPUT_LOCATION: 's3://your-athena-results-prefix/',
           // Optional: cross-account access (e.g. assume role in aap-prod-administrator account)
           ATHENA_ASSUME_ROLE_ARN: 'arn:aws:iam::451729026804:role/NeonpanelMcpAthenaReadRole',
-          // ClickHouse-backed pilot tools (financials_*_ch). URL is the PrivateLink
-          // private DNS name — resolves only inside this VPC.
+          // ClickHouse-backed financial analytics. URL is the PrivateLink private DNS
+          // name and resolves only inside this VPC.
           CLICKHOUSE_URL: 'https://ixux5u39tf.us-east-1.vpce.aws.clickhouse.cloud:8443',
           CLICKHOUSE_USER: 'bi_service',
           CLICKHOUSE_DATABASE: 'staging',
-          BUILD_VERSION: 'v3.2.0' // ClickHouse pilot tool (financials_analyze_financial_transactions_ch)
+          BUILD_VERSION: 'v3.2.0' // Canonical ClickHouse financial transaction analysis
         },
         secrets: {
           CLICKHOUSE_PASSWORD: ecs.Secret.fromSecretsManager(clickhouseSecret, 'password'),

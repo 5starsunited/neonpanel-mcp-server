@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
-import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -13,14 +12,14 @@ type CompaniesWithPermissionResponse = {
 };
 
 function sqlEscapeString(value: string): string {
-  return value.replace(/'/g, "''");
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
-function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
+function chStringArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST([] AS Array(String))';
+  return `[${values.map(sqlStringLiteral).join(',')}]`;
 }
 
 // Country code -> [marketplace_name, marketplace_id], so callers can filter by 'US' etc.
@@ -107,7 +106,7 @@ export function registerFinancialsListFinancialTransactionTransfersTool(registry
   registry.register({
     name: 'financials_list_financial_transaction_transfers',
     description:
-      'Lists individual Amazon payouts and transfers from financial transactions (neonpanel_iceberg.financial_transaction_lines_v1, ACCRUAL source) -- one row per transfer-class transaction: disbursements to the bank account, failed disbursements, and account-level reserve holds/releases. Payouts are NEGATIVE (money leaving the Amazon balance); failed disbursements returning funds are POSITIVE. Filter by months or date range, marketplace/country, and direction. For settlement-statement deposits (CASH method), use financials_list_amazon_statements instead.',
+      'Lists individual Amazon payouts and transfers from current-generation ClickHouse financial transactions: disbursements, failed disbursements, and account-level reserve holds/releases.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -152,34 +151,27 @@ export function registerFinancialsListFinancialTransactionTransfersTool(registry
         (query.filters.marketplaces ?? []).map((s) => s.trim()).filter(Boolean),
       );
       const directions = (query.filters.directions ?? []).map((s) => s.trim()).filter(Boolean);
-      const sqlDateOrNull = (d?: string) =>
-        d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `DATE '${d}'` : 'CAST(NULL AS DATE)';
+      const chDateOrNull = (d?: string) =>
+        d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `toDate('${d}')` : 'CAST(NULL AS Nullable(Date))';
       const limitTopN = query.limit ?? 100;
       const sortDirection = (query.sort_direction ?? 'desc').toUpperCase();
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
         company_id: companyId,
-        report_months_array: sqlVarcharArrayExpr(reportMonths),
-        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
-        directions_array: sqlVarcharArrayExpr(directions),
-        start_date: sqlDateOrNull(query.filters.start_date),
-        end_date: sqlDateOrNull(query.filters.end_date),
+        report_months_array: chStringArrayExpr(reportMonths),
+        marketplaces_array: chStringArrayExpr(marketplaces),
+        directions_array: chStringArrayExpr(directions),
+        start_date: chDateOrNull(query.filters.start_date),
+        end_date: chDateOrNull(query.filters.end_date),
         sort_direction: sortDirection,
         limit_top_n: Number(limitTopN),
       });
 
-      const athenaResult = await runAthenaQuery({
-        query: rendered,
-        database: 'neonpanel_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
       return {
-        items: athenaResult.rows ?? [],
+        items: result.rows ?? [],
         model_notes: [
           'Sign convention: payouts to the bank account are NEGATIVE (money leaving the Amazon balance); failed disbursements returning funds are POSITIVE; reserve holds are negative and releases positive.',
           'direction comes from the classification map (summary_class = Transfers): "Transfers to bank account", "Account level reserves", etc.',

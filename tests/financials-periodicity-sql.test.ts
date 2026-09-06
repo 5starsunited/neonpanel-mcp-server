@@ -6,11 +6,19 @@ import { renderSqlTemplate } from '../src/tools/athena_tools/runtime/render-sql'
 
 const toolRoot = path.join(
   process.cwd(),
-  'src/tools/athena_tools/tools/financials/analyze_financial_transactions_ch',
+  'src/tools/athena_tools/tools/financials/analyze_financial_transactions',
 );
 
 const sql = fs.readFileSync(path.join(toolRoot, 'query.sql'), 'utf8');
 const register = fs.readFileSync(path.join(toolRoot, 'register.ts'), 'utf8');
+const toolSpec = JSON.parse(fs.readFileSync(path.join(toolRoot, 'tool.json'), 'utf8')) as {
+  name: string;
+  description: string;
+};
+const registry = fs.readFileSync(
+  path.join(process.cwd(), 'src/tools/athena_tools/index.ts'),
+  'utf8',
+);
 
 // The ClickHouse date-bucket expressions the register maps each periodicity to.
 // Mirrors PERIOD_EXPR in register.ts; 'none' collapses to a single NULL bucket.
@@ -58,6 +66,16 @@ test('register.ts exposes periodicity and the full ClickHouse bucket set', () =>
   for (const expr of PERIOD_EXPRS) {
     assert.ok(register.includes(expr), `register.ts should map a periodicity to ${expr}`);
   }
+});
+
+test('canonical tool uses the report-aligned ClickHouse source and marketplace scope', () => {
+  assert.equal(toolSpec.name, 'financials_analyze_financial_transactions');
+  assert.doesNotMatch(`${register}\n${registry}\n${toolSpec.description}`, /financials_analyze_financial_transactions_ch/);
+  assert.match(sql, /FROM analytics\.financial_transaction_lines_v1_current r/);
+  assert.doesNotMatch(register, /MCF_MARKETPLACES|A2ZV50J4W1RKNI/);
+  assert.match(toolSpec.description, /do not include Non-Amazon\/MCF/);
+  assert.match(sql, /r\.posted_date_day >= p\.start_date/);
+  assert.match(sql, /r\.posted_date_day <= p\.end_date/);
 });
 
 test('query.sql renders with no missing template variables for every periodicity', () => {
