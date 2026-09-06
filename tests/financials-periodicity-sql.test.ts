@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { renderSqlTemplate } from '../src/tools/athena_tools/runtime/render-sql';
+import { registerFinancialsAnalyzeFinancialTransactionsTool } from '../src/tools/athena_tools/tools/financials/analyze_financial_transactions/register';
+import { ToolRegistry } from '../src/tools/types';
 
 const toolRoot = path.join(
   process.cwd(),
@@ -106,6 +108,23 @@ test('canonical tool rejects unbounded financial queries', () => {
     { required: ['report_months'] },
     { required: ['start_date', 'end_date'] },
   ]);
+});
+
+test('tools/list advertises the detailed flat consolidation filter', () => {
+  const registry = new ToolRegistry();
+  registerFinancialsAnalyzeFinancialTransactionsTool(registry);
+
+  const listed = registry.list().find((tool) => tool.name === toolSpec.name);
+  assert.ok(listed);
+
+  const properties = listed.inputSchema.properties as Record<string, Record<string, unknown>>;
+  const filters = properties.filters;
+  const filterProperties = filters.properties as Record<string, Record<string, unknown>>;
+
+  assert.equal(properties.query, undefined);
+  assert.equal(filterProperties.consolidation_currency.type, 'string');
+  assert.equal(filterProperties.consolidation_currency.pattern, '^[A-Za-z]{3}$');
+  assert.deepEqual(listed.inputSchema.required, ['filters']);
 });
 
 test('query.sql renders with no missing template variables for every periodicity', () => {
