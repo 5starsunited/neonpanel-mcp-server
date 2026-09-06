@@ -90,6 +90,12 @@ test('canonical tool uses the report-aligned ClickHouse source and marketplace s
   assert.match(sql, /r\.posted_date_day <= p\.end_date/);
 });
 
+test('currency consolidation uses the latest available rate on or before the posted day', () => {
+  assert.match(sql, /ASOF LEFT JOIN fx fr[\s\S]*?fr\.rate_date <= l\.posted_date_day/);
+  assert.match(sql, /ASOF LEFT JOIN fx fc[\s\S]*?fc\.rate_date <= l\.posted_date_day/);
+  assert.doesNotMatch(sql, /f[rc]\.rate_date = l\.posted_date_day/);
+});
+
 test('canonical tool rejects unbounded financial queries', () => {
   assert.match(register, /A bounded time scope is required/);
   assert.match(register, /start_date and end_date must be provided together/);

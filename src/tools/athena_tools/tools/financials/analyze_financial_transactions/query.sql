@@ -72,12 +72,12 @@ priced_lines AS (
         END AS fx_missing
     FROM all_lines l
     CROSS JOIN params p
-    LEFT JOIN fx fr
+        ASOF LEFT JOIN fx fr
       ON fr.currency_key = lower(l.currency)
-     AND fr.rate_date = l.posted_date_day
-    LEFT JOIN fx fc
+         AND fr.rate_date <= l.posted_date_day
+        ASOF LEFT JOIN fx fc
       ON fc.currency_key = lower(p.consolidation_currency)
-     AND fc.rate_date = l.posted_date_day
+         AND fc.rate_date <= l.posted_date_day
 ),
 transaction_class_map AS (
     SELECT match_key, sign, fulfillment, summary_class, summary_subclass, class_order, subclass_order
