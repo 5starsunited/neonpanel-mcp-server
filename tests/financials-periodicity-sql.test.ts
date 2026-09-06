@@ -14,6 +14,18 @@ const register = fs.readFileSync(path.join(toolRoot, 'register.ts'), 'utf8');
 const toolSpec = JSON.parse(fs.readFileSync(path.join(toolRoot, 'tool.json'), 'utf8')) as {
   name: string;
   description: string;
+  inputSchema: {
+    properties: {
+      query: {
+        properties: {
+          filters: {
+            properties: { report_months: { minItems?: number } };
+            anyOf?: Array<{ required?: string[] }>;
+          };
+        };
+      };
+    };
+  };
 };
 const registry = fs.readFileSync(
   path.join(process.cwd(), 'src/tools/athena_tools/index.ts'),
@@ -76,6 +88,18 @@ test('canonical tool uses the report-aligned ClickHouse source and marketplace s
   assert.match(toolSpec.description, /do not include Non-Amazon\/MCF/);
   assert.match(sql, /r\.posted_date_day >= p\.start_date/);
   assert.match(sql, /r\.posted_date_day <= p\.end_date/);
+});
+
+test('canonical tool rejects unbounded financial queries', () => {
+  assert.match(register, /A bounded time scope is required/);
+  assert.match(register, /start_date and end_date must be provided together/);
+
+  const filters = toolSpec.inputSchema.properties.query.properties.filters;
+  assert.equal(filters.properties.report_months.minItems, 1);
+  assert.deepEqual(filters.anyOf, [
+    { required: ['report_months'] },
+    { required: ['start_date', 'end_date'] },
+  ]);
 });
 
 test('query.sql renders with no missing template variables for every periodicity', () => {

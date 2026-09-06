@@ -109,7 +109,7 @@ const querySchema = z
     filters: z
       .object({
         company_id: z.coerce.number().int().min(1),
-        report_months: z.array(z.string().regex(/^\d{4}-\d{2}$/)).optional(),
+        report_months: z.array(z.string().regex(/^\d{4}-\d{2}$/)).min(1).optional(),
         marketplaces: z.array(z.string().min(1)).optional(),
         marketplace_codes: z.array(z.string().min(1)).optional(),
         start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -118,7 +118,31 @@ const querySchema = z
         summary_classes: z.array(z.string()).optional(),
         summary_subclasses: z.array(z.string()).optional(),
       })
-      .strict(),
+      .strict()
+      .superRefine((filters, ctx) => {
+        const hasMonths = (filters.report_months?.length ?? 0) > 0;
+        const hasStart = filters.start_date !== undefined;
+        const hasEnd = filters.end_date !== undefined;
+
+        if (!hasMonths && !(hasStart && hasEnd)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'A bounded time scope is required: provide report_months or both start_date and end_date.',
+          });
+        }
+        if (hasStart !== hasEnd) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'start_date and end_date must be provided together.',
+          });
+        }
+        if (filters.start_date && filters.end_date && filters.start_date > filters.end_date) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'start_date must be on or before end_date.',
+          });
+        }
+      }),
     sort: z
       .object({
         field: z.enum(SORTABLE_FIELDS).default('class_order').optional(),
