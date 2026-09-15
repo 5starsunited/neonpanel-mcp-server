@@ -31,7 +31,8 @@ latest_snapshot AS (
   LIMIT 1
 ),
 item_run_candidates AS (
-  SELECT f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period, max(f.updated_at) AS run_updated_at
+  SELECT f.company_id, f.inventory_id, f.scenario_uuid, f.calc_period, max(f.updated_at) AS run_updated_at,
+    max(f.dataset = 'manual') AS is_manual
   FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params AS p
   WHERE has(p.company_ids, f.company_id) AND f.dataset != 'actual'
@@ -44,7 +45,9 @@ item_run_candidates AS (
 item_selected_run AS (
   SELECT ranked_runs.company_id, ranked_runs.inventory_id, ranked_runs.scenario_uuid, ranked_runs.calc_period
   FROM (
-    SELECT *, row_number() OVER (PARTITION BY company_id, inventory_id ORDER BY calc_period DESC, run_updated_at DESC) AS run_rank
+    -- A manual override outranks any automatic run regardless of age, the same
+    -- precedence etl.selected_sales_forecast applies.
+    SELECT *, row_number() OVER (PARTITION BY company_id, inventory_id ORDER BY is_manual DESC, calc_period DESC, run_updated_at DESC) AS run_rank
     FROM item_run_candidates
   ) AS ranked_runs
   WHERE ranked_runs.run_rank = 1

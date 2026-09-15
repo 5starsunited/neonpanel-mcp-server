@@ -39,7 +39,8 @@ forecast_run_candidates AS (
     f.inventory_id AS inventory_id,
     f.scenario_uuid AS scenario_uuid,
     f.calc_period AS calc_period,
-    max(f.updated_at) AS run_updated_at
+    max(f.updated_at) AS run_updated_at,
+    max(f.dataset = 'manual') AS is_manual
   FROM analytics.sales_forecast AS f FINAL
   CROSS JOIN params AS p
   WHERE has(p.company_ids, f.company_id) AND f.dataset != 'actual'
@@ -52,9 +53,11 @@ forecast_selected_run AS (
     runs.scenario_uuid AS scenario_uuid,
     runs.calc_period AS calc_period
   FROM forecast_run_candidates AS runs
+  -- A manual override outranks any automatic run regardless of age, the same
+  -- precedence etl.selected_sales_forecast applies.
   QUALIFY row_number() OVER (
     PARTITION BY runs.company_id, runs.inventory_id
-    ORDER BY runs.calc_period DESC, runs.run_updated_at DESC
+    ORDER BY runs.is_manual DESC, runs.calc_period DESC, runs.run_updated_at DESC
   ) = 1
 ),
 forecast_latest_rows AS (

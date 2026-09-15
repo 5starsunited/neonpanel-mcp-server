@@ -220,6 +220,7 @@ const CLICKHOUSE_FORECAST_COLUMNS = [
   'updated_at',
   'sales_channel',
   'country_code',
+  'origin',
 ] as const;
 
 export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry) {
@@ -347,6 +348,7 @@ export function registerForecastingWriteSalesForecastTool(registry: ToolRegistry
           updated_at: updatedAt,
           sales_channel: write.sales_channel?.trim() || 'Amazon',
           country_code: resolved.countryCode,
+          origin: 'mcp',
         };
       });
 
