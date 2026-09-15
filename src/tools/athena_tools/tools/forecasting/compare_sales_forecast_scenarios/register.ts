@@ -345,9 +345,14 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
       if (Array.isArray(compare.scenario_ids) && compare.scenario_ids.length > 0) {
         warnings.push('compare.scenario_ids is not supported yet; use compare.scenario_names.');
       }
-      if (Array.isArray(compare.scenario_uuids) && compare.scenario_uuids.length > 0) {
-        warnings.push('compare.scenario_uuids is not supported yet; use compare.scenario_names.');
-      }
+      // The SQL matches a selector against dataset, scenario_uuid and the 'manual:<uuid>'
+      // label, so both inputs feed one array.
+      const scenarioSelectors = [
+        ...(Array.isArray(compare.scenario_names) ? compare.scenario_names : []),
+        ...(Array.isArray(compare.scenario_uuids) ? compare.scenario_uuids : []),
+      ]
+        .map((value: unknown) => String(value).trim())
+        .filter((value: string) => value.length > 0);
 
       // ---- Authorization ----
       const { permittedCompanyIds, allowedCompanyIds } = await getAllowedCompanyIds(companyId, context);
@@ -402,11 +407,7 @@ export function registerForecastingCompareSalesForecastScenariosTool(registry: T
         apply_product_family_filter_sql: sqlBooleanLiteral(selectorFlags.product_family),
         apply_all_items_filter_sql: sqlBooleanLiteral(useAllCompanyItems),
 
-        scenario_names_array: sqlVarcharArrayExpr(
-          (Array.isArray(compare.scenario_names) ? compare.scenario_names : [])
-            .map((s: any) => String(s).trim())
-            .filter((s: string) => s.length > 0),
-        ),
+        scenario_names_array: sqlVarcharArrayExpr(scenarioSelectors),
 
         sales_channels_array: sqlVarcharArrayExpr(
           (Array.isArray(filters.sales_channel) ? filters.sales_channel : [])

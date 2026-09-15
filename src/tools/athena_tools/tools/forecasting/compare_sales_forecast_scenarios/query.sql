@@ -96,12 +96,22 @@ run_candidates AS (
         PARTITION BY distinct_runs.scenario_name ORDER BY distinct_runs.run_updated_at DESC
       ) AS run_rank
     FROM (
-      SELECT DISTINCT coalesce(f.dataset, 'unknown') AS scenario_name, f.updated_at AS run_updated_at
+      -- dataset is 'manual' for every override, so manual plans would collapse into one
+      -- series. scenario_uuid is the per-plan key for them (a name_version slug for UI
+      -- uploads, the agent's choice for MCP writes); automatic datasets keep their name.
+      SELECT DISTINCT
+        if(f.dataset = 'manual', concat('manual:', coalesce(nullIf(f.scenario_uuid, ''), 'unknown')), coalesce(f.dataset, 'unknown')) AS scenario_name,
+        f.updated_at AS run_updated_at
       FROM analytics.sales_forecast AS f FINAL
       INNER JOIN items AS i ON f.company_id = i.company_id AND toUInt64(f.inventory_id) = i.inventory_id
       CROSS JOIN params AS p
       WHERE f.dataset != 'actual'
-        AND (empty(p.scenario_names) OR has(p.scenario_names, f.dataset))
+        AND (
+          empty(p.scenario_names)
+          OR has(p.scenario_names, f.dataset)
+          OR has(p.scenario_names, coalesce(f.scenario_uuid, ''))
+          OR has(p.scenario_names, if(f.dataset = 'manual', concat('manual:', coalesce(nullIf(f.scenario_uuid, ''), 'unknown')), coalesce(f.dataset, 'unknown')))
+        )
         AND (p.run_selector_type = 'latest_n' OR (
           p.run_selector_type = 'date_range'
           AND (p.updated_at_from IS NULL OR f.updated_at >= p.updated_at_from)
@@ -119,15 +129,23 @@ forecast_latest_rows AS (
     i.marketplace_key AS marketplace_key, i.child_asin AS child_asin, i.parent_asin AS parent_asin,
     i.asin AS asin, i.product_name AS product_name, i.product_family AS product_family,
     i.brand AS brand, i.snapshot_date AS snapshot_date,
-    'forecast' AS series_type, coalesce(f.dataset, 'unknown') AS scenario_name,
+    'forecast' AS series_type,
+    if(f.dataset = 'manual', concat('manual:', coalesce(nullIf(f.scenario_uuid, ''), 'unknown')), coalesce(f.dataset, 'unknown')) AS scenario_name,
     f.updated_at AS run_updated_at, f.forecast_period AS period, f.units_sold AS units_sold,
     f.sales_amount AS sales_amount, f.currency AS currency
   FROM analytics.sales_forecast AS f FINAL
   INNER JOIN items AS i ON f.company_id = i.company_id AND toUInt64(f.inventory_id) = i.inventory_id
-  INNER JOIN run_candidates AS rc ON rc.scenario_name = coalesce(f.dataset, 'unknown') AND rc.run_updated_at = f.updated_at
+  INNER JOIN run_candidates AS rc
+    ON rc.scenario_name = if(f.dataset = 'manual', concat('manual:', coalesce(nullIf(f.scenario_uuid, ''), 'unknown')), coalesce(f.dataset, 'unknown'))
+   AND rc.run_updated_at = f.updated_at
   CROSS JOIN params AS p
   WHERE f.dataset != 'actual'
-    AND (empty(p.scenario_names) OR has(p.scenario_names, f.dataset))
+    AND (
+      empty(p.scenario_names)
+      OR has(p.scenario_names, f.dataset)
+      OR has(p.scenario_names, coalesce(f.scenario_uuid, ''))
+      OR has(p.scenario_names, if(f.dataset = 'manual', concat('manual:', coalesce(nullIf(f.scenario_uuid, ''), 'unknown')), coalesce(f.dataset, 'unknown')))
+    )
     AND (p.compare_mode != 'runs' OR notEmpty(p.scenario_names))
     AND (p.period_start IS NULL OR f.forecast_period >= p.period_start)
     AND (p.period_end IS NULL OR f.forecast_period <= p.period_end)
