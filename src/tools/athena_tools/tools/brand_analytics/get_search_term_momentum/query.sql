@@ -48,15 +48,50 @@ top3 AS (
         maxIf(ifNull(clicked_asin, ''), click_share_rank = 3) AS rank_3_asin,
         maxIf(toNullable(click_share), click_share_rank = 3) AS rank_3_clickshare,
         maxIf(toNullable(conversion_share), click_share_rank = 3) AS rank_3_conversionshare
-    FROM etl.ba_search_term_smart
-    WHERE has({{company_ids_array}}, company_id)
-      AND week_start >= addYears(today(), -3)
+    -- Reads staging.ba_search_terms directly instead of etl.ba_search_term_smart /
+    -- etl.ba_search_terms_current. Those views take the latest generation with a QUALIFY
+    -- window partitioned by (report_scope_key, row_key) and without company_id, so the
+    -- company filter cannot be pushed below the window: every query materialised the
+    -- latest week for ALL companies (millions of rows incl. raw_payload) and hit the 3.7 GiB
+    -- memory limit even for one term. Same semantics, but company-scoped before the window:
+    --   * only the globally latest week (the view's rule; the table has a 14-day TTL),
+    --   * tombstones removed first, then the newest (export_ts, ingested_at, source_version).
+    -- The smart view's catalog join only added parent_asin/product_family/brand, unused here.
+    FROM (
+        SELECT company_id, marketplace_id, week_start, search_term, clicked_asin,
+               click_share_rank, click_share, conversion_share
+        FROM staging.ba_search_terms
+        WHERE has({{company_ids_array}}, company_id)
+          AND is_deleted = 0
+          AND week_start = (SELECT max(week_start) FROM staging.ba_search_terms)
+          -- Only the terms the caller asked for: top3 is the right side of a hash join, and
+          -- unrestricted it holds every term of the company's latest week (2.9M rows for a
+          -- large seller), which exhausts memory even for a single-keyword request.
+          AND ({{top3_term_filter_sql}})
+        QUALIFY (export_ts, ingested_at, source_version)
+              = max((export_ts, ingested_at, source_version))
+                OVER (PARTITION BY company_id, report_scope_key, row_key)
+    )
     GROUP BY company_id, marketplace_id, week_start, search_term
+),
+
+-- ─── ASIN brand / product family ─────────────────────────────────────────────
+-- Same de-duplication as etl.ba_asin_attributes.current_dimensions. The
+-- etl.ba_search_query_performance view also joins planning attributes and the rolling 30-day
+-- sales classification (recomputed on every read, and base_filtered is evaluated several
+-- times below); this tool only needs brand and product_family from it, and takes the
+-- reproducible class from asin_revenue_class instead.
+asin_dim AS (
+    SELECT company_id, amazon_marketplace_id AS marketplace_id, child_asin AS asin, brand, product_family
+    FROM etl.sku_dimensions
+    WHERE has({{company_ids_array}}, company_id) AND child_asin != 'undefined'
+    ORDER BY source_updated_at DESC, inventory_id DESC
+    LIMIT 1 BY company_id, amazon_marketplace_id, child_asin
 ),
 
 -- ─── Base rows: one SQP row per ASIN × search term × week, plus its top-3 ────
 -- No dates are applied here so `date_bounds` below can find the true max week.
-base_filtered AS (
+base_filtered AS MATERIALIZED (
     SELECT
         sqp.company_id AS company_id,
         ifNull(companies.name, 'unknown') AS company_name,
@@ -66,8 +101,8 @@ base_filtered AS (
         sqp.week_start AS week_start,
         sqp.search_query AS search_term,
         sqp.asin AS asin,
-        ifNull(nullIf(sqp.brand, ''), 'unknown') AS my_brand,
-        ifNull(nullIf(sqp.product_family, ''), 'unknown') AS product_family,
+        ifNull(nullIf(dim.brand, ''), 'unknown') AS my_brand,
+        ifNull(nullIf(dim.product_family, ''), 'unknown') AS product_family,
         ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
         ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         cls.revenue_share AS revenue_share,
@@ -82,7 +117,11 @@ base_filtered AS (
         top3.rank_3_asin AS rank_3_asin,
         top3.rank_3_clickshare AS rank_3_clickshare,
         top3.rank_3_conversionshare AS rank_3_conversionshare
-    FROM etl.ba_search_query_performance AS sqp
+    FROM etl.ba_search_query_performance_current AS sqp
+    LEFT JOIN asin_dim AS dim
+        ON dim.company_id = sqp.company_id
+       AND dim.marketplace_id = sqp.marketplace_id
+       AND dim.asin = sqp.asin
     {{asin_class_join_sql}}
     LEFT JOIN etl.ba_marketplaces AS marketplace
         ON sqp.marketplace_id = marketplace.marketplace_id
@@ -121,7 +160,7 @@ base_filtered AS (
 
         AND (
             length({{brands_array}}) = 0
-            OR arrayExists(b -> lower(b) = lower(ifNull(sqp.brand, '')), {{brands_array}})
+            OR arrayExists(b -> lower(b) = lower(ifNull(dim.brand, '')), {{brands_array}})
         )
 
         AND (
@@ -136,7 +175,7 @@ base_filtered AS (
 
         AND (
             length({{product_families_array}}) = 0
-            OR arrayExists(f -> lower(f) = lower(ifNull(sqp.product_family, '')), {{product_families_array}})
+            OR arrayExists(f -> lower(f) = lower(ifNull(dim.product_family, '')), {{product_families_array}})
         )
 
         -- asins / competitor_asins are an OR pair: when either is supplied the

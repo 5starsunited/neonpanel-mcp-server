@@ -297,3 +297,39 @@ test('queries that expose a class column also expose classification_as_of', () =
   );
 });
 
+
+test('search term momentum scopes the competitor top-3 to the company and requested terms', () => {
+  // etl.ba_search_term_smart / ba_search_terms_current take the latest generation with a
+  // QUALIFY window that has no company_id in its partition, so the company filter cannot be
+  // pushed below it: each call materialised every company's latest week (millions of rows)
+  // and hit the memory limit even for a single keyword. The tool must read the staging table
+  // with the company filter inside the window input, and restrict top3 to the requested terms.
+  const dir = path.join(groupRoot, 'get_search_term_momentum');
+  for (const file of ['query.sql', 'query_grouped.sql']) {
+    const sql = stripComments(fs.readFileSync(path.join(dir, file), 'utf8'), '.sql');
+    assert.doesNotMatch(sql, /ba_search_term_smart|ba_search_terms_current/, `${file} reads the unpushable view`);
+    assert.match(sql, /FROM staging\.ba_search_terms/, `${file} must read staging.ba_search_terms`);
+    assert.match(
+      sql,
+      /FROM staging\.ba_search_terms\s+WHERE has\(\{\{company_ids_array\}\}, company_id\)/,
+      `${file} must filter company before the window`,
+    );
+    assert.match(sql, /\{\{top3_term_filter_sql\}\}/, `${file} must restrict top3 to requested terms`);
+    assert.match(sql, /base_filtered AS MATERIALIZED/, `${file} must not re-evaluate base_filtered per reference`);
+  }
+  // The detail query only needs brand/product_family, so it must not pay for the
+  // ba_search_query_performance view (planning attributes + rolling 30-day classification).
+  const detail = stripComments(fs.readFileSync(path.join(dir, 'query.sql'), 'utf8'), '.sql');
+  assert.doesNotMatch(detail, /etl\.ba_search_query_performance\s+AS sqp/);
+  assert.match(detail, /etl\.ba_search_query_performance_current AS sqp/);
+});
+
+test('growth_machine_diagnosis no longer reads the dropped PPC search-term table', () => {
+  const dir = path.join(process.cwd(), 'src/tools/athena_tools/tools/brand_analytics/growth_machine_diagnosis');
+  for (const file of ['query.sql', 'query_grouped.sql']) {
+    const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+    assert.doesNotMatch(sql, /FROM\s+etl\.ba_ppc_search_terms_weekly/i, file);
+    // SQP is windowed from staging with the company filter applied before the window.
+    assert.match(sql, /FROM staging\.ba_search_query_performance[\s\S]*?QUALIFY/, file);
+  }
+});

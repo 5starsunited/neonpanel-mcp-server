@@ -27,13 +27,34 @@ top3 AS (
         maxIf(ifNull(clicked_asin, ''), click_share_rank = 3) AS rank_3_asin,
         maxIf(toNullable(click_share), click_share_rank = 3) AS rank_3_clickshare,
         maxIf(toNullable(conversion_share), click_share_rank = 3) AS rank_3_conversionshare
-    FROM etl.ba_search_term_smart
-    WHERE has({{company_ids_array}}, company_id)
-      AND week_start >= addYears(today(), -3)
+    -- Reads staging.ba_search_terms directly instead of etl.ba_search_term_smart /
+    -- etl.ba_search_terms_current. Those views take the latest generation with a QUALIFY
+    -- window partitioned by (report_scope_key, row_key) and without company_id, so the
+    -- company filter cannot be pushed below the window: every query materialised the
+    -- latest week for ALL companies (millions of rows incl. raw_payload) and hit the 3.7 GiB
+    -- memory limit even for one term. Same semantics, but company-scoped before the window:
+    --   * only the globally latest week (the view's rule; the table has a 14-day TTL),
+    --   * tombstones removed first, then the newest (export_ts, ingested_at, source_version).
+    -- The smart view's catalog join only added parent_asin/product_family/brand, unused here.
+    FROM (
+        SELECT company_id, marketplace_id, week_start, search_term, clicked_asin,
+               click_share_rank, click_share, conversion_share
+        FROM staging.ba_search_terms
+        WHERE has({{company_ids_array}}, company_id)
+          AND is_deleted = 0
+          AND week_start = (SELECT max(week_start) FROM staging.ba_search_terms)
+          -- Only the terms the caller asked for: top3 is the right side of a hash join, and
+          -- unrestricted it holds every term of the company's latest week (2.9M rows for a
+          -- large seller), which exhausts memory even for a single-keyword request.
+          AND ({{top3_term_filter_sql}})
+        QUALIFY (export_ts, ingested_at, source_version)
+              = max((export_ts, ingested_at, source_version))
+                OVER (PARTITION BY company_id, report_scope_key, row_key)
+    )
     GROUP BY company_id, marketplace_id, week_start, search_term
 ),
 
-base_filtered AS (
+base_filtered AS MATERIALIZED (
     SELECT
         sqp.company_id AS company_id,
         ifNull(companies.name, 'unknown') AS company_name,

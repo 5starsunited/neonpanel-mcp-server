@@ -97,7 +97,7 @@ catalog_enriched AS (
 ),
 
 -- Entity filter: resolves grain + entity_ids -> set of child ASINs in scope.
-entity_asins AS (
+entity_asins AS MATERIALIZED (
     SELECT
         child_asin,
         parent_asin,
@@ -146,7 +146,7 @@ base_scope AS (
     SELECT kw_norm FROM tracked_keywords
 ),
 
-keyword_scope AS (
+keyword_scope AS MATERIALIZED (
     -- Case A: no intent_ids -> original base scope (override u tracked)
     SELECT kw_norm
     FROM base_scope
@@ -225,14 +225,29 @@ sqp_raw AS (
         avg(if(ifNull(asin_impression_share, 0) = 0, NULL, asin_click_share / asin_impression_share))
             AS sqp_ctr_advantage,
         avg(search_query_score) AS sqp_search_query_score
-    FROM etl.ba_search_query_performance
+    -- Same latest-generation rule as etl.ba_search_query_performance_current, but the company /
+    -- marketplace / week filter is applied BEFORE the window: the view's window partitions by
+    -- (report_scope_key, row_key) only, so an outer filter cannot be pushed below it and every
+    -- call windowed the whole table (~1.5M rows incl. raw_payload) and ran out of memory.
+    FROM (
+        SELECT company_id, marketplace_id, week_start, asin, search_query,
+            asin_impression_count, asin_click_count, asin_impression_share, asin_click_share,
+            total_cart_add_rate, total_purchase_rate, search_query_score
+        FROM staging.ba_search_query_performance
+        WHERE is_deleted = 0
+          AND company_id = {{company_id}}
+          AND marketplace_id = {{marketplace_id_literal}}
+          AND week_start BETWEEN {{period_start_literal}} AND {{period_end_literal}}
+        QUALIFY (export_ts, ingested_at, source_version)
+            = max((export_ts, ingested_at, source_version)) OVER (PARTITION BY report_scope_key, row_key)
+    ) AS sqp_src
     WHERE company_id = {{company_id}}
       AND marketplace_id = {{marketplace_id_literal}}
       AND week_start BETWEEN {{period_start_literal}} AND {{period_end_literal}}
     GROUP BY kw_norm, child_asin
 ),
 
-sqp AS (
+sqp AS MATERIALIZED (
     SELECT *
     FROM sqp_raw
     WHERE child_asin IN (SELECT child_asin FROM entity_asins)
@@ -243,7 +258,7 @@ sqp AS (
 ),
 
 -- ─── SCP: per-ASIN catalog performance (not keyword-specific) for the period
-scp AS (
+scp AS MATERIALIZED (
     SELECT
         asin AS child_asin,
         sum(ifNull(impression_count, 0)) AS scp_impressions,
@@ -278,7 +293,19 @@ ppc_raw AS (
         arrayElement(arraySort(arrayDistinct(arrayFlatten(groupArray(ppc_match_types)))), -1)
             AS ppc_match_type_sample,
         max(ppc_campaign_count) AS ppc_campaign_count
-    FROM etl.ba_ppc_search_terms_weekly
+    FROM (
+        -- etl.ba_ppc_search_terms_weekly was dropped with the Ads ClickHouse retirement (2026-10-08)
+        -- and no live PPC search-term feed exists. Keep the column contract with an empty relation:
+        -- every ppc_* metric is NULL, so PPC-driven prescriptions are skipped while SQP/SCP
+        -- signals (cart leak, weak leader, defend, ...) keep working.
+        SELECT
+            toUInt64(0) AS company_id, '' AS marketplace_id, '' AS ad_product, '' AS dataset,
+            toDate('1970-01-01') AS week_start, '' AS search_term_norm, '' AS promoted_asin,
+            toUInt64(0) AS ppc_impressions, toUInt64(0) AS ppc_clicks,
+            toFloat64(0) AS ppc_spend, toFloat64(0) AS ppc_sales, toUInt64(0) AS ppc_purchases,
+            CAST([] AS Array(String)) AS ppc_match_types, toUInt32(0) AS ppc_campaign_count
+        WHERE 0
+    ) AS ppc_weekly
     WHERE company_id = {{company_id}}
       AND marketplace_id = {{marketplace_id_literal}}
       AND ad_product = 'SPONSORED_PRODUCTS'
@@ -287,7 +314,7 @@ ppc_raw AS (
     GROUP BY kw_norm, child_asin
 ),
 
-ppc AS (
+ppc AS MATERIALIZED (
     SELECT *
     FROM ppc_raw
     WHERE child_asin IN (SELECT child_asin FROM entity_asins)
@@ -320,7 +347,7 @@ screenshot_rows AS (
       AND period_end >= {{period_start_literal}}
 ),
 
-screenshots AS (
+screenshots AS MATERIALIZED (
     SELECT
         kw_norm,
         argMax(uploaded_at, uploaded_at) AS ss_uploaded_at,
@@ -363,7 +390,7 @@ ryg_ranked AS (
 
 -- toNullable is REQUIRED: maxIf returns the type default (0.0) rather than NULL
 -- when no row matches, which would defeat every COALESCE default below.
-thresholds AS (
+thresholds AS MATERIALIZED (
     SELECT
         maxIf(toNullable(threshold_value), tool = 'growth_machine' AND signal_group = 'proven_winner'   AND metric = 'ppc_cvr'                  AND color = 'green')  AS gm_proven_ppc_cvr_g,
         maxIf(toNullable(threshold_value), tool = 'growth_machine' AND signal_group = 'proven_winner'   AND metric = 'brand_purchase_share'     AND color = 'red')    AS gm_proven_brand_share_r,
@@ -382,7 +409,7 @@ thresholds AS (
 ),
 
 -- ─── Fuse: SQP u PPC on (kw_norm, child_asin), then LEFT JOIN SCP + screenshots
-sqp_ppc_keys AS (
+sqp_ppc_keys AS MATERIALIZED (
     SELECT kw_norm, child_asin FROM sqp
     UNION DISTINCT
     SELECT kw_norm, child_asin FROM ppc

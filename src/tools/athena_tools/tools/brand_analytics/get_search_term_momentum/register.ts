@@ -132,8 +132,11 @@ function buildDimensionClauses(groupBy: GroupByField[]) {
  * match_type picks between three ClickHouse predicates instead of being
  * interpolated as a value, so the mode itself never reaches the SQL text.
  */
-function searchTermMatchSql(matchType: string | undefined, arrayExpr: string): string {
-  const column = 'sqp.search_query';
+function searchTermMatchSql(
+  matchType: string | undefined,
+  arrayExpr: string,
+  column = 'sqp.search_query',
+): string {
   return allowListedSql<'exact' | 'starts_with' | 'contains'>(
     matchType,
     {
@@ -258,7 +261,21 @@ export function registerBrandAnalyticsGetSearchTermMomentumTool(registry: ToolRe
       const searchTermsArray = sqlStringArrayExpr(searchTerms);
       const sqlPath = path.join(__dirname, isGrouped ? 'query_grouped.sql' : 'query.sql');
       const template = await loadTextFile(sqlPath);
+      // Restricts the competitor top-3 lookup to the requested terms (see the query comment).
+      const top3TermFilterSql =
+        searchTerms.length > 0 || intentIds.length > 0
+          ? `search_term IN (
+              SELECT sq.search_query
+              FROM etl.ba_search_query_performance_current AS sq
+              WHERE has(${sqlUInt64ArrayExpr(allowedCompanyIds)}, sq.company_id)
+                AND sq.week_start >= addYears(today(), -3)
+                AND (length(${searchTermsArray}) = 0
+                     OR ${searchTermMatchSql(matchType, searchTermsArray, 'sq.search_query')})
+                AND (${intentTermsFilterClauseSql(allowedCompanyIds, intentIds, 'sq.search_query')})
+            )`
+          : '1';
       const rendered = renderSqlTemplate(template, {
+        top3_term_filter_sql: top3TermFilterSql,
         asin_class_cte_sql: asinClassCteSql(allowedCompanyIds),
         asin_class_join_sql: asinClassJoinSql('sqp'),
         term_intents_cte_sql: termIntentsCteSql(allowedCompanyIds),
