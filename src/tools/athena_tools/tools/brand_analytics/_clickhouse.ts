@@ -81,7 +81,10 @@ export async function resolveMarketplaceIds(
     query:
       `SELECT marketplace_id, lower(country_code) AS country_code_lc, lower(marketplace_id) AS marketplace_id_lc\n` +
       `FROM etl.ba_marketplaces\n` +
-      `WHERE has(${tokenArray}, lower(country_code)) OR has(${tokenArray}, lower(marketplace_id))`,
+      `WHERE has(${tokenArray}, lower(country_code)) OR has(${tokenArray}, lower(marketplace_id))\n` +
+      // A2ZV50J4W1RKNI is the Non-Amazon/MCF marketplace and shares country_code 'US' with
+      // ATVPDKIKX0DER. Sort it last so a country code resolves to the real marketplace.
+      `ORDER BY marketplace_id = 'A2ZV50J4W1RKNI', marketplace_id`,
   });
 
   for (const row of result.rows) {
@@ -89,7 +92,9 @@ export async function resolveMarketplaceIds(
     if (!marketplaceId) continue;
     const countryCodeLc = String(row.country_code_lc ?? '');
     const marketplaceIdLc = String(row.marketplace_id_lc ?? '');
-    if (countryCodeLc) resolved.set(countryCodeLc, marketplaceId);
+    // First row wins for a country code (rows are ordered real-marketplace-first); an exact
+    // marketplace id always maps to itself.
+    if (countryCodeLc && !resolved.has(countryCodeLc)) resolved.set(countryCodeLc, marketplaceId);
     if (marketplaceIdLc) resolved.set(marketplaceIdLc, marketplaceId);
   }
   return resolved;
