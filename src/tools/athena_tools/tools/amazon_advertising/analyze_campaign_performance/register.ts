@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runClickHouseQuery } from '../../../../../clients/clickhouse';
+import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
+import { config } from '../../../../../config';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
-import { logger } from '../../../../../logging/logger';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{
@@ -19,33 +19,32 @@ type CompaniesWithPermissionResponse = {
   }>;
 };
 
-// ClickHouse string-literal escaping (backslash escapes, per CH dialect).
+// Athena (Trino) string-literal escaping: single quotes are doubled.
 function sqlEscapeString(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return value.replace(/'/g, "''");
 }
 
 function sqlStringLiteral(value: string): string {
   return `'${sqlEscapeString(value)}'`;
 }
 
-// ClickHouse array literals; empty arrays need an explicit element type.
-function chStringArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST([] AS Array(String))';
-  return `[${values.map(sqlStringLiteral).join(',')}]`;
+function sqlVarcharArrayExpr(values: string[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
+  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(',')}] AS ARRAY(VARCHAR))`;
 }
 
-function chUInt64ArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST([] AS Array(UInt64))';
-  return `CAST([${values.map((n) => String(Math.trunc(n))).join(',')}] AS Array(UInt64))`;
+function sqlBigintArrayExpr(values: number[]): string {
+  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
+  return `CAST(ARRAY[${values.map((n) => String(Math.trunc(n))).join(',')}] AS ARRAY(BIGINT))`;
 }
 
-// ClickHouse Date literal or a typed NULL when absent.
-function chDateOrNull(value?: string): string {
+// Athena DATE literal or a typed NULL when absent / malformed.
+function sqlDateOrNull(value?: string): string {
   const trimmed = value?.trim();
   if (trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return `toDate(${sqlStringLiteral(trimmed)})`;
+    return `DATE ${sqlStringLiteral(trimmed)}`;
   }
-  return 'CAST(NULL AS Nullable(Date))';
+  return 'CAST(NULL AS DATE)';
 }
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
@@ -83,13 +82,13 @@ const SORTABLE_FIELDS = [
 const PERIODICITY_OPTIONS = ['day', 'month', 'year', 'total'] as const;
 type Periodicity = (typeof PERIODICITY_OPTIONS)[number];
 
-// ClickHouse period-bucket expression over the business date (report_date).
+// Athena period-bucket expression over the business date (report_date).
 // 'total' collapses to a single NULL bucket (no time breakdown).
 const PERIOD_EXPR: Record<Periodicity, string> = {
-  day: 'toString(w.report_date)',
-  month: "formatDateTime(w.report_date, '%Y-%m')",
-  year: 'toString(toYear(w.report_date))',
-  total: 'CAST(NULL AS Nullable(String))',
+  day: 'CAST(w.report_date AS VARCHAR)',
+  month: "date_format(w.report_date, '%Y-%m')",
+  year: 'CAST(year(w.report_date) AS VARCHAR)',
+  total: 'CAST(NULL AS VARCHAR)',
 };
 
 const querySchema = z
@@ -176,7 +175,7 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
   registry.register({
     name: 'advertising_analyze_campaign_performance',
     description:
-      'Analyzes Amazon Advertising campaign performance (SP/SB/SD) enriched with SKU attributes (brand, product family), served from the ClickHouse warehouse (sub-second). Supports campaign, placement, ad-type and time-period analysis.',
+      'Analyzes Amazon Advertising campaign performance (SP/SB/SD) enriched with SKU attributes (brand, product family), served from the Amazon Ads Athena serving table (amazon_ads.ads_dataset; history starts at the first ads_athena refresh). Supports campaign, placement, ad-type and time-period analysis.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -191,7 +190,6 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
         'view:quicksight_group.marketing',
       ];
 
-      const permStart = Date.now();
       const allPermittedCompanyIds = new Set<number>();
       for (const permission of permissions) {
         try {
@@ -215,8 +213,6 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
           // Continue if one permission check fails
         }
       }
-
-      const permissionMs = Date.now() - permStart;
 
       const permittedCompanyIds = Array.from(allPermittedCompanyIds);
 
@@ -270,24 +266,25 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
       // ── Render & execute SQL ──────────────────────────────────────────────
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
+        catalog: config.athena.catalog,
         limit_top_n: Number(limitTopN),
-        start_date_sql: chDateOrNull(time?.start_date),
-        end_date_sql: chDateOrNull(time?.end_date),
+        start_date_sql: sqlDateOrNull(time?.start_date),
+        end_date_sql: sqlDateOrNull(time?.end_date),
         periods_back: Number(periodsBack),
-        company_ids_array: chUInt64ArrayExpr(allowedCompanyIds),
+        company_ids_array: sqlBigintArrayExpr(allowedCompanyIds),
 
         // Filter arrays
-        campaign_types_array: chStringArrayExpr(campaignTypes),
-        marketplaces_array: chStringArrayExpr(marketplaces),
-        campaign_names_array: chStringArrayExpr(campaignNames),
-        ad_group_names_array: chStringArrayExpr(adGroupNames),
-        target_keywords_array: chStringArrayExpr(targetKeywords),
+        campaign_types_array: sqlVarcharArrayExpr(campaignTypes),
+        marketplaces_array: sqlVarcharArrayExpr(marketplaces),
+        campaign_names_array: sqlVarcharArrayExpr(campaignNames),
+        ad_group_names_array: sqlVarcharArrayExpr(adGroupNames),
+        target_keywords_array: sqlVarcharArrayExpr(targetKeywords),
         keyword_match_type_sql: sqlStringLiteral(keywordMatchType),
-        placements_array: chStringArrayExpr(placements),
-        match_types_array: chStringArrayExpr(matchTypes),
-        asins_array: chStringArrayExpr(asins),
-        product_families_array: chStringArrayExpr(productFamilies),
-        brands_array: chStringArrayExpr(brands),
+        placements_array: sqlVarcharArrayExpr(placements),
+        match_types_array: sqlVarcharArrayExpr(matchTypes),
+        asins_array: sqlVarcharArrayExpr(asins),
+        product_families_array: sqlVarcharArrayExpr(productFamilies),
+        brands_array: sqlVarcharArrayExpr(brands),
 
         // Periodicity
         period_expr: periodExpr,
@@ -310,21 +307,15 @@ export function registerAdvertisingAnalyzeCampaignPerformanceTool(registry: Tool
         group_by_marketplace: groupBy.includes('marketplace') ? 1 : 0,
       });
 
-      const queryStart = Date.now();
-      const result = await runClickHouseQuery({ query: rendered });
-      const queryMs = Date.now() - queryStart;
+      const athenaResult = await runAthenaQuery({
+        query: rendered,
+        database: 'amazon_ads',
+        workGroup: config.athena.workgroup,
+        outputLocation: config.athena.outputLocation,
+        maxRows: limitTopN,
+      });
 
-      logger.info(
-        {
-          tool: 'advertising_analyze_campaign_performance',
-          permissionMs,
-          queryMs,
-          rows: result.rows?.length ?? 0,
-        },
-        'ch tool phase timing',
-      );
-
-      return { items: result.rows ?? [] };
+      return { items: athenaResult.rows ?? [] };
     },
   });
 }

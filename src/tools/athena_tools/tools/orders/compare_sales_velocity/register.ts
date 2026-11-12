@@ -1,14 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   fetchPermittedCompanyIds,
+  normalizeOrderStatuses,
+  normalizeFulfillmentChannels,
   resolveDefaultUtcOffsetMinutes,
   sqlBigintArrayExpr,
   sqlVarcharArrayExpr,
@@ -16,12 +17,12 @@ import {
 
 // Maps the group_by dimension to the SQL expression used in the `enriched` CTE.
 const GROUP_DIM_EXPR: Record<string, string> = {
-  inventory_id: 'CAST(e.inventory_id AS VARCHAR)',
+  inventory_id: 'toString(e.inventory_id)',
   sku: 'e.sku',
   asin: 'e.asin',
   product_family: 'e.product_family',
   brand: 'e.brand',
-  company_id: 'CAST(e.company_id AS VARCHAR)',
+  company_id: 'toString(e.company_id)',
 };
 
 const inputSchema = z
@@ -151,11 +152,10 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
         company_ids_array: sqlBigintArrayExpr(allowedIds),
         marketplaces_array: sqlVarcharArrayExpr(query.filters.marketplace_ids ?? []),
-        order_statuses_array: sqlVarcharArrayExpr(query.filters.order_statuses ?? []),
-        fulfillment_channels_array: sqlVarcharArrayExpr(query.filters.fulfillment_channels ?? []),
+        order_statuses_array: sqlVarcharArrayExpr(normalizeOrderStatuses(query.filters.order_statuses)),
+        fulfillment_channels_array: sqlVarcharArrayExpr(normalizeFulfillmentChannels(query.filters.fulfillment_channels)),
         seller_ids_array: sqlVarcharArrayExpr(query.filters.seller_ids ?? []),
         skus_array: sqlVarcharArrayExpr(query.filters.skus ?? []),
         asins_array: sqlVarcharArrayExpr(query.filters.asins ?? []),
@@ -172,13 +172,7 @@ export function registerOrdersCompareSalesVelocityTool(registry: ToolRegistry) {
         limit_top_n: Number(limitTopN),
       });
 
-      const result = await runAthenaQuery({
-        query: rendered,
-        database: 'sp_api_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
       return applySelectFields(result.rows ?? [], undefined);
     },

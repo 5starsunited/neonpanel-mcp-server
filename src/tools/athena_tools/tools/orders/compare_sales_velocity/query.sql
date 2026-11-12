@@ -1,18 +1,20 @@
 -- Tool: customer_orders_compare_amazon_sales_velocity
--- Source: sp_api_iceberg.orders_v2026 (sales signals)
---         + neonpanel_iceberg.inventory_attributes (inventory_id / brand / product_family)
+-- Source: ClickHouse analytics.order_details_v2026_current (sales signals, item grain)
+--         + etl.sku_dimensions (inventory_id / brand / product_family, one row per company_id + sku)
 --
--- Compares period-to-date sales velocity for the CURRENT grain bucket against the same
--- elapsed window shifted back by configurable day offsets (default 1, 7, 30, 365 =
--- yesterday / last week / last month / last year).
+-- Compares period-to-date sales velocity for the CURRENT grain bucket against the same elapsed
+-- window shifted back by configurable day offsets (default 1, 7, 30, 365).
 --
--- "Period-to-date" means: current window = [bucket_start, now]; each comparison window =
--- that same window shifted back N days, so an in-progress bucket compares fairly against
--- the same slice of a prior period.
+-- "Period-to-date" means: current window = [bucket_start, now]; each comparison window = that same
+-- window shifted back N days, so an in-progress bucket compares fairly against the same slice of a
+-- prior period.
 --
--- Metrics per window: units_sold (SUM quantity_ordered), sales (SUM item proceeds_total),
--- avg_price (sales / units). Rows are split by company_id x dimension x marketplace x currency
--- (sales are NOT currency-converted).
+-- Metrics per window: units_sold (SUM ordered_quantity), sales (SUM principal + shipping), avg_price
+-- (sales / units). Rows are split by company_id x dimension x marketplace x currency; *_main
+-- columns convert to the company main currency at the order's local date.
+-- NOTE: no join_use_nulls dependency; unmatched LEFT JOIN defaults are mapped back to NULL.
+-- Time zone: purchase_date (UTC) shifted by utc_offset_minutes (derived DST-aware from
+-- app_companies.timezone in the tool layer; utc_offset_hours overrides).
 
 WITH params AS (
   SELECT
@@ -27,224 +29,149 @@ WITH params AS (
     {{product_families_array}}     AS product_families,
     {{offsets_array}}              AS offsets_days,
     '{{granularity}}'              AS granularity,
-    CAST({{prune_months_back}} AS INTEGER) AS prune_months_back
+    toInt32({{prune_months_back}}) AS prune_months_back
 ),
 
--- ── 0. Reference clock + current bucket start (in local time) ───────────────
--- All bucketing/windowing is done in local wall-clock time so day/week/month
--- boundaries match the seller's reporting calendar. Local = UTC shifted by
--- utc_offset_minutes, derived (DST-aware) from the company's app_companies.timezone
--- in the tool layer (utc_offset_hours can override). NOT AT TIME ZONE: casting a
--- timestamp-with-tz back to timestamp re-renders in the session zone (UTC), undoing it.
+-- ── 0. Reference clock + current bucket start (local wall-clock time) ───────
 bounds AS (
   SELECT
-    DATE_ADD('minute', {{utc_offset_minutes}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)) AS now_ts,
-    CASE p.granularity
-      WHEN 'hour'  THEN DATE_TRUNC('hour',  DATE_ADD('minute', {{utc_offset_minutes}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
-      WHEN 'week'  THEN DATE_TRUNC('week',  DATE_ADD('minute', {{utc_offset_minutes}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
-      WHEN 'month' THEN DATE_TRUNC('month', DATE_ADD('minute', {{utc_offset_minutes}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
-      ELSE              DATE_TRUNC('day',   DATE_ADD('minute', {{utc_offset_minutes}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)))
-    END AS cur_start
-  FROM params p
+    toDateTime(now('UTC')) + toIntervalMinute({{utc_offset_minutes}}) AS now_ts,
+    multiIf(
+      p.granularity = 'hour',  toStartOfHour(now_ts),
+      p.granularity = 'week',  toDateTime(toMonday(toDate(now_ts))),
+      p.granularity = 'month', toDateTime(toStartOfMonth(toDate(now_ts))),
+      toDateTime(toDate(now_ts))
+    ) AS cur_start
+  FROM params AS p
 ),
 
 -- ── 1. Comparison windows (offset 0 = current) ─────────────────────────────
 windows AS (
-  SELECT CAST(0 AS BIGINT) AS offset_days, b.cur_start AS win_start, b.now_ts AS win_end
-  FROM bounds b
+  SELECT toInt64(0) AS offset_days, b.cur_start AS win_start, b.now_ts AS win_end
+  FROM bounds AS b
   UNION ALL
   SELECT
-    off                                      AS offset_days,
-    DATE_ADD('day', -CAST(off AS INTEGER), b.cur_start) AS win_start,
-    DATE_ADD('day', -CAST(off AS INTEGER), b.now_ts)    AS win_end
-  FROM bounds b
-  CROSS JOIN params p
-  CROSS JOIN UNNEST(p.offsets_days) AS t(off)
+    toInt64(o.off)                              AS offset_days,
+    b.cur_start - toIntervalDay(o.off)          AS win_start,
+    b.now_ts    - toIntervalDay(o.off)          AS win_end
+  FROM bounds AS b
+  CROSS JOIN (SELECT arrayJoin(offsets_days) AS off FROM params) AS o
 ),
 
--- ── 2. Partition-pruned scan + dedup to latest snapshot per order ──────────
-latest AS (
-  SELECT
-    o.order_id,
-    o.company_id,
-    o.created_time,
-    o.sales_channel.marketplace_id   AS marketplace_id,
-    o.fulfillment.fulfillment_status AS fulfillment_status,
-    o.fulfillment.fulfilled_by       AS fulfilled_by,
-    o.seller_id,
-    o.order_items                    AS order_items,
-    ROW_NUMBER() OVER (
-      PARTITION BY o.order_id, o.company_id
-      ORDER BY o.last_updated_time DESC
-    ) AS rn
-  FROM "{{catalog}}"."sp_api_iceberg"."orders_v2026" o
-  CROSS JOIN params p
-  WHERE contains(p.company_ids, CAST(o.company_id AS BIGINT))
-    AND o.date_month >= DATE_FORMAT(DATE_ADD('month', -p.prune_months_back, CURRENT_DATE), '%Y-%m')
-    AND (cardinality(p.seller_ids) = 0 OR contains(p.seller_ids, o.seller_id))
-),
-
-filtered AS (
-  SELECT l.*
-  FROM latest l
-  CROSS JOIN params p
-  WHERE l.rn = 1
-    AND (cardinality(p.marketplaces) = 0         OR contains(p.marketplaces, l.marketplace_id))
-    AND (cardinality(p.order_statuses) = 0       OR contains(p.order_statuses, l.fulfillment_status))
-    AND (cardinality(p.fulfillment_channels) = 0 OR contains(p.fulfillment_channels, l.fulfilled_by))
-),
-
--- ── 3. Explode order items + apply ASIN/SKU filters ────────────────────────
+-- ── 2. Item scan (partition-pruned) with order-level and product filters ────
 items AS (
   SELECT
-    f.company_id,
-    -- Convert UTC order timestamp to local wall-clock time for window matching.
-    DATE_ADD('minute', {{utc_offset_minutes}}, f.created_time) AS created_time,
-    f.marketplace_id,
-    oi.product.asin                                   AS asin,
-    oi.product.seller_sku                             AS sku,
-    oi.product.title                                  AS title,
-    COALESCE(oi.quantity_ordered, 0)                  AS units,
-    -- Sales = principal (ITEM breakdown, fallback unit_price * qty) + shipping (SHIPPING breakdown).
-    -- Matches NeonPanel report "Sales"; avoids proceeds.grand_total which is NULL for unfinalized orders.
-    (
-      COALESCE(
-        element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.amount,
-        oi.product.price.unit_price.amount * oi.quantity_ordered
-      )
-      + COALESCE(element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'SHIPPING'), 1).subtotal.amount, 0.0)
-    )                                                 AS sales_amount,
-    COALESCE(
-      element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.currency_code,
-      oi.product.price.unit_price.currency_code
-    )                                                 AS currency
-  FROM filtered f
-  CROSS JOIN UNNEST(f.order_items) AS t(oi)
-  CROSS JOIN params p
-  WHERE (cardinality(p.skus) = 0  OR contains(p.skus,  oi.product.seller_sku))
-    AND (cardinality(p.asins) = 0 OR contains(p.asins, oi.product.asin))
+    o.company_id                                              AS company_id,
+    toDateTime(o.purchase_date) + toIntervalMinute({{utc_offset_minutes}}) AS created_time,
+    o.amazon_marketplace_id                                   AS marketplace_id,
+    o.asin                                                    AS asin,
+    o.sku                                                     AS sku,
+    o.product_name                                            AS title,
+    toInt64(greatest(o.ordered_quantity, 0))                  AS units,
+    -- Sales = principal + shipping (matches the NeonPanel report "Sales"); NULL -> 0.
+    toFloat64(coalesce(o.principal, 0)) + toFloat64(coalesce(o.shipping, 0)) AS sales_amount,
+    coalesce(o.principal_currency, o.shipping_currency, o.order_total_currency) AS currency
+  FROM analytics.order_details_v2026_current AS o
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, o.company_id)
+    AND o.purchase_date IS NOT NULL
+    AND o.purchase_month >= formatDateTime(addMonths(toDate(now()), -p.prune_months_back), '%Y-%m')
+    AND (empty(p.seller_ids) OR has(p.seller_ids, o.seller_id))
+    AND (empty(p.marketplaces) OR has(p.marketplaces, o.amazon_marketplace_id))
+    AND (empty(p.order_statuses) OR has(p.order_statuses,
+          multiIf(o.order_status = 'Shipped', 'SHIPPED',
+                  o.order_status = 'PartiallyShipped', 'PARTIALLY_SHIPPED',
+                  o.order_status = 'PendingAvailability', 'PENDING_AVAILABILITY',
+                  upper(o.order_status))))
+    AND (empty(p.fulfillment_channels) OR has(p.fulfillment_channels, if(o.fulfillment_channel = 'AFN', 'AFN', 'MFN')))
+    AND (empty(p.skus)  OR has(p.skus, o.sku))
+    AND (empty(p.asins) OR has(p.asins, o.asin))
 ),
 
--- ── 4. Dimension mapping (one row per company_id + sku) ────────────────────
+-- ── 3. Dimension mapping (one row per company_id + sku) ────────────────────
 ia_dedup AS (
-  SELECT attr_company_id, sku, attr_inventory_id, brand, product_family
-  FROM (
-    SELECT
-      ia.attr_company_id,
-      ia.sku,
-      ia.attr_inventory_id,
-      ia.brand,
-      ia."product family" AS product_family,
-      ROW_NUMBER() OVER (
-        PARTITION BY ia.attr_company_id, ia.sku
-        ORDER BY ia.attr_inventory_id
-      ) AS rn
-    FROM "{{catalog}}"."neonpanel_iceberg"."inventory_attributes" ia
-  )
-  WHERE rn = 1
+  SELECT company_id, sku, inventory_id, brand, product_family
+  FROM etl.sku_dimensions
+  WHERE company_id IN (SELECT arrayJoin(company_ids) FROM params)
+  ORDER BY source_updated_at DESC, inventory_id DESC
+  LIMIT 1 BY company_id, sku
 ),
 
 enriched AS (
   SELECT
-    i.company_id,
-    i.created_time,
-    i.marketplace_id,
-    i.asin,
-    i.sku,
-    i.title,
-    i.units,
-    i.sales_amount,
-    i.currency,
-    ia.attr_inventory_id AS inventory_id,
-    ia.brand             AS brand,
-    ia.product_family    AS product_family
-  FROM items i
-  LEFT JOIN ia_dedup ia
-    ON ia.attr_company_id = TRY_CAST(i.company_id AS BIGINT)
-   AND ia.sku = i.sku
-  CROSS JOIN params p
-  WHERE (cardinality(p.brands) = 0           OR contains(p.brands, ia.brand))
-    AND (cardinality(p.product_families) = 0 OR contains(p.product_families, ia.product_family))
+    i.company_id    AS company_id,
+    i.created_time  AS created_time,
+    i.marketplace_id AS marketplace_id,
+    i.asin          AS asin,
+    i.sku           AS sku,
+    i.title         AS title,
+    i.units         AS units,
+    i.sales_amount  AS sales_amount,
+    i.currency      AS currency,
+    nullIf(ia.inventory_id, 0) AS inventory_id,
+    nullIf(ia.brand, '')       AS brand,
+    nullIf(ia.product_family, '') AS product_family
+  FROM items AS i
+  LEFT JOIN ia_dedup AS ia ON ia.company_id = i.company_id AND ia.sku = i.sku
+  CROSS JOIN params AS p
+  WHERE (empty(p.brands)           OR has(p.brands, ia.brand))
+    AND (empty(p.product_families) OR has(p.product_families, ia.product_family))
 ),
 
--- ── 4b. Per-company main reporting currency + FX validity ranges ────────────
+-- ── 3b. Per-company main reporting currency + FX (native -> USD) ────────────
 company_main AS (
   SELECT id AS company_id, currency AS main_currency
-  FROM "{{catalog}}"."neonpanel_iceberg"."app_companies"
+  FROM app.app_companies
+  WHERE id IN (SELECT arrayJoin(company_ids) FROM params)
 ),
 
--- currency_rates.rate is native->USD (USD = 1.0). Rates are sparse (~weekly),
--- so each rate is valid from its date until the next rate for that currency.
 fx AS (
-  SELECT
-    currency,
-    date AS from_date,
-    COALESCE(
-      LEAD(date) OVER (PARTITION BY currency ORDER BY date),
-      DATE '9999-12-31'
-    ) AS to_date,
-    rate
-  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
+  SELECT upper(toString(currency)) AS currency, toDate(date) AS rate_date, max(toFloat64(rate)) AS rate
+  FROM app.currency_rates
+  GROUP BY currency, rate_date
 ),
 
--- Convert each item to the company main currency at its own (local) order date:
---   amount_main = amount_native * rate(native) / rate(main)
+-- amount_main = amount_native * rate(native) / rate(main), at the order's local date.
 converted AS (
   SELECT
-    e.company_id,
-    e.created_time,
-    e.marketplace_id,
-    e.asin,
-    e.sku,
-    e.title,
-    e.units,
-    e.sales_amount,
-    e.currency,
-    e.inventory_id,
-    e.brand,
-    e.product_family,
-    cm.main_currency,
-    e.sales_amount * fxn.rate / NULLIF(fxm.rate, 0.0) AS sales_amount_main
-  FROM enriched e
-  LEFT JOIN company_main cm ON cm.company_id = TRY_CAST(e.company_id AS BIGINT)
-  LEFT JOIN fx fxn
-    ON fxn.currency = e.currency
-   AND CAST(e.created_time AS DATE) >= fxn.from_date
-   AND CAST(e.created_time AS DATE) <  fxn.to_date
-  LEFT JOIN fx fxm
-    ON fxm.currency = cm.main_currency
-   AND CAST(e.created_time AS DATE) >= fxm.from_date
-   AND CAST(e.created_time AS DATE) <  fxm.to_date
+    e.company_id, e.created_time, e.marketplace_id, e.asin, e.sku, e.title, e.units, e.sales_amount,
+    e.currency, e.inventory_id, e.brand, e.product_family,
+    nullIf(cm.main_currency, '') AS main_currency,
+    if(fxn.rate > 0 AND fxm.rate > 0, e.sales_amount * fxn.rate / fxm.rate, NULL) AS sales_amount_main
+  FROM enriched AS e
+  LEFT JOIN company_main AS cm ON cm.company_id = e.company_id
+  ASOF LEFT JOIN fx AS fxn ON fxn.currency = upper(e.currency) AND toDate(e.created_time) >= fxn.rate_date
+  ASOF LEFT JOIN fx AS fxm ON fxm.currency = upper(cm.main_currency) AND toDate(e.created_time) >= fxm.rate_date
 ),
 
--- ── 5. Assign each item to every window it falls in ────────────────────────
+-- ── 4. Assign each item to every window it falls in ────────────────────────
 joined AS (
   SELECT
-    e.company_id,
+    e.company_id                    AS company_id,
     {{group_dim_expr}}              AS group_value,
-    e.marketplace_id,
-    COALESCE(e.currency, 'UNKNOWN') AS currency,
-    e.main_currency,
-    e.title,
-    w.offset_days,
-    e.units,
-    e.sales_amount,
-    e.sales_amount_main
-  FROM converted e
-  CROSS JOIN windows w
+    e.marketplace_id                AS marketplace_id,
+    coalesce(e.currency, 'UNKNOWN') AS currency,
+    e.main_currency                 AS main_currency,
+    e.title                         AS title,
+    w.offset_days                   AS offset_days,
+    e.units                         AS units,
+    e.sales_amount                  AS sales_amount,
+    e.sales_amount_main             AS sales_amount_main
+  FROM converted AS e
+  CROSS JOIN windows AS w
   WHERE e.created_time >= w.win_start
     AND e.created_time <  w.win_end
 ),
 
--- ── 6. Pivot windows into per-period metric columns ────────────────────────
+-- ── 5. Pivot windows into per-period metric columns ────────────────────────
 agg AS (
   SELECT
     company_id,
     group_value,
     marketplace_id,
     currency,
-    MAX(main_currency) AS main_currency,
-    MAX(title) AS representative_title,
+    max(main_currency) AS main_currency,
+    max(title) AS representative_title,
     {{metric_pivot_columns}}
   FROM joined
   GROUP BY company_id, group_value, marketplace_id, currency
@@ -252,7 +179,7 @@ agg AS (
 
 SELECT
   '{{group_by}}' AS group_by,
-  company_id,
+  toString(company_id) AS company_id,
   group_value,
   representative_title,
   marketplace_id,

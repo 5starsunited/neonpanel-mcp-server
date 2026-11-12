@@ -1,64 +1,47 @@
 -- Tool: customer_orders_get_amazon_customer_order_details
--- Source: sp_api_iceberg.orders_v2026
--- Returns: one row per order-item for the requested order_id
+-- Source: ClickHouse analytics.order_details_v2026 (item grain; latest generation selected inline, see below)
+-- Returns: one row per order-item for the requested order_id.
+-- Not available in the ClickHouse source (returned as NULL): promotion_ids.
+-- Mapping: unit_list_price = principal / ordered_quantity; quantity_fulfilled = shipped_quantity;
+--   proceeds_total = principal + shipping (item level), currency from the principal.
 
-WITH latest AS (
-  SELECT
-    o.*,
-    ROW_NUMBER() OVER (
-      PARTITION BY o.order_id, o.company_id
-      ORDER BY o.last_updated_time DESC
-    ) AS rn
-  FROM "{{catalog}}"."sp_api_iceberg"."orders_v2026" o
-  WHERE
-    o.company_id = {{company_id_str}}
-    AND o.order_id = {{order_id_str}}
-),
-
-order_head AS (
-  SELECT * FROM latest WHERE rn = 1
-),
-
-items AS (
-  SELECT
-    h.order_id,
-    DATE_FORMAT(h.created_time    AT TIME ZONE 'UTC', '%Y-%m-%dT%H:%i:%sZ') AS created_time,
-    DATE_FORMAT(h.last_updated_time AT TIME ZONE 'UTC', '%Y-%m-%dT%H:%i:%sZ') AS last_updated_time,
-    h.sales_channel.marketplace_id                         AS marketplace_id,
-    h.sales_channel.marketplace_name                       AS marketplace_name,
-    h.fulfillment.fulfillment_status                       AS fulfillment_status,
-    h.fulfillment.fulfilled_by                             AS fulfilled_by,
-    h.fulfillment.fulfillment_service_level                AS service_level,
-    DATE_FORMAT(h.fulfillment.ship_by_window.earliest_date_time AT TIME ZONE 'UTC', '%Y-%m-%dT%H:%i:%sZ') AS ship_by_earliest,
-    DATE_FORMAT(h.fulfillment.ship_by_window.latest_date_time   AT TIME ZONE 'UTC', '%Y-%m-%dT%H:%i:%sZ') AS ship_by_latest,
-    h.proceeds.grand_total.amount                          AS order_total,
-    h.proceeds.grand_total.currency_code                   AS order_currency,
-    h.company_id,
-    h.seller_id,
-    -- item-level fields
-    oi.order_item_id,
-    oi.product.asin                                        AS asin,
-    oi.product.seller_sku                                  AS seller_sku,
-    oi.product.title                                       AS title,
-    oi.product.price.unit_price.amount                     AS unit_list_price,
-    oi.product.price.unit_price.currency_code              AS list_price_currency,
-    oi.quantity_ordered,
-    oi.fulfillment.quantity_fulfilled,
-    oi.fulfillment.quantity_unfulfilled,
-    oi.proceeds.proceeds_total.amount                      AS proceeds_total,
-    oi.proceeds.proceeds_total.currency_code               AS proceeds_currency,
-    -- promotion IDs as comma-separated string
-    ARRAY_JOIN(
-      transform(
-        COALESCE(oi.promotion.breakdowns, CAST(ARRAY[] AS ARRAY(ROW(promotion_id VARCHAR)))),
-        x -> x.promotion_id
-      ),
-      ','
-    )                                                       AS promotion_ids
-  FROM order_head h
-  CROSS JOIN UNNEST(h.order_items) AS t(oi)
-)
-
-SELECT *
-FROM items
-ORDER BY order_item_id
+SELECT
+  o.amazon_order_id                                                           AS order_id,
+  formatDateTime(o.purchase_date, '%Y-%m-%dT%H:%i:%SZ', 'UTC')                AS created_time,
+  formatDateTime(o.last_updated_date, '%Y-%m-%dT%H:%i:%SZ', 'UTC')            AS last_updated_time,
+  o.amazon_marketplace_id                                                     AS marketplace_id,
+  o.sales_channel                                                             AS marketplace_name,
+  multiIf(o.order_status = 'Shipped', 'SHIPPED',
+          o.order_status = 'PartiallyShipped', 'PARTIALLY_SHIPPED',
+          o.order_status = 'PendingAvailability', 'PENDING_AVAILABILITY',
+          upper(o.order_status))                                              AS fulfillment_status,
+  if(o.fulfillment_channel = 'AFN', 'AMAZON', if(o.fulfillment_channel = 'MFN', 'MERCHANT', NULL)) AS fulfilled_by,
+  nullIf(o.ship_service_level, '')                                            AS service_level,
+  formatDateTime(o.earliest_ship_date, '%Y-%m-%dT%H:%i:%SZ', 'UTC')           AS ship_by_earliest,
+  formatDateTime(o.latest_ship_date, '%Y-%m-%dT%H:%i:%SZ', 'UTC')             AS ship_by_latest,
+  toFloat64(o.order_total)                                                    AS order_total,
+  o.order_total_currency                                                      AS order_currency,
+  toString(o.company_id)                                                      AS company_id,
+  o.seller_id                                                                 AS seller_id,
+  o.order_item_id                                                             AS order_item_id,
+  nullIf(o.asin, '')                                                          AS asin,
+  nullIf(o.sku, '')                                                           AS seller_sku,
+  nullIf(o.product_name, '')                                                  AS title,
+  if(o.ordered_quantity > 0, toFloat64(o.principal) / o.ordered_quantity, NULL) AS unit_list_price,
+  o.principal_currency                                                        AS list_price_currency,
+  o.ordered_quantity                                                          AS quantity_ordered,
+  o.shipped_quantity                                                          AS quantity_fulfilled,
+  greatest(o.ordered_quantity - o.shipped_quantity, 0)                        AS quantity_unfulfilled,
+  if(isNull(o.principal) AND isNull(o.shipping), NULL,
+     toFloat64(coalesce(o.principal, 0)) + toFloat64(coalesce(o.shipping, 0))) AS proceeds_total,
+  coalesce(o.principal_currency, o.shipping_currency)                         AS proceeds_currency,
+  CAST(NULL AS Nullable(String))                                              AS promotion_ids
+FROM analytics.order_details_v2026 AS o
+WHERE o.company_id = {{company_id}}
+  AND o.amazon_order_id = {{order_id_str}}
+-- Same latest-generation semantics as analytics.order_details_v2026_current, applied after the
+-- single-order filter (the view's window would otherwise scan the whole company history).
+QUALIFY (coalesce(o.last_updated_date, toDateTime64(0, 3, 'UTC')), o.updated_at)
+        = max((coalesce(o.last_updated_date, toDateTime64(0, 3, 'UTC')), o.updated_at)) OVER ()
+    AND o.is_deleted = 0
+ORDER BY o.order_item_id

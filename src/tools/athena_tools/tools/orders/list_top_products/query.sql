@@ -1,7 +1,7 @@
 -- Tool: customer_orders_list_top_performance_on_amazon
--- Source: sp_api_iceberg.orders_v2026
--- Revenue: order_items[].proceeds.proceeds_total.amount (item-level)
--- Dedup: latest last_updated_time per order_id + company_id
+-- Source: ClickHouse analytics.order_details_v2026_current (item grain, latest generation per order)
+-- Revenue: item principal + shipping (the item-level `proceeds_total` of the old Athena source is no
+--   longer available; principal + shipping matches the "Sales" definition of the other order tools).
 
 WITH params AS (
   SELECT
@@ -12,120 +12,76 @@ WITH params AS (
     {{order_statuses_array}}            AS order_statuses,
     {{start_date_sql}}                  AS start_date,
     {{end_date_sql}}                    AS end_date,
-    CAST({{periods_back}} AS INTEGER)   AS periods_back,
-    CAST({{min_orders}} AS INTEGER)     AS min_orders
+    toInt32({{periods_back}})           AS periods_back,
+    toInt32({{min_orders}})             AS min_orders
 ),
 
--- ── 1. Dedup: latest snapshot per order ───────────────────────────────────
-latest AS (
-  SELECT
-    o.order_id,
-    o.created_time,
-    o.sales_channel.marketplace_id          AS marketplace_id,
-    o.fulfillment.fulfillment_status        AS fulfillment_status,
-    o.company_id,
-    o.order_items,
-    ROW_NUMBER() OVER (
-      PARTITION BY o.order_id, o.company_id
-      ORDER BY o.last_updated_time DESC
-    ) AS rn
-  FROM "{{catalog}}"."sp_api_iceberg"."orders_v2026" o
-  CROSS JOIN params p
-  WHERE
-    contains(p.company_ids, CAST(o.company_id AS BIGINT))
-    AND o.date_month >= DATE_FORMAT(
-      DATE_ADD('month', -(p.periods_back + 1), CURRENT_DATE), '%Y-%m'
-    )
-),
-
--- ── 2. Apply order-level filters + date window ────────────────────────────
-filtered_orders AS (
-  SELECT l.*
-  FROM latest l
-  CROSS JOIN params p
-  WHERE l.rn = 1
-    AND (
-      p.start_date IS NULL
-      OR CAST(l.created_time AS DATE) >= p.start_date
-    )
-    AND (
-      p.end_date IS NULL
-      OR CAST(l.created_time AS DATE) <= p.end_date
-    )
-    AND (
-      p.start_date IS NOT NULL
-      OR CAST(l.created_time AS DATE) >= DATE_ADD('month', -p.periods_back, CURRENT_DATE)
-    )
-    AND (
-      cardinality(p.marketplaces) = 0
-      OR contains(p.marketplaces, l.marketplace_id)
-    )
-    AND (
-      cardinality(p.order_statuses) = 0
-      OR contains(p.order_statuses, l.fulfillment_status)
-    )
-),
-
--- ── 3. Unnest order_items ──────────────────────────────────────────────────
+-- ── 1. Item scan with order-level and product filters ──────────────────────
 items AS (
   SELECT
-    fo.order_id,
-    fo.created_time,
-    fo.marketplace_id,
-    fo.company_id,
-    oi.product.asin                                         AS asin,
-    oi.product.seller_sku                                   AS seller_sku,
-    oi.product.title                                        AS title,
-    COALESCE(oi.quantity_ordered, 0)                        AS quantity_ordered,
-    COALESCE(oi.proceeds.proceeds_total.amount, 0.0)        AS item_revenue,
-    oi.proceeds.proceeds_total.currency_code                AS currency
-  FROM filtered_orders fo
-  CROSS JOIN UNNEST(fo.order_items) AS t(oi)
-  CROSS JOIN params p
-  WHERE
-    (cardinality(p.asins) = 0 OR contains(p.asins, oi.product.asin))
-    AND (cardinality(p.skus)  = 0 OR contains(p.skus,  oi.product.seller_sku))
+    o.amazon_order_id                                       AS order_id,
+    o.purchase_date                                         AS created_time,
+    o.amazon_marketplace_id                                 AS marketplace_id,
+    o.company_id                                            AS company_id,
+    o.asin                                                  AS asin,
+    o.sku                                                   AS seller_sku,
+    o.product_name                                          AS title,
+    toInt64(greatest(o.ordered_quantity, 0))                AS quantity_ordered,
+    toFloat64(coalesce(o.principal, 0)) + toFloat64(coalesce(o.shipping, 0)) AS item_revenue,
+    coalesce(o.principal_currency, o.shipping_currency, o.order_total_currency) AS currency
+  FROM analytics.order_details_v2026_current AS o
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, o.company_id)
+    AND o.purchase_date IS NOT NULL
+    AND o.purchase_month >= formatDateTime(
+          addMonths(coalesce(p.start_date, toDate(now())),
+                    -if(isNull(p.start_date), p.periods_back + 1, 1)), '%Y-%m')
+    AND (isNull(p.start_date) OR toDate(o.purchase_date) >= p.start_date)
+    AND (isNull(p.end_date)   OR toDate(o.purchase_date) <= p.end_date)
+    AND (isNotNull(p.start_date) OR toDate(o.purchase_date) >= addMonths(toDate(now()), -p.periods_back))
+    AND (empty(p.marketplaces) OR has(p.marketplaces, o.amazon_marketplace_id))
+    AND (empty(p.order_statuses) OR has(p.order_statuses,
+          multiIf(o.order_status = 'Shipped', 'SHIPPED',
+                  o.order_status = 'PartiallyShipped', 'PARTIALLY_SHIPPED',
+                  o.order_status = 'PendingAvailability', 'PENDING_AVAILABILITY',
+                  upper(o.order_status))))
+    AND (empty(p.asins) OR has(p.asins, o.asin))
+    AND (empty(p.skus)  OR has(p.skus, o.sku))
 ),
 
--- ── 4. Aggregate per product ───────────────────────────────────────────────
+-- ── 2. Aggregate per product ───────────────────────────────────────────────
 agg AS (
   SELECT
     asin,
     seller_sku,
-    MAX(title)                                  AS title,
+    max(title)                                  AS title,
     marketplace_id,
-    COALESCE(currency, 'UNKNOWN')               AS currency,
+    coalesce(currency, 'UNKNOWN')               AS currency,
     company_id,
-    COUNT(DISTINCT order_id)                    AS orders,
-    SUM(quantity_ordered)                       AS units_ordered,
-    ROUND(SUM(item_revenue), 2)                 AS gross_revenue,
-    ROUND(
-      SUM(item_revenue) / NULLIF(SUM(quantity_ordered), 0),
-      2
-    )                                           AS avg_unit_price,
-    MIN(CAST(created_time AS DATE))             AS first_order_date,
-    MAX(CAST(created_time AS DATE))             AS last_order_date
+    uniqExact(order_id)                         AS orders,
+    sum(quantity_ordered)                       AS units_ordered,
+    round(sum(item_revenue), 2)                 AS gross_revenue,
+    round(sum(item_revenue) / nullIf(sum(quantity_ordered), 0), 2) AS avg_unit_price,
+    min(toDate(created_time))                   AS first_order_date,
+    max(toDate(created_time))                   AS last_order_date
   FROM items
   GROUP BY asin, seller_sku, marketplace_id, currency, company_id
 ),
 
--- ── 5. Rank within each marketplace × currency × company group ────────────
+-- ── 3. Rank within each marketplace x currency x company group ─────────────
 ranked AS (
   SELECT
     agg.*,
-    ROW_NUMBER() OVER (
+    row_number() OVER (
       PARTITION BY agg.marketplace_id, agg.currency, agg.company_id
       ORDER BY
-        CASE '{{sort_column}}'
-          WHEN 'gross_revenue'  THEN agg.gross_revenue
-          WHEN 'orders'         THEN CAST(agg.orders AS DOUBLE)
-          WHEN 'units_ordered'  THEN CAST(agg.units_ordered AS DOUBLE)
-          ELSE agg.gross_revenue
-        END
+        multiIf('{{sort_column}}' = 'orders', toFloat64(agg.orders),
+                '{{sort_column}}' = 'units_ordered', toFloat64(agg.units_ordered),
+                toFloat64(agg.gross_revenue))
         {{sort_direction}}
     ) AS rank
   FROM agg
-  CROSS JOIN params p
+  CROSS JOIN params AS p
   WHERE agg.orders >= p.min_orders
 )
 
@@ -136,13 +92,13 @@ SELECT
   title,
   marketplace_id,
   currency,
-  company_id,
+  toString(company_id) AS company_id,
   orders,
   units_ordered,
   gross_revenue,
   avg_unit_price,
-  first_order_date,
-  last_order_date
+  toString(first_order_date) AS first_order_date,
+  toString(last_order_date)  AS last_order_date
 FROM ranked
 WHERE rank <= {{limit_top_n}}
 ORDER BY company_id, marketplace_id, currency, rank

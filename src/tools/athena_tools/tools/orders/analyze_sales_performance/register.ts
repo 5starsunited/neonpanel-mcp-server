@@ -1,14 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
 import {
   fetchPermittedCompanyIds,
+  normalizeOrderStatuses,
+  normalizeFulfillmentChannels,
   resolveDefaultUtcOffsetMinutes,
   sqlBigintArrayExpr,
   sqlVarcharArrayExpr,
@@ -63,7 +64,7 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
   registry.register({
     name: 'customer_orders_analyze_amazon_sales_performance',
     description:
-      'Time-series sales performance from placed Amazon orders (sp_api_iceberg.orders_v2026). Revenue, order count, status mix, FBA/FBM split by day/week/month.',
+      'Time-series sales performance from placed Amazon orders (analytics.order_details_v2026_current). Revenue, order count, status mix, FBA/FBM split by day/week/month.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -94,11 +95,10 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
         company_ids_array: sqlBigintArrayExpr(allowedIds),
         marketplaces_array: sqlVarcharArrayExpr(query.filters.marketplace_ids ?? []),
-        order_statuses_array: sqlVarcharArrayExpr(query.filters.order_statuses ?? []),
-        fulfillment_channels_array: sqlVarcharArrayExpr(query.filters.fulfillment_channels ?? []),
+        order_statuses_array: sqlVarcharArrayExpr(normalizeOrderStatuses(query.filters.order_statuses)),
+        fulfillment_channels_array: sqlVarcharArrayExpr(normalizeFulfillmentChannels(query.filters.fulfillment_channels)),
         seller_ids_array: sqlVarcharArrayExpr(query.filters.seller_ids ?? []),
         start_date_sql: sqlDateExpr(time?.start_date),
         end_date_sql: sqlDateExpr(time?.end_date),
@@ -108,13 +108,7 @@ export function registerOrdersAnalyzeSalesPerformanceTool(registry: ToolRegistry
         limit_top_n: Number(limitTopN),
       });
 
-      const result = await runAthenaQuery({
-        query: rendered,
-        database: 'sp_api_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
       return applySelectFields(result.rows ?? [], undefined);
     },

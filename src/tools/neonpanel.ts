@@ -1039,7 +1039,8 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
           query: {
             start_date: parsed.startDate,
             end_date: parsed.endDate,
-            periodicity: parsed.periodicity,
+            // The API rejects a missing periodicity (500); the documented default is 'total'.
+            periodicity: parsed.periodicity ?? 'total',
             company_uuids: parsed.companyUuids,
             country_codes: parsed.countryCodes,
             grouping: parsed.grouping,

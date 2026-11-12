@@ -1,12 +1,13 @@
 -- Tool: customer_orders_analyze_amazon_sales_performance
--- Source: sp_api_iceberg.orders_v2026
--- Revenue: Sales = principal + shipping (item proceeds.breakdowns; see order_sales)
--- Dedup: latest last_updated_time per order_id + company_id
--- Time zone: order timestamps (UTC) are shifted by utc_offset_minutes before date
---   filtering and day/week/month bucketing, so periods match the seller's calendar.
---   The offset is derived (DST-aware) from the company's app_companies.timezone in the
---   tool layer; utc_offset_hours can override it. (Offset, not AT TIME ZONE: casting a
---   timestamp-with-tz back to timestamp re-renders in the session zone (UTC), undoing it.)
+-- Source: ClickHouse analytics.order_details_v2026_current (item grain; the view already keeps the
+--   latest generation per (company_id, amazon_order_id) and drops tombstones).
+-- Revenue: Sales = principal + shipping, summed over an order's item rows (NULL -> 0).
+-- Time zone: purchase_date (UTC) is shifted by utc_offset_minutes before date filtering and
+--   day/week/month/hour bucketing, so periods match the seller's calendar. The offset is derived
+--   (DST-aware) from the company's app_companies.timezone in the tool layer; utc_offset_hours
+--   can override it.
+-- FX: app.currency_rates.rate is native->USD (USD = 1.0); the latest rate on or before the order's
+--   local date is used (ASOF), converting native -> company main currency.
 
 WITH params AS (
   SELECT
@@ -17,185 +18,119 @@ WITH params AS (
     {{seller_ids_array}}                AS seller_ids,
     {{start_date_sql}}                  AS start_date,
     {{end_date_sql}}                    AS end_date,
-    CAST({{periods_back}} AS INTEGER)   AS periods_back,
+    toInt32({{periods_back}})           AS periods_back,
     '{{granularity}}'                   AS granularity
 ),
 
--- ── 1. Partition-pruned scan + dedup ───────────────────────────────────────
-latest AS (
+-- ── 1. Partition-pruned item scan with order-level filters ─────────────────
+items AS (
   SELECT
-    o.order_id,
-    DATE_ADD('minute', {{utc_offset_minutes}}, o.created_time) AS created_local,
-    o.last_updated_time,
-    o.sales_channel.marketplace_id                  AS marketplace_id,
-    o.sales_channel.marketplace_name                AS marketplace_name,
-    o.fulfillment.fulfillment_status                AS fulfillment_status,
-    o.fulfillment.fulfilled_by                      AS fulfilled_by,
-    o.order_items                                   AS order_items,
-    o.company_id,
-    o.seller_id,
-    ROW_NUMBER() OVER (
-      PARTITION BY o.order_id, o.company_id
-      ORDER BY o.last_updated_time DESC
-    ) AS rn
-  FROM "{{catalog}}"."sp_api_iceberg"."orders_v2026" o
-  CROSS JOIN params p
-  WHERE
-    contains(p.company_ids, CAST(o.company_id AS BIGINT))
-    AND (
-      cardinality(p.seller_ids) = 0
-      OR contains(p.seller_ids, o.seller_id)
-    )
-    AND o.date_month >= DATE_FORMAT(
-      DATE_ADD('month', -(p.periods_back + 1), CURRENT_DATE), '%Y-%m'
-    )
+    o.amazon_order_id                                         AS order_id,
+    o.company_id                                              AS company_id,
+    o.amazon_marketplace_id                                   AS marketplace_id,
+    o.purchase_date + toIntervalMinute({{utc_offset_minutes}}) AS created_local,
+    multiIf(o.order_status = 'Shipped', 'SHIPPED',
+            o.order_status = 'PartiallyShipped', 'PARTIALLY_SHIPPED',
+            o.order_status = 'PendingAvailability', 'PENDING_AVAILABILITY',
+            upper(o.order_status))                            AS fulfillment_status,
+    if(o.fulfillment_channel = 'AFN', 'AMAZON', 'MERCHANT')   AS fulfilled_by,
+    toFloat64(coalesce(o.principal, 0)) + toFloat64(coalesce(o.shipping, 0)) AS item_sales,
+    coalesce(o.principal_currency, o.shipping_currency, o.order_total_currency) AS item_currency
+  FROM analytics.order_details_v2026_current AS o
+  CROSS JOIN params AS p
+  WHERE has(p.company_ids, o.company_id)
+    AND o.purchase_date IS NOT NULL
+    AND o.purchase_month >= formatDateTime(
+          addMonths(coalesce(p.start_date, toDate(now())),
+                    -if(isNull(p.start_date), p.periods_back + 1, 1)), '%Y-%m')
+    AND (empty(p.seller_ids) OR has(p.seller_ids, o.seller_id))
+    AND (empty(p.marketplaces) OR has(p.marketplaces, o.amazon_marketplace_id))
+    AND (empty(p.order_statuses) OR has(p.order_statuses, fulfillment_status))
+    AND (empty(p.fulfillment_channels) OR has(p.fulfillment_channels, if(o.fulfillment_channel = 'AFN', 'AFN', 'MFN')))
 ),
 
--- ── 2. Keep latest snapshot + apply filters ────────────────────────────────
-filtered AS (
-  SELECT l.*
-  FROM latest l
-  CROSS JOIN params p
-  WHERE l.rn = 1
-    AND (
-      p.start_date IS NULL
-      OR CAST(l.created_local AS DATE) >= p.start_date
-    )
-    AND (
-      p.end_date IS NULL
-      OR CAST(l.created_local AS DATE) <= p.end_date
-    )
-    AND (
-      p.start_date IS NOT NULL
-      OR CAST(l.created_local AS DATE) >= DATE_ADD(
-        'month', -p.periods_back,
-        CAST(DATE_ADD('minute', {{utc_offset_minutes}}, CAST(CURRENT_TIMESTAMP AS TIMESTAMP)) AS DATE)
-      )
-    )
-    AND (
-      cardinality(p.marketplaces) = 0
-      OR contains(p.marketplaces, l.marketplace_id)
-    )
-    AND (
-      cardinality(p.order_statuses) = 0
-      OR contains(p.order_statuses, l.fulfillment_status)
-    )
-    AND (
-      cardinality(p.fulfillment_channels) = 0
-      OR contains(p.fulfillment_channels, l.fulfilled_by)
-    )
-),
-
--- ── 2a. Order-level Sales = principal + shipping (matches NeonPanel report) ──
--- principal = ITEM breakdown subtotal, fallback unit_price * qty; shipping = SHIPPING breakdown.
--- Avoids proceeds.grand_total, which is NULL for orders Amazon hasn't finalized.
+-- ── 2. Order level: Sales = principal + shipping across items ──────────────
 order_sales AS (
   SELECT
-    f.order_id,
-    f.created_local,
-    f.marketplace_id,
-    f.marketplace_name,
-    f.fulfillment_status,
-    f.fulfilled_by,
-    f.company_id,
-    f.seller_id,
-    SUM(
-      COALESCE(
-        element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.amount,
-        oi.product.price.unit_price.amount * oi.quantity_ordered
-      )
-      + COALESCE(element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'SHIPPING'), 1).subtotal.amount, 0.0)
-    ) AS order_total,
-    ARBITRARY(
-      COALESCE(
-        element_at(FILTER(oi.proceeds.breakdowns, b -> b.type = 'ITEM'), 1).subtotal.currency_code,
-        oi.product.price.unit_price.currency_code
-      )
-    ) AS currency
-  FROM filtered f
-  CROSS JOIN UNNEST(f.order_items) AS t(oi)
-  GROUP BY
-    f.order_id, f.created_local, f.marketplace_id, f.marketplace_name,
-    f.fulfillment_status, f.fulfilled_by, f.company_id, f.seller_id
+    i.order_id                                   AS order_id,
+    i.company_id                                 AS company_id,
+    any(i.marketplace_id)                        AS marketplace_id,
+    any(i.created_local)                         AS created_local,
+    toDate(any(i.created_local))                 AS local_date,
+    any(i.fulfillment_status)                    AS fulfillment_status,
+    any(i.fulfilled_by)                          AS fulfilled_by,
+    sum(i.item_sales)                            AS order_total,
+    anyIf(i.item_currency, isNotNull(i.item_currency)) AS currency
+  FROM items AS i
+  GROUP BY i.order_id, i.company_id
 ),
 
--- ── 2b. Per-company main reporting currency + FX validity ranges ────────────
+filtered AS (
+  SELECT f.*
+  FROM order_sales AS f
+  CROSS JOIN params AS p
+  WHERE (isNull(p.start_date) OR f.local_date >= p.start_date)
+    AND (isNull(p.end_date)   OR f.local_date <= p.end_date)
+    AND (isNotNull(p.start_date)
+         OR f.local_date >= addMonths(toDate(now('UTC') + toIntervalMinute({{utc_offset_minutes}})), -p.periods_back))
+),
+
+-- ── 3. Per-company main reporting currency + FX ────────────────────────────
 company_main AS (
   SELECT id AS company_id, currency AS main_currency
-  FROM "{{catalog}}"."neonpanel_iceberg"."app_companies"
+  FROM app.app_companies
+  WHERE id IN (SELECT arrayJoin(company_ids) FROM params)
 ),
 
--- currency_rates.rate is native->USD (USD = 1.0). Rates are sparse (~weekly),
--- so each rate is valid from its date until the next rate for that currency.
 fx AS (
-  SELECT
-    currency,
-    date AS from_date,
-    COALESCE(
-      LEAD(date) OVER (PARTITION BY currency ORDER BY date),
-      DATE '9999-12-31'
-    ) AS to_date,
-    rate
-  FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
+  SELECT upper(toString(currency)) AS currency, toDate(date) AS rate_date, max(toFloat64(rate)) AS rate
+  FROM app.currency_rates
+  GROUP BY currency, rate_date
 ),
 
--- ── 3. Bucket by period + convert to main currency at the order's local date ─
---   order_total_main = order_total * rate(native) / rate(main)
+-- ── 4. Bucket by period + convert to main currency at the order's local date ─
 bucketed AS (
   SELECT
-    CASE p.granularity
-      WHEN 'hour'  THEN DATE_FORMAT(DATE_TRUNC('hour', f.created_local), '%Y-%m-%dT%H:00')
-      WHEN 'week'  THEN CAST(DATE_TRUNC('week',  CAST(f.created_local AS DATE)) AS VARCHAR)
-      WHEN 'month' THEN CAST(DATE_TRUNC('month', CAST(f.created_local AS DATE)) AS VARCHAR)
-      ELSE              CAST(DATE_TRUNC('day',   CAST(f.created_local AS DATE)) AS VARCHAR)
-    END                               AS period_start,
-    f.marketplace_id,
-    f.currency,
-    cm.main_currency,
-    f.company_id,
-    f.order_id,
-    f.order_total,
-    f.order_total * fxn.rate / NULLIF(fxm.rate, 0.0) AS order_total_main,
-    f.fulfillment_status,
-    f.fulfilled_by
-  FROM order_sales f
-  CROSS JOIN params p
-  LEFT JOIN company_main cm ON cm.company_id = TRY_CAST(f.company_id AS BIGINT)
-  LEFT JOIN fx fxn
-    ON fxn.currency = f.currency
-   AND CAST(f.created_local AS DATE) >= fxn.from_date
-   AND CAST(f.created_local AS DATE) <  fxn.to_date
-  LEFT JOIN fx fxm
-    ON fxm.currency = cm.main_currency
-   AND CAST(f.created_local AS DATE) >= fxm.from_date
-   AND CAST(f.created_local AS DATE) <  fxm.to_date
+    multiIf(
+      p.granularity = 'hour',  formatDateTime(toStartOfHour(f.created_local), '%Y-%m-%dT%H:00'),
+      p.granularity = 'week',  toString(toMonday(f.local_date)),
+      p.granularity = 'month', toString(toStartOfMonth(f.local_date)),
+      toString(f.local_date)
+    )                                           AS period_start,
+    f.marketplace_id                            AS marketplace_id,
+    f.currency                                  AS currency,
+    nullIf(cm.main_currency, '')                AS main_currency,
+    f.company_id                                AS company_id,
+    f.order_id                                  AS order_id,
+    f.order_total                               AS order_total,
+    if(fxn.rate > 0 AND fxm.rate > 0, f.order_total * fxn.rate / fxm.rate, NULL) AS order_total_main,
+    f.fulfillment_status                        AS fulfillment_status,
+    f.fulfilled_by                              AS fulfilled_by
+  FROM filtered AS f
+  CROSS JOIN params AS p
+  LEFT JOIN company_main AS cm ON cm.company_id = f.company_id
+  ASOF LEFT JOIN fx AS fxn ON fxn.currency = upper(f.currency) AND f.local_date >= fxn.rate_date
+  ASOF LEFT JOIN fx AS fxm ON fxm.currency = upper(cm.main_currency) AND f.local_date >= fxm.rate_date
 ),
 
--- ── 4. Aggregate ───────────────────────────────────────────────────────────
+-- ── 5. Aggregate ───────────────────────────────────────────────────────────
 agg AS (
   SELECT
     period_start,
     marketplace_id,
-    COALESCE(currency, 'UNKNOWN')                 AS currency,
-    MAX(main_currency)                            AS main_currency,
+    coalesce(currency, 'UNKNOWN')                  AS currency,
+    max(main_currency)                             AS main_currency,
     company_id,
-    COUNT(DISTINCT order_id)                       AS orders,
-    ROUND(SUM(order_total), 2)                     AS gross_revenue,
-    ROUND(SUM(order_total_main), 2)                AS gross_revenue_main,
-    ROUND(
-      SUM(order_total) / NULLIF(COUNT(DISTINCT order_id), 0),
-      2
-    )                                              AS avg_order_value,
-    ROUND(
-      SUM(order_total_main) / NULLIF(COUNT(DISTINCT order_id), 0),
-      2
-    )                                              AS avg_order_value_main,
-    COUNT(CASE WHEN fulfillment_status = 'SHIPPED'   THEN 1 END) AS shipped_count,
-    COUNT(CASE WHEN fulfillment_status = 'PENDING'   THEN 1 END) AS pending_count,
-    COUNT(CASE WHEN fulfillment_status = 'CANCELED'  THEN 1 END) AS canceled_count,
-    COUNT(CASE WHEN fulfilled_by = 'AMAZON'          THEN 1 END) AS fba_count,
-    COUNT(CASE WHEN fulfilled_by != 'AMAZON'
-               AND fulfilled_by IS NOT NULL         THEN 1 END) AS fbm_count
+    uniqExact(order_id)                            AS orders,
+    round(sum(order_total), 2)                     AS gross_revenue,
+    round(sum(order_total_main), 2)                AS gross_revenue_main,
+    round(sum(order_total) / nullIf(uniqExact(order_id), 0), 2)       AS avg_order_value,
+    round(sum(order_total_main) / nullIf(uniqExact(order_id), 0), 2)  AS avg_order_value_main,
+    countIf(fulfillment_status = 'SHIPPED')        AS shipped_count,
+    countIf(fulfillment_status = 'PENDING')        AS pending_count,
+    countIf(fulfillment_status = 'CANCELED')       AS canceled_count,
+    countIf(fulfilled_by = 'AMAZON')               AS fba_count,
+    countIf(fulfilled_by != 'AMAZON')              AS fbm_count
   FROM bucketed
   GROUP BY period_start, marketplace_id, currency, company_id
 )
@@ -205,7 +140,7 @@ SELECT
   marketplace_id,
   currency,
   main_currency,
-  company_id,
+  toString(company_id) AS company_id,
   orders,
   gross_revenue,
   gross_revenue_main,

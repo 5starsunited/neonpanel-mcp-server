@@ -15,28 +15,29 @@ const spec = JSON.parse(fs.readFileSync(path.join(toolRoot, 'tool.json'), 'utf8'
 };
 
 const periodExpressions = [
-  'toString(w.report_date)',
-  "formatDateTime(w.report_date, '%Y-%m')",
-  'toString(toYear(w.report_date))',
-  'CAST(NULL AS Nullable(String))',
+  'CAST(w.report_date AS VARCHAR)',
+  "date_format(w.report_date, '%Y-%m')",
+  'CAST(year(w.report_date) AS VARCHAR)',
+  'CAST(NULL AS VARCHAR)',
 ];
 
 function templateVariables(periodExpr: string): Record<string, string | number> {
   return {
-    company_ids_array: 'CAST([81] AS Array(UInt64))',
-    campaign_types_array: 'CAST([] AS Array(String))',
-    marketplaces_array: 'CAST([] AS Array(String))',
-    campaign_names_array: 'CAST([] AS Array(String))',
-    ad_group_names_array: 'CAST([] AS Array(String))',
-    target_keywords_array: 'CAST([] AS Array(String))',
+    catalog: 'awsdatacatalog',
+    company_ids_array: 'CAST(ARRAY[81] AS ARRAY(BIGINT))',
+    campaign_types_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    marketplaces_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    campaign_names_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    ad_group_names_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    target_keywords_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
     keyword_match_type_sql: "'contains'",
-    placements_array: 'CAST([] AS Array(String))',
-    match_types_array: 'CAST([] AS Array(String))',
-    asins_array: 'CAST([] AS Array(String))',
-    product_families_array: 'CAST([] AS Array(String))',
-    brands_array: 'CAST([] AS Array(String))',
-    start_date_sql: 'CAST(NULL AS Nullable(Date))',
-    end_date_sql: 'CAST(NULL AS Nullable(Date))',
+    placements_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    match_types_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    asins_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    product_families_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    brands_array: 'CAST(ARRAY[] AS ARRAY(VARCHAR))',
+    start_date_sql: 'CAST(NULL AS DATE)',
+    end_date_sql: 'CAST(NULL AS DATE)',
     periods_back: 4,
     period_expr: periodExpr,
     sort_column: 'cost_usd',
@@ -56,9 +57,9 @@ function templateVariables(periodExpr: string): Record<string, string | number> 
   };
 }
 
-test('campaign performance executes through ClickHouse with supported dimensions only', () => {
-  assert.match(register, /runClickHouseQuery/);
-  assert.doesNotMatch(register, /runAthenaQuery|pareto_abc_classes|revenue_abcd_classes/);
+test('campaign performance executes through Athena (amazon_ads.ads_dataset) with supported dimensions only', () => {
+  assert.match(register, /runAthenaQuery/);
+  assert.doesNotMatch(register, /runClickHouseQuery|pareto_abc_classes|revenue_abcd_classes/);
   assert.doesNotMatch(sql, /brand_analytics\.asin_attributes|pareto_abc_class|revenue_abcd_class|revenue_share/);
   assert.ok(spec.inputSchema.properties.query.properties.filters.properties.product_families);
   assert.ok(spec.inputSchema.properties.query.properties.filters.properties.brands);
@@ -70,7 +71,7 @@ test('campaign performance SQL renders for every supported periodicity', () => {
   for (const periodExpr of periodExpressions) {
     const rendered = renderSqlTemplate(sql, templateVariables(periodExpr));
     assert.doesNotMatch(rendered, /\{\{.*?\}\}/, `unresolved token for ${periodExpr}`);
-    assert.match(rendered, /analytics\.amazon_ads_unified/);
-    assert.match(rendered, /SETTINGS join_use_nulls = 1/);
+    assert.match(rendered, /"amazon_ads"\."ads_dataset"/);
+    assert.doesNotMatch(rendered, /SETTINGS join_use_nulls|amazon_ads_unified/);
   }
 });

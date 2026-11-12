@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { runAthenaQuery } from '../../../../../clients/athena';
 import { neonPanelRequest } from '../../../../../clients/neonpanel-api';
 import { config } from '../../../../../config';
+import { AppError } from '../../../../../lib/errors';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -136,7 +137,7 @@ export function registerAdvertisingAnalyzeSearchTermsTool(registry: ToolRegistry
   registry.register({
     name: 'advertising_analyze_search_terms',
     description:
-      'Analyzes Amazon Sponsored Products Search Term Report data enriched with ASIN attributes (product_family, brand, pareto_abc_class) via campaign→ASIN mapping.',
+      'Analyzes Amazon Sponsored Products Search Term Report data enriched with product_family and brand via campaign→ASIN mapping from the Ads serving table. NOTE: the search-term report feed (amazon_ads_reports_iceberg.sp_search_term) has not been loaded since mid-February 2026, so results end at that date; Pareto/revenue-class filters are unavailable.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -200,6 +201,19 @@ export function registerAdvertisingAnalyzeSearchTermsTool(registry: ToolRegistry
       const revenueClasses = (query.filters.revenue_abcd_classes ?? []).map((r) => r.trim()).filter(Boolean);
 
       const groupBy = query.aggregation?.group_by ?? ['search_term'];
+
+      // Revenue classification (Pareto / ABCD) has no live Athena source since the Brand Analytics
+      // Iceberg database was retired; refuse instead of silently ignoring the filter.
+      if (
+        paretoClasses.length > 0 ||
+        revenueClasses.length > 0 ||
+        groupBy.includes('pareto_abc_class')
+      ) {
+        throw new AppError(
+          'Pareto/revenue ABCD classification is temporarily unavailable for search terms: remove pareto_abc_classes, revenue_abcd_classes and group_by "pareto_abc_class".',
+          { status: 400, code: 'unsupported_filter' },
+        );
+      }
       const sortField = query.sort?.field ?? 'cost_usd';
       const sortDirection = query.sort?.direction ?? 'desc';
       const time = query.aggregation?.time;

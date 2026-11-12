@@ -1,27 +1,18 @@
--- Tool: advertising_analyze_campaign_performance  (ClickHouse)
--- ClickHouse rewrite of the (now retired) Athena twin. Same input contract, same
--- output columns / KPI model. Only the data source + dialect change.
+-- Tool: advertising_analyze_campaign_performance  (Athena)
+-- Source: amazon_ads.ads_dataset -- the all-company Ads serving table (Iceberg, partitioned by
+-- day(time_window_start)) refreshed daily by clickhouse_etl/etl/ads_athena. It replaces the
+-- retired ClickHouse unified Ads feed (deleted 2026-10-08).
 --
--- BASE:  analytics.amazon_ads_unified AS a  — the MERGED ads feed. It carries the
---   amazon_ads_v1 61-col canonical schema PLUS a leading `source` column
---   ('ads_v1' | 'ms'). Within source='ads_v1' the table stores MANY report-type
---   slices that re-slice the SAME spend/sales, so summing all of them double-counts.
---   We keep ONLY the non-overlapping SKU-level slices; source='ms' rows are a single
---   additive grain and are all kept. The two sources never overlap a (company,
---   marketplace, date), so the union is additive:
---     WHERE (a.source='ads_v1' AND a.dataset IN
---              ('sp_advertised_product','sd_advertised_product','sb_ads'))
---        OR a.source='ms'
---   (Mirrors data-ingestion CH-01 RLS Amazon Ads, the validated production query.)
---
--- ENRICHMENT (LEFT JOIN, join_use_nulls=1 so misses -> NULL):
---   Marketplace / country / code  <- raw.neonpanel_amazon_marketplaces  (FINAL, not deleted)
---   FX rate (local -> USD)        <- raw.neonpanel_currency_rates       (FINAL, not deleted)
---   Brand / Product Family        <- etl.sku_dimensions  (join on sku_key = a.ads_sku_key)
---
--- ads_v1 and ms use different `dataset` vocabularies for the SP/SB/SD family, so we
--- normalise to a stable `ad_type` ('sponsored_products' | 'sponsored_display' |
--- 'sponsored_brands') for both the campaign_types filter and the `dataset` output.
+-- ads_dataset is already the merged, de-duplicated BI contract (non-overlapping ads_v1 SKU slices
+-- plus Marketing Stream rows) and is pre-enriched with marketplace, brand and product family, so
+-- no dimension joins are needed. It also carries `placed_orders` rows (organic order totals, zero
+-- ad metrics) that must NOT be counted as ad spend -- they are excluded by the dataset filter.
+-- Multi-tenant table: every query is scoped to the authorised company_id (and prunes day partitions
+-- through time_window_start).
+-- Money: `cost` / `attributed_sales` are in the campaign currency; `currency_rate` is that day's
+-- native -> USD rate (NULL for USD), so USD = amount * COALESCE(currency_rate, 1.0).
+-- History: rows exist only from the first ads_athena run onward (plus the frozen ads_v1 slices);
+-- older periods may be empty for some companies.
 WITH params AS (
   SELECT
     {{company_ids_array}}             AS company_ids,
@@ -38,162 +29,124 @@ WITH params AS (
     {{brands_array}}                  AS brands,
     {{start_date_sql}}                AS start_date,
     {{end_date_sql}}                  AS end_date,
-    toInt64({{periods_back}})         AS periods_back
+    CAST({{periods_back}} AS INTEGER) AS periods_back
 ),
 
--- ─── Marketplace dimension ──────────────────────────────────────────────────
-mp AS (
-  SELECT
-    amazon_marketplace_id,
-    name           AS marketplace_name,
-    lower(country) AS country,
-    lower(code)    AS country_code
-  FROM raw.neonpanel_amazon_marketplaces FINAL
-  WHERE _peerdb_is_deleted = 0 AND amazon_marketplace_id IS NOT NULL
-),
-
--- ─── Currency rates (local -> USD; USD has no row -> COALESCE to 1.0) ────────
-cr AS (
-  SELECT currency, date, rate
-  FROM raw.neonpanel_currency_rates FINAL
-  WHERE _peerdb_is_deleted = 0
-),
-
--- ─── SKU catalog: one row per sku_key (prefer verified/newest inventory) ─────
-sku_dim AS (
-  SELECT sku_key, brand, product_family
-  FROM etl.sku_dimensions
-  WHERE sku_key IS NOT NULL
-  ORDER BY verified DESC, inventory_id DESC
-  LIMIT 1 BY sku_key
-),
-
--- ─── Enrich + broad date prefilter + optional filters ───────────────────────
+-- ─── Normalise + broad date prefilter + optional filters ────────────────────
 enriched AS (
   SELECT
-    a.transaction_date                                      AS report_date,
-    multiIf(
-      a.dataset IN ('sp_advertised_product', 'sponsored_products'), 'sponsored_products',
-      a.dataset IN ('sd_advertised_product', 'sponsored_display'),  'sponsored_display',
-      a.dataset IN ('sb_ads', 'sponsored_brands'),                  'sponsored_brands',
-      toString(a.dataset)
-    )                                                       AS ad_type,
+    CAST(a.time_window_start AS DATE)                       AS report_date,
+    CASE
+      WHEN a.dataset IN ('sp_advertised_product', 'sponsored_products') THEN 'sponsored_products'
+      WHEN a.dataset IN ('sd_advertised_product', 'sponsored_display')  THEN 'sponsored_display'
+      WHEN a.dataset IN ('sb_ads', 'sponsored_brands')                  THEN 'sponsored_brands'
+      ELSE a.dataset
+    END                                                     AS ad_type,
     a.campaign_name                                         AS campaign_name,
     a.campaign_id                                           AS campaign_id,
     a.ad_group_name                                         AS ad_group_name,
-    a.ad_group_id                                           AS ad_group_id,
-    coalesce(a.keyword, a.targeting)                        AS target_keyword,
-    coalesce(a.keyword_id, a.targeting_id)                  AS target_keyword_id,
-    a.placement_classification                              AS placement,
+    a.target_keyword                                        AS target_keyword,
+    a.placement                                             AS placement,
     a.match_type                                            AS match_type,
-    toString(a.campaign_budget_currency)                    AS currency,
+    a.currency                                              AS currency,
     a.company_id                                            AS company_id,
-
-    -- Advertised / purchased ASINs
-    a.promoted_asin                                         AS advertised_asin,
-    a.promoted_sku                                          AS advertised_sku,
+    a.advertised_asin                                       AS advertised_asin,
     a.purchased_asin                                        AS purchased_asin,
 
     -- Core metrics (original currency)
-    toInt64(a.impressions)                                  AS impressions,
-    toInt64(a.clicks)                                       AS clicks,
-    toFloat64(a.cost)                                       AS cost,
-    toFloat64(a.attributed_sales)                           AS attributed_sales,
-    toFloat64(a.conversions)                                AS conversions,
-    toFloat64(a.attributed_units_ordered)                   AS attributed_units_ordered,
+    CAST(a.impressions AS BIGINT)                           AS impressions,
+    CAST(a.clicks AS BIGINT)                                AS clicks,
+    CAST(a.cost AS DOUBLE)                                  AS cost,
+    CAST(a.attributed_sales AS DOUBLE)                      AS attributed_sales,
+    CAST(a.conversions AS DOUBLE)                           AS conversions,
+    CAST(a.attributed_units_ordered AS DOUBLE)              AS attributed_units_ordered,
 
-    -- USD-normalised amounts (multiply by rate; USD has no rate row -> 1.0)
-    toFloat64(a.cost)             * coalesce(toFloat64(cr.rate), 1.0) AS cost_usd,
-    toFloat64(a.attributed_sales) * coalesce(toFloat64(cr.rate), 1.0) AS attributed_sales_usd,
+    -- USD-normalised amounts (USD has no rate row -> 1.0)
+    CAST(a.cost AS DOUBLE)             * COALESCE(a.currency_rate, 1.0) AS cost_usd,
+    CAST(a.attributed_sales AS DOUBLE) * COALESCE(a.currency_rate, 1.0) AS attributed_sales_usd,
 
-    -- SKU dimension columns (fallback to 'undefined' when no match).
-    coalesce(sku_dim.product_family, 'undefined')           AS product_family,
-    coalesce(sku_dim.brand, 'undefined')                    AS asin_brand,
+    -- Dimension columns (fallback to 'undefined' when the SKU has no match)
+    COALESCE(a.product_family, 'undefined')                 AS product_family,
+    COALESCE(a.brand, 'undefined')                          AS asin_brand,
 
     -- Marketplace for output
-    mp.marketplace_name                                     AS marketplace_name,
-    mp.country_code                                         AS marketplace_country_code,
-    mp.country                                              AS marketplace_country
+    a.marketplace                                           AS marketplace_name,
+    lower(a.marketplace_country_code)                       AS marketplace_country_code,
+    lower(a.marketplace_country)                            AS marketplace_country
 
-  FROM analytics.amazon_ads_unified AS a
-  LEFT JOIN mp      ON mp.amazon_marketplace_id = a.marketplace_id
-  LEFT JOIN cr      ON cr.currency = toString(a.campaign_budget_currency)
-                   AND cr.date = a.transaction_date
-  LEFT JOIN sku_dim ON sku_dim.sku_key = a.ads_sku_key
+  FROM "{{catalog}}"."amazon_ads"."ads_dataset" AS a
   CROSS JOIN params p
 
   WHERE
-    -- Double-count guard: keep the non-overlapping ads_v1 SKU slices + all ms rows.
-    (
-      (a.source = 'ads_v1' AND a.dataset IN ('sp_advertised_product', 'sd_advertised_product', 'sb_ads'))
-      OR a.source = 'ms'
-    )
+    -- Ad rows only: the table also holds `placed_orders` (organic) rows.
+    a.dataset IN ('sponsored_products', 'sponsored_display', 'sponsored_brands',
+                  'sp_advertised_product', 'sd_advertised_product', 'sb_ads')
 
     -- Authorization: company_id filter
-    AND has(p.company_ids, a.company_id)
+    AND contains(p.company_ids, a.company_id)
 
-    -- Broad date prefilter on the business date (transaction_date). The precise
-    -- window is applied later once the latest available date is known.
-    AND a.transaction_date >= coalesce(p.start_date, subtractWeeks(today(), p.periods_back + 2))
-    AND a.transaction_date <= coalesce(p.end_date, today())
+    -- Broad date prefilter (partition pruning). The precise window is applied once the
+    -- latest available date is known.
+    AND a.time_window_start >= CAST(COALESCE(p.start_date, date_add('week', -(p.periods_back + 2), current_date)) AS TIMESTAMP)
+    AND a.time_window_start <  CAST(date_add('day', 1, COALESCE(p.end_date, current_date)) AS TIMESTAMP)
 
     -- Optional campaign type filter (SP / SB / SD via normalised ad_type)
     AND (
-      length(p.campaign_types) = 0
-      OR arrayExists(ct -> lower(ct) = multiIf(
-           a.dataset IN ('sp_advertised_product', 'sponsored_products'), 'sponsored_products',
-           a.dataset IN ('sd_advertised_product', 'sponsored_display'),  'sponsored_display',
-           a.dataset IN ('sb_ads', 'sponsored_brands'),                  'sponsored_brands',
-           toString(a.dataset)), p.campaign_types)
+      cardinality(p.campaign_types) = 0
+      OR any_match(p.campaign_types, ct -> lower(ct) = CASE
+           WHEN a.dataset IN ('sp_advertised_product', 'sponsored_products') THEN 'sponsored_products'
+           WHEN a.dataset IN ('sd_advertised_product', 'sponsored_display')  THEN 'sponsored_display'
+           WHEN a.dataset IN ('sb_ads', 'sponsored_brands')                  THEN 'sponsored_brands'
+           ELSE a.dataset END)
     )
 
     -- Optional marketplace filter (country / country code / marketplace name)
     AND (
-      length(p.marketplaces) = 0
-      OR arrayExists(m -> lower(m) IN (mp.country, mp.country_code, lower(mp.marketplace_name)), p.marketplaces)
+      cardinality(p.marketplaces) = 0
+      OR any_match(p.marketplaces, m -> lower(m) IN (lower(a.marketplace_country), lower(a.marketplace_country_code), lower(a.marketplace)))
     )
 
     -- Optional campaign name filter (exact)
     AND (
-      length(p.campaign_names) = 0
-      OR arrayExists(c -> lower(c) = lower(a.campaign_name), p.campaign_names)
+      cardinality(p.campaign_names) = 0
+      OR any_match(p.campaign_names, c -> lower(c) = lower(a.campaign_name))
     )
 
     -- Optional ad group name filter (exact)
     AND (
-      length(p.ad_group_names) = 0
-      OR arrayExists(ag -> lower(ag) = lower(a.ad_group_name), p.ad_group_names)
+      cardinality(p.ad_group_names) = 0
+      OR any_match(p.ad_group_names, ag -> lower(ag) = lower(a.ad_group_name))
     )
 
     -- Optional target keyword filter (with match_type logic)
     AND (
-      length(p.target_keywords) = 0
-      OR multiIf(
-           p.keyword_match_type = 'exact',
-             arrayExists(t -> lower(t) = lower(coalesce(a.keyword, a.targeting)), p.target_keywords),
-           p.keyword_match_type = 'starts_with',
-             arrayExists(t -> lower(coalesce(a.keyword, a.targeting)) LIKE concat(lower(t), '%'), p.target_keywords),
-           -- 'contains'
-             arrayExists(t -> lower(coalesce(a.keyword, a.targeting)) LIKE concat('%', lower(t), '%'), p.target_keywords)
-         )
+      cardinality(p.target_keywords) = 0
+      OR CASE p.keyword_match_type
+           WHEN 'exact' THEN
+             any_match(p.target_keywords, t -> lower(t) = lower(a.target_keyword))
+           WHEN 'starts_with' THEN
+             any_match(p.target_keywords, t -> lower(a.target_keyword) LIKE lower(t) || '%')
+           ELSE -- 'contains'
+             any_match(p.target_keywords, t -> lower(a.target_keyword) LIKE '%' || lower(t) || '%')
+         END
     )
 
     -- Optional placement filter
     AND (
-      length(p.placements) = 0
-      OR arrayExists(pl -> lower(pl) = lower(a.placement_classification), p.placements)
+      cardinality(p.placements) = 0
+      OR any_match(p.placements, pl -> lower(pl) = lower(a.placement))
     )
 
     -- Optional match type filter
     AND (
-      length(p.match_types) = 0
-      OR arrayExists(mt -> lower(mt) = lower(a.match_type), p.match_types)
+      cardinality(p.match_types) = 0
+      OR any_match(p.match_types, mt -> lower(mt) = lower(a.match_type))
     )
 
     -- ASIN dimension filters (purchased/advertised ASIN, product family, brand)
-    AND (length(p.asins) = 0 OR arrayExists(x -> lower(x) = lower(coalesce(a.purchased_asin, a.promoted_asin)), p.asins))
-    AND (length(p.product_families) = 0 OR arrayExists(pf -> lower(pf) = lower(sku_dim.product_family), p.product_families))
-    AND (length(p.brands) = 0 OR arrayExists(b -> lower(b) = lower(sku_dim.brand), p.brands))
+    AND (cardinality(p.asins) = 0 OR any_match(p.asins, x -> lower(x) = lower(COALESCE(a.purchased_asin, a.advertised_asin))))
+    AND (cardinality(p.product_families) = 0 OR any_match(p.product_families, pf -> lower(pf) = lower(a.product_family)))
+    AND (cardinality(p.brands) = 0 OR any_match(p.brands, b -> lower(b) = lower(a.brand)))
 ),
 
 -- ─── Determine date window from the latest available date ───────────────────
@@ -203,8 +156,8 @@ latest AS (
 
 date_bounds AS (
   SELECT
-    coalesce(p.start_date, subtractWeeks(l.latest_date, p.periods_back - 1)) AS start_date,
-    coalesce(p.end_date, l.latest_date)                                      AS end_date
+    COALESCE(p.start_date, date_add('week', -(p.periods_back - 1), l.latest_date)) AS start_date,
+    COALESCE(p.end_date, l.latest_date)                                      AS end_date
   FROM params p
   CROSS JOIN latest l
 ),
@@ -247,25 +200,11 @@ aggregated AS (
     sum(w.attributed_units_ordered)    AS attributed_units_ordered,
 
     -- Context
-    uniqExact(w.report_date)           AS days_active,
-    uniqExact(w.advertised_asin)       AS asin_count,
+    COUNT(DISTINCT w.report_date)      AS days_active,
+    COUNT(DISTINCT w.advertised_asin)  AS asin_count
 
   FROM windowed w
-  GROUP BY
-    time_period,
-    campaign_name,
-    ad_group_name,
-    placement,
-    match_type,
-    dataset,
-    target_keyword,
-    advertised_asin,
-    product_family,
-    brand,
-    company_id,
-    marketplace,
-    marketplace_country_code,
-    currency
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
 ),
 
 -- ─── Final output with computed KPIs ────────────────────────────────────────
@@ -295,9 +234,9 @@ with_kpis AS (
 
     -- Efficiency KPIs (all in USD)
     if(a.clicks > 0, round(a.cost_usd / a.clicks, 2), NULL)                       AS cpc_usd,
-    if(a.impressions > 0, round(100.0 * a.clicks / a.impressions, 2), NULL)       AS ctr_pct,
-    if(a.clicks > 0, round(100.0 * a.conversions / a.clicks, 2), NULL)            AS cvr_pct,
-    if(a.attributed_sales_usd > 0, round(100.0 * a.cost_usd / a.attributed_sales_usd, 2), NULL) AS acos_pct,
+    if(a.impressions > 0, ROUND(100.0 * a.clicks / a.impressions, 2), NULL)       AS ctr_pct,
+    if(a.clicks > 0, ROUND(100.0 * a.conversions / a.clicks, 2), NULL)            AS cvr_pct,
+    if(a.attributed_sales_usd > 0, ROUND(100.0 * a.cost_usd / a.attributed_sales_usd, 2), NULL) AS acos_pct,
     if(a.cost_usd > 0, round(a.attributed_sales_usd / a.cost_usd, 2), NULL)       AS roas,
 
     -- Context
@@ -314,4 +253,3 @@ SELECT
 FROM with_kpis k
 ORDER BY {{sort_column}} {{sort_direction}} NULLS LAST
 LIMIT {{limit_top_n}}
-SETTINGS join_use_nulls = 1

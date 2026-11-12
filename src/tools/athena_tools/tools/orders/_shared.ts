@@ -1,6 +1,5 @@
 import { neonPanelRequest } from '../../../../clients/neonpanel-api';
-import { runAthenaQuery } from '../../../../clients/athena';
-import { config } from '../../../../config';
+import { runClickHouseQuery } from '../../../../clients/clickhouse';
 
 interface CompaniesWithPermissionResponse {
   companies?: Array<{ company_id?: number; companyId?: number; id?: number } | null>;
@@ -13,7 +12,7 @@ export interface CompanyReportingSettings {
 }
 
 /**
- * Per-company reporting defaults from neonpanel_iceberg.app_companies:
+ * Per-company reporting defaults from ClickHouse app.app_companies:
  * main reporting currency (`currency`) and time zone (`timezone`).
  */
 export async function fetchCompanyReportingSettings(
@@ -22,16 +21,10 @@ export async function fetchCompanyReportingSettings(
   if (companyIds.length === 0) return [];
   const idList = companyIds.map((n) => String(Math.trunc(n))).join(', ');
   const query = `SELECT id AS company_id, currency AS main_currency, timezone AS time_zone
-    FROM "${config.athena.catalog}"."neonpanel_iceberg"."app_companies"
+    FROM app.app_companies
     WHERE id IN (${idList})`;
   try {
-    const result = await runAthenaQuery({
-      query,
-      database: 'neonpanel_iceberg',
-      workGroup: config.athena.workgroup,
-      outputLocation: config.athena.outputLocation,
-      maxRows: 1000,
-    });
+    const result = await runClickHouseQuery({ query });
     return (result.rows ?? []).map((r: Record<string, unknown>) => ({
       company_id: Number(r.company_id),
       main_currency: (r.main_currency as string) ?? null,
@@ -128,21 +121,42 @@ export async function fetchPermittedCompanyIds(userToken: string): Promise<numbe
 }
 
 export function sqlStringLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
+// ClickHouse literal helpers. Variable names keep the historical `sql*` prefix.
 export function sqlBigintArrayExpr(values: number[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(BIGINT))';
-  return `CAST(ARRAY[${values.map((v) => String(Math.trunc(v))).join(', ')}] AS ARRAY(BIGINT))`;
+  if (values.length === 0) return 'CAST([] AS Array(UInt64))';
+  return `CAST([${values.map((v) => String(Math.trunc(v))).join(', ')}] AS Array(UInt64))`;
 }
 
 export function sqlVarcharArrayExpr(values: string[]): string {
-  if (values.length === 0) return 'CAST(ARRAY[] AS ARRAY(VARCHAR))';
-  return `CAST(ARRAY[${values.map(sqlStringLiteral).join(', ')}] AS ARRAY(VARCHAR))`;
+  if (values.length === 0) return 'CAST([] AS Array(String))';
+  return `CAST([${values.map(sqlStringLiteral).join(', ')}] AS Array(String))`;
 }
 
 export function sqlDateExpr(value?: string): string {
   const trimmed = value?.trim();
-  if (!trimmed) return 'CAST(NULL AS DATE)';
-  return `DATE ${sqlStringLiteral(trimmed)}`;
+  if (!trimmed || !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return 'CAST(NULL AS Nullable(Date))';
+  return `toDate(${sqlStringLiteral(trimmed)})`;
+}
+
+/**
+ * Order statuses are stored as Shipped / PartiallyShipped / PendingAvailability in ClickHouse; the tool
+ * contract is SHIPPED / PARTIALLY_SHIPPED / PENDING_AVAILABILITY. Inputs are normalised to the contract
+ * form and queries project the stored value to the same form.
+ */
+export function normalizeOrderStatuses(values: string[] | undefined): string[] {
+  return (values ?? []).map((v) => v.trim().toUpperCase().replace(/[\s-]+/g, '_')).filter(Boolean);
+}
+
+/** Contract value AMAZON == ClickHouse fulfillment_channel AFN (FBA); everything else is MFN. */
+export function normalizeFulfillmentChannels(values: string[] | undefined): string[] {
+  const out = new Set<string>();
+  for (const raw of values ?? []) {
+    const v = raw.trim().toUpperCase();
+    if (!v) continue;
+    out.add(v === 'AMAZON' || v === 'AFN' || v === 'FBA' ? 'AFN' : 'MFN');
+  }
+  return Array.from(out);
 }

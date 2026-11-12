@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
 import { applySelectFields } from '../select-fields';
-import { fetchPermittedCompanyIds, sqlBigintArrayExpr, sqlVarcharArrayExpr, sqlDateExpr } from '../_shared';
+import { fetchPermittedCompanyIds, normalizeOrderStatuses, sqlBigintArrayExpr, sqlVarcharArrayExpr, sqlDateExpr } from '../_shared';
 
 const VALID_SORT_FIELDS = new Set(['gross_revenue', 'orders', 'units_ordered']);
 
@@ -67,7 +66,7 @@ export function registerOrdersListTopProductsTool(registry: ToolRegistry) {
   registry.register({
     name: 'customer_orders_list_top_performance_on_amazon',
     description:
-      'Ranks products (ASIN+SKU) by revenue, orders, or units from sp_api_iceberg.orders_v2026. Uses item-level proceeds for accurate revenue.',
+      'Ranks products (ASIN+SKU) by revenue, orders, or units from analytics.order_details_v2026_current. Revenue = item principal + shipping.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -92,12 +91,11 @@ export function registerOrdersListTopProductsTool(registry: ToolRegistry) {
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
         company_ids_array: sqlBigintArrayExpr(allowedIds),
         asins_array: sqlVarcharArrayExpr((query.filters.asins ?? []).map((s) => s.trim())),
         skus_array: sqlVarcharArrayExpr((query.filters.skus ?? []).map((s) => s.trim())),
         marketplaces_array: sqlVarcharArrayExpr(query.filters.marketplace_ids ?? []),
-        order_statuses_array: sqlVarcharArrayExpr(query.filters.order_statuses ?? []),
+        order_statuses_array: sqlVarcharArrayExpr(normalizeOrderStatuses(query.filters.order_statuses)),
         start_date_sql: sqlDateExpr(time?.start_date),
         end_date_sql: sqlDateExpr(time?.end_date),
         periods_back: Number(periodsBack),
@@ -107,13 +105,7 @@ export function registerOrdersListTopProductsTool(registry: ToolRegistry) {
         limit_top_n: Number(limitTopN),
       });
 
-      const result = await runAthenaQuery({
-        query: rendered,
-        database: 'sp_api_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: limitTopN,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
       return applySelectFields(result.rows ?? [], undefined);
     },

@@ -5,12 +5,17 @@
 --   sp_search_term  ST
 --     → amazon_sellers       S    ON S.amazon_seller_id = ST.ingest_seller_id
 --     → amazon_marketplaces  M    ON M.id = S.marketplace_id
---     → campaign_asin_map    CAM  ON CAM.campaign_id = CAST(ST.campaignid AS VARCHAR)
---                                 AND CAM.company_id = ST.ingest_company_id
---                                 AND CAM.marketplace_id = M.amazon_marketplace_id
---     → asin_attributes      AA   ON AA.asin = CAM.asin
---                                 AND AA.company_id = M.id   (via CAST)
---                                 AND AA.marketplace_id = M.id
+--     → campaign_asin_map    CAM  derived from amazon_ads.ads_dataset: the advertised ASIN with the
+--                                 highest spend per (company, marketplace, campaign) -- exactly one
+--                                 row per campaign, so metrics are never duplicated. Brand and
+--                                 product family come from the same ads_dataset rows.
+--
+-- The former campaign_asin_map / asin_attributes tables (Glue database retired 2026-08-29) are no
+-- longer used. Pareto / revenue ABCD classes and revenue share have no Athena
+-- source; they are reported as 'undefined' / NULL and the tool rejects filters or group-by on them.
+--
+-- DATA FRESHNESS: amazon_ads_reports_iceberg.sp_search_term is no longer loaded (latest report
+-- date seen 2026-02-14); Marketing Stream rows carry no search terms. Results end at that date.
 
 WITH params AS (
   SELECT
@@ -68,6 +73,31 @@ currency_rates AS (
   SELECT currency, date, rate
   FROM "{{catalog}}"."neonpanel_iceberg"."currency_rates"
 ),
+-- ─── Campaign → advertised ASIN (+ brand / product family): one row per campaign ───────────
+campaign_asin_map AS (
+  SELECT company_id, amazon_marketplace_id, campaign_id, asin, product_family, brand
+  FROM (
+    SELECT
+      d.company_id,
+      d.amazon_marketplace_id,
+      d.campaign_id,
+      d.advertised_asin AS asin,
+      max(d.product_family) AS product_family,
+      max(d.brand) AS brand,
+      ROW_NUMBER() OVER (
+        PARTITION BY d.company_id, d.amazon_marketplace_id, d.campaign_id
+        ORDER BY sum(d.cost) DESC, d.advertised_asin
+      ) AS rn
+    FROM "{{catalog}}"."amazon_ads"."ads_dataset" d
+    CROSS JOIN params p
+    WHERE contains(p.company_ids, d.company_id)
+      AND d.dataset <> 'placed_orders'
+      AND d.advertised_asin IS NOT NULL
+      AND d.campaign_id IS NOT NULL
+    GROUP BY d.company_id, d.amazon_marketplace_id, d.campaign_id, d.advertised_asin
+  )
+  WHERE rn = 1
+),
 -- ─── Join the full chain ────────────────────────────────────────────────────
 enriched AS (
   SELECT
@@ -119,11 +149,12 @@ enriched AS (
 
     -- ASIN dimension columns (fallback to 'undefined' when campaign map is missing)
     COALESCE(cam.asin, 'undefined')                AS asin,
-    COALESCE(aa.product_family, 'undefined')        AS product_family,
-    COALESCE(aa.brand, 'undefined')                 AS asin_brand,
-    COALESCE(aa.pareto_abc_class, 'undefined')      AS pareto_abc_class,
-    COALESCE(aa.revenue_abcd_class, 'undefined')    AS revenue_abcd_class,
-    aa.revenue_share,
+    COALESCE(cam.product_family, 'undefined')       AS product_family,
+    COALESCE(cam.brand, 'undefined')                AS asin_brand,
+    -- No Athena source for revenue classification (see header).
+    'undefined'                                     AS pareto_abc_class,
+    'undefined'                                     AS revenue_abcd_class,
+    CAST(NULL AS DOUBLE)                            AS revenue_share,
 
     -- Marketplace for output
     m.country_code                             AS marketplace
@@ -139,16 +170,10 @@ enriched AS (
     ON m.id = s.marketplace_id
 
   -- ST → Campaign ASIN map (LEFT JOIN: rows without mapping get 'undefined' dimensions)
-  LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."campaign_asin_map" cam
+  LEFT JOIN campaign_asin_map cam
     ON cam.campaign_id = CAST(st.campaignid AS VARCHAR)
-    AND cam.company_id = st.ingest_company_id
-    AND cam.marketplace_id = m.amazon_marketplace_id
-
-  -- Campaign ASIN → ASIN attributes
-  LEFT JOIN "{{catalog}}"."brand_analytics_iceberg"."asin_attributes" aa
-    ON aa.asin = cam.asin
-    AND aa.company_id = CAST(st.ingest_company_id AS BIGINT)
-    AND aa.marketplace_id = m.id
+    AND cam.company_id = CAST(st.ingest_company_id AS BIGINT)
+    AND cam.amazon_marketplace_id = m.amazon_marketplace_id
 
   -- ST → Currency rate for USD conversion
   LEFT JOIN currency_rates cr
@@ -196,10 +221,8 @@ enriched AS (
 
     -- ASIN dimension filters
     AND (cardinality(p.asins) = 0 OR any_match(p.asins, a -> lower(a) = lower(cam.asin)))
-    AND (cardinality(p.product_families) = 0 OR any_match(p.product_families, pf -> lower(pf) = lower(aa.product_family)))
-    AND (cardinality(p.brands) = 0 OR any_match(p.brands, b -> lower(b) = lower(aa.brand)))
-    AND (cardinality(p.pareto_classes) = 0 OR any_match(p.pareto_classes, pc -> lower(pc) = lower(aa.pareto_abc_class)))
-    AND (cardinality(p.revenue_classes) = 0 OR any_match(p.revenue_classes, rc -> lower(rc) = lower(aa.revenue_abcd_class)))
+    AND (cardinality(p.product_families) = 0 OR any_match(p.product_families, pf -> lower(pf) = lower(cam.product_family)))
+    AND (cardinality(p.brands) = 0 OR any_match(p.brands, b -> lower(b) = lower(cam.brand)))
 ),
 
 -- ─── Determine date window ──────────────────────────────────────────────────

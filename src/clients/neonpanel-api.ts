@@ -48,11 +48,11 @@ export async function neonPanelRequest<TResponse>(options: NeonPanelRequestOptio
                         typeof errorPayload.error.code === 'string') 
                         ? errorPayload.error.code 
                         : 'neonpanel_api_error';
-      const detail = errorPayload ? ` — ${JSON.stringify(errorPayload)}` : '';
+      const detail = errorPayload ? ` — ${JSON.stringify(redactServerInternals(errorPayload))}` : '';
       throw new NeonPanelApiError(`NeonPanel API request failed (${response.status} ${method} ${url})${detail}`, {
         status: response.status,
         code: errorCode,
-        details: errorPayload,
+        details: redactServerInternals(errorPayload),
       });
     }
 
@@ -84,6 +84,21 @@ export async function neonPanelRequest<TResponse>(options: NeonPanelRequestOptio
   }
 }
 
+const SERVER_INTERNAL_KEYS = new Set(['trace', 'exception', 'file', 'line', 'stack', 'stacktrace']);
+
+/** Never forward backend stack traces / file paths to MCP clients. */
+function redactServerInternals(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactServerInternals);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([k]) => !SERVER_INTERNAL_KEYS.has(k.toLowerCase()))
+        .map(([k, v]) => [k, redactServerInternals(v)]),
+    );
+  }
+  return value;
+}
+
 function buildUrl(path: string, query?: Record<string, unknown>): string {
   const base = config.neonpanel.apiBaseUrl;
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -96,9 +111,12 @@ function buildUrl(path: string, query?: Record<string, unknown>): string {
       }
 
       if (Array.isArray(value)) {
+        // PHP/Laravel only parses repeated values as an array when the key carries `[]`;
+        // `grouping=company` (even repeated) arrives as a scalar and fails array validation.
+        const arrayKey = key.endsWith('[]') ? key : `${key}[]`;
         for (const item of value) {
           if (item === undefined || item === null) continue;
-          url.searchParams.append(key, String(item));
+          url.searchParams.append(arrayKey, String(item));
         }
       } else {
         url.searchParams.set(key, String(value));

@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { runAthenaQuery } from '../../../../../clients/athena';
-import { config } from '../../../../../config';
+import { runClickHouseQuery } from '../../../../../clients/clickhouse';
 import type { ToolRegistry, ToolSpecJson } from '../../../../types';
 import { loadTextFile } from '../../../runtime/load-assets';
 import { renderSqlTemplate } from '../../../runtime/render-sql';
@@ -30,7 +29,7 @@ export function registerOrdersGetOrderDetailsTool(registry: ToolRegistry) {
   registry.register({
     name: 'customer_orders_get_amazon_customer_order_details',
     description:
-      'Fetches full details for a single Amazon order from sp_api_iceberg.orders_v2026, including all order items expanded into individual rows.',
+      'Fetches full details for a single Amazon order from analytics.order_details_v2026_current, including all order items expanded into individual rows.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },
@@ -43,18 +42,11 @@ export function registerOrdersGetOrderDetailsTool(registry: ToolRegistry) {
 
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, {
-        catalog: config.athena.catalog,
-        company_id_str: sqlStringLiteral(String(company_id)),
+        company_id: Math.trunc(company_id),
         order_id_str: sqlStringLiteral(order_id),
       });
 
-      const result = await runAthenaQuery({
-        query: rendered,
-        database: 'sp_api_iceberg',
-        workGroup: config.athena.workgroup,
-        outputLocation: config.athena.outputLocation,
-        maxRows: 200,
-      });
+      const result = await runClickHouseQuery({ query: rendered });
 
       return applySelectFields(result.rows ?? [], undefined);
     },
