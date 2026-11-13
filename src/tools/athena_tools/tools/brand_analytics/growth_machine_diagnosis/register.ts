@@ -12,6 +12,13 @@ import {
   sqlStringLiteral,
   termIntentsCteSql,
 } from '../_clickhouse';
+import {
+  buildPpcRowsSql,
+  extractMatchStats,
+  fetchPpcExactTargets,
+  PPC_QUERY_SETTINGS,
+  ppcHeaderFields,
+} from './ppc';
 
 type CompaniesWithPermissionResponse = {
   companies?: Array<{ company_id?: number; companyId?: number; id?: number }>;
@@ -183,7 +190,16 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
         };
       }
 
+      // PPC must be fetched first: its rows are inlined into the ClickHouse query.
+      const ppc = await fetchPpcExactTargets({
+        companyId,
+        marketplaceId,
+        periodStart: parsed.period_start,
+        periodEnd: parsed.period_end,
+      });
+
       const sharedTokens = {
+        ppc_rows_sql: buildPpcRowsSql(ppc.rows),
         company_id: companyId,
         marketplace_id_literal: sqlStringLiteral(marketplaceId),
         marketplace_code_upper_literal: sqlStringLiteral(marketplace.trim().toUpperCase()),
@@ -229,9 +245,10 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
           group_by_clause: groups.join(', '),
         });
 
-        const grouped = await executeBrandAnalyticsQuery(renderedGrouped);
+        const grouped = await executeBrandAnalyticsQuery(renderedGrouped, PPC_QUERY_SETTINGS);
 
-        const aggregations = grouped.rows ?? [];
+        const groupedStats = extractMatchStats(grouped.rows ?? []);
+        const aggregations = groupedStats.rows;
         return {
           header: {
             company_id: companyId,
@@ -242,10 +259,10 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
             focus,
             rows_returned: aggregations.length,
             keywords_in_scope: null,
-            normalization_match_rate: null,
             use_tracked_search_terms: useTracked,
             use_competitor_registry: useCompetitors,
             group_by: groupByDims,
+            ...ppcHeaderFields(ppc, groupedStats),
           },
           items: [],
           aggregations,
@@ -255,17 +272,16 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
       const template = await loadTextFile(sqlPath);
       const rendered = renderSqlTemplate(template, sharedTokens);
 
-      const result = await executeBrandAnalyticsQuery(rendered);
+      const result = await executeBrandAnalyticsQuery(rendered, PPC_QUERY_SETTINGS);
 
-      const items = (result.rows ?? []).map((row) =>
-        parseScreenshotCompetitors(row as Record<string, unknown>),
-      );
+      const stats = extractMatchStats((result.rows ?? []) as Array<Record<string, unknown>>);
+      const items = stats.rows.map((row) => parseScreenshotCompetitors(row));
       const keywordsInScope = new Set<string>();
       let ppcAttributedRows = 0;
       for (const it of items) {
         const k = it.keyword_normalized;
         if (typeof k === 'string') keywordsInScope.add(k);
-        if (it.ppc_impressions !== null && it.ppc_impressions !== undefined) ppcAttributedRows += 1;
+        if (it.ppc_evaluated === true || it.ppc_evaluated === 1) ppcAttributedRows += 1;
       }
 
       return {
@@ -278,13 +294,12 @@ export function registerBrandAnalyticsGrowthMachineDiagnosisTool(registry: ToolR
           focus,
           rows_returned: items.length,
           keywords_in_scope: keywordsInScope.size,
-          normalization_match_rate: null,
           use_tracked_search_terms: useTracked,
           use_competitor_registry: useCompetitors,
-          // NULL ppc_* means "not attributable", not "zero spend": the upstream
-          // PPC table does not yet populate the promoted ASIN. Surfaced so a
-          // caller can tell an absent PPC leg from a genuinely idle keyword.
+          // Rows on this page that have an SP EXACT target (ppc_evaluated = true). Other rows
+          // carry NULL ppc_* and NULL PPC signals: "not evaluated", never "zero spend".
           ppc_attributed_rows: ppcAttributedRows,
+          ...ppcHeaderFields(ppc, stats),
         },
         items,
       };

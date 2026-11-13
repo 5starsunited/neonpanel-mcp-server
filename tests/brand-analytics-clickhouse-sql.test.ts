@@ -76,9 +76,19 @@ test('no Brand Analytics handler or SQL asset references Athena', () => {
     { pattern: /\bUNNEST\b/, why: 'Athena-only construct' },
   ];
 
+  // The ONE sanctioned Athena dependency: the growth machine's PPC leg. Amazon Ads data
+  // only exists in Athena (amazon_ads.ads_dataset) since the Ads ClickHouse retirement on
+  // 2026-10-08; Brand Analytics data itself must still come from ClickHouse. The test below
+  // pins these files to the Ads serving table so the exemption cannot widen silently.
+  const sanctionedAthenaFiles = new Set([
+    'src/tools/athena_tools/tools/brand_analytics/growth_machine_diagnosis/ppc.ts',
+    'src/tools/athena_tools/tools/brand_analytics/growth_machine_diagnosis/ppc_athena.sql',
+  ]);
+
   const violations: string[] = [];
   for (const dir of registeredTools) {
     for (const { file, text } of readAll(dir, ['.ts', '.sql'])) {
+      if (sanctionedAthenaFiles.has(path.relative(process.cwd(), file))) continue;
       for (const { pattern, why } of forbidden) {
         if (pattern.test(text)) {
           violations.push(`${path.relative(process.cwd(), file)}: ${why} (${pattern})`);
@@ -322,6 +332,52 @@ test('search term momentum scopes the competitor top-3 to the company and reques
   const detail = stripComments(fs.readFileSync(path.join(dir, 'query.sql'), 'utf8'), '.sql');
   assert.doesNotMatch(detail, /etl\.ba_search_query_performance\s+AS sqp/);
   assert.match(detail, /etl\.ba_search_query_performance_current AS sqp/);
+});
+
+test('growth_machine PPC leg reads only the Ads serving table, SP EXACT targets', () => {
+  const dir = path.join(process.cwd(), 'src/tools/athena_tools/tools/brand_analytics/growth_machine_diagnosis');
+  const sql = stripComments(fs.readFileSync(path.join(dir, 'ppc_athena.sql'), 'utf8'), '.sql');
+  const tables = [...sql.matchAll(/FROM\s+("[^"]+"\.)?"?([a-z_]+)"?\."?([a-z_]+)"?/gi)].map((m) => `${m[2]}.${m[3]}`);
+  assert.deepEqual([...new Set(tables)], ['amazon_ads.ads_dataset']);
+  assert.match(sql, /company_id = \{\{company_id\}\}/, 'must be tenant-scoped');
+  assert.match(sql, /amazon_marketplace_id = \{\{marketplace_id_literal\}\}/);
+  assert.match(sql, /match_type = 'EXACT'/, 'only EXACT targets map to a search term');
+  // Conversion rows carry no keyword text: the keyword must be rebuilt from target_keyword_id,
+  // otherwise every sale lands on a NULL keyword and every keyword looks like a bleeder.
+  assert.match(sql, /LEFT JOIN kw_dim AS k ON k\.target_keyword_id = sp\.target_keyword_id/);
+
+  for (const file of ['query.sql', 'query_grouped.sql']) {
+    const ch = fs.readFileSync(path.join(dir, file), 'utf8');
+    const body = stripComments(ch, '.sql');
+    assert.match(body, /FROM \(\{\{ppc_rows_sql\}\}\) AS ppc_src/, `${file} must read the inlined PPC rows`);
+    // The token must not appear in a comment: a multi-row values() spliced into a `--`
+    // comment would be harmless only while it stays on one line.
+    assert.equal((ch.match(/\{\{ppc_rows_sql\}\}/g) ?? []).length, 1, `${file}: ppc_rows_sql must appear once`);
+    // PPC-driven signals must be NULL, not false, when no EXACT target exists.
+    for (const sig of ['sig_cart_leak', 'sig_bleeder', 'sig_proven_winner', 'sig_cannibalization']) {
+      assert.match(body, new RegExp(`f\\.ppc_evaluated[^,]*,[\\s\\S]*?NULL\\s*\\)\\s*AS ${sig}`), `${file}: ${sig}`);
+    }
+  }
+});
+
+test('growth_machine organic-share signals use the ASIN purchase share and NULL when unknown', () => {
+  const dir = path.join(process.cwd(), 'src/tools/athena_tools/tools/brand_analytics/growth_machine_diagnosis');
+  for (const file of ['query.sql', 'query_grouped.sql']) {
+    const body = stripComments(fs.readFileSync(path.join(dir, file), 'utf8'), '.sql');
+    // total_purchase_rate is the MARKET conversion rate; it must never feed the share column.
+    assert.match(body, /avg\(asin_purchase_share\) AS sqp_brand_purchase_share/, file);
+    assert.match(body, /avg\(total_purchase_rate\) AS sqp_market_purchase_rate/, file);
+    assert.doesNotMatch(body, /total_purchase_rate\) AS sqp_brand_purchase_share/, file);
+    // Unknown share (no SQP row) must not be read as 0.
+    assert.doesNotMatch(body, /ifNull\(f\.sqp_brand_purchase_share, 0\)/, file);
+    for (const sig of ['sig_proven_winner', 'sig_cannibalization', 'sig_defend']) {
+      assert.match(
+        body,
+        new RegExp(`isNotNull\\(f\\.sqp_brand_purchase_share\\),[\\s\\S]*?NULL\\s*\\)\\s*AS ${sig}`),
+        `${file}: ${sig} must be NULL when organic share is unknown`,
+      );
+    }
+  }
 });
 
 test('growth_machine_diagnosis no longer reads the dropped PPC search-term table', () => {

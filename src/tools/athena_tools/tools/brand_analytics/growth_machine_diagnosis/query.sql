@@ -18,27 +18,29 @@
 --   sqp_impression_share      = asin_impression_share (as reported by Amazon)
 --   sqp_click_share           = asin_click_share      (as reported by Amazon)
 --   sqp_cart_add_rate         = total_cart_add_rate   (MARKET rate, not ASIN-level)
---   sqp_brand_purchase_share  = total_purchase_rate   (MARKET rate, not ASIN-level;
---                               the Athena column name was already misleading and is
---                               preserved here so the signal thresholds keep meaning
---                               exactly what they meant before the migration)
+--   sqp_brand_purchase_share  = asin_purchase_share   (ASIN share of the query's
+--                               purchases, as reported by Amazon). Until 2026-11-13 this
+--                               column held total_purchase_rate -- the MARKET conversion
+--                               rate -- so "organic share" signals compared the market's
+--                               CVR, not ours, against share thresholds.
+--   sqp_market_purchase_rate  = total_purchase_rate   (MARKET rate, not ASIN-level;
+--                               the value sqp_brand_purchase_share used to carry)
 --   sqp_ctr_advantage         = click_share / impression_share (a RATIO, not a delta)
 --   scp_click_rate / scp_cart_add_rate = clicks|cart_adds / impressions
 --   scp_purchase_rate         = purchases / clicks
 --   scp_sales_per_click       = search_traffic_sales / clicks
 --
 -- Two behavioural notes:
---  * PPC is now sourced from a pre-aggregated WEEKLY table, so a period boundary
---    that falls mid-week includes that whole week. ppc_campaign_count is a max()
---    across weeks rather than a true COUNT(DISTINCT campaign) over the period,
---    because the per-campaign grain is already collapsed upstream.
---    KNOWN DATA GAP: etl.ba_ppc_search_terms_weekly.promoted_asin is currently
---    empty in every row, so the PPC leg cannot be attributed to an ASIN and all
---    ppc_* columns come back NULL. This is deliberate: joining on keyword alone
---    would fan a single campaign's spend across every sibling ASIN and fire
---    bleeder / cart_leak / cannibalization on multiplied numbers. The join is
---    correct as written and starts returning data as soon as the ETL populates
---    promoted_asin. Callers should read NULL as "unknown", never as "zero spend".
+--  * PPC comes from Athena (amazon_ads.ads_dataset), not ClickHouse: register.ts runs
+--    ppc_athena.sql first and inlines its rows here as the ppc_rows_sql token. Only Sponsored
+--    Products EXACT-match keyword targets are included -- the only targets whose keyword is
+--    also the shopper's search term, so the only ones that can join SQP's search_query.
+--    Rows are already aggregated to (kw_norm × child_asin) over the SQP weeks in the period
+--    and converted to USD; ppc_campaign_count is a true COUNT(DISTINCT campaign).
+--    A row with no EXACT target (ppc_evaluated = false) has NULL ppc_* metrics AND NULL
+--    PPC-driven signals (cart_leak, bleeder, proven_winner, cannibalization): it may still
+--    be advertised through BROAD / PHRASE / auto / ASIN targets, which cannot be attributed
+--    to a search term. Callers must read NULL as "not evaluated", never as "no spend".
 --  * screenshots collapse to the LATEST upload per keyword. The Athena version
 --    grouped by every upload column, so two uploads for one keyword silently
 --    duplicated every prescription row for that keyword.
@@ -216,7 +218,8 @@ sqp_raw AS (
         avg(asin_impression_share) AS sqp_impression_share,
         avg(asin_click_share) AS sqp_click_share,
         avg(total_cart_add_rate) AS sqp_cart_add_rate,
-        avg(total_purchase_rate) AS sqp_brand_purchase_share,
+        avg(asin_purchase_share) AS sqp_brand_purchase_share,
+        avg(total_purchase_rate) AS sqp_market_purchase_rate,
         avg(if(ifNull(asin_impression_share, 0) = 0, NULL, asin_click_share / asin_impression_share))
             AS sqp_ctr_advantage,
         avg(search_query_score) AS sqp_search_query_score
@@ -227,7 +230,7 @@ sqp_raw AS (
     FROM (
         SELECT company_id, marketplace_id, week_start, asin, search_query,
             asin_impression_count, asin_click_count, asin_impression_share, asin_click_share,
-            total_cart_add_rate, total_purchase_rate, search_query_score
+            total_cart_add_rate, total_purchase_rate, asin_purchase_share, search_query_score
         FROM staging.ba_search_query_performance
         WHERE is_deleted = 0
           AND company_id = {{company_id}}
@@ -273,40 +276,25 @@ scp AS MATERIALIZED (
     GROUP BY child_asin
 ),
 
--- ─── PPC: already aggregated to (week × search term × promoted ASIN) ────────
+-- ─── PPC: SP EXACT targets from Athena, inlined by register.ts ──────────────
+-- The ppc_rows_sql token is a values() relation (or an empty relation when Athena returned
+-- nothing / failed) with columns kw_norm, child_asin, ppc_impressions, ppc_clicks,
+-- ppc_spend, ppc_sales, ppc_purchases, ppc_campaign_count. It is already scoped to the
+-- company, marketplace and period; the GROUP BY only guards against duplicate keys after
+-- re-normalising the keyword the same way SQP is normalised.
 ppc_raw AS (
     SELECT
-        lower(trimBoth(ifNull(search_term_norm, ''))) AS kw_norm,
-        promoted_asin AS child_asin,
-        sum(ifNull(ppc_impressions, 0)) AS ppc_impressions,
-        sum(ifNull(ppc_clicks, 0)) AS ppc_clicks,
-        sum(ifNull(toFloat64(ppc_spend), 0)) AS ppc_spend,
-        sum(ifNull(toFloat64(ppc_sales), 0)) AS ppc_sales,
-        sum(ifNull(ppc_purchases, 0)) AS ppc_purchases,
-        -- Deterministic stand-in for Athena's MAX(matchtype): the per-campaign
-        -- grain is collapsed upstream, so take the max distinct match type.
-        arrayElement(arraySort(arrayDistinct(arrayFlatten(groupArray(ppc_match_types)))), -1)
-            AS ppc_match_type_sample,
+        lower(trimBoth(kw_norm)) AS kw_norm,
+        child_asin,
+        sum(ppc_impressions) AS ppc_impressions,
+        sum(ppc_clicks) AS ppc_clicks,
+        sum(ppc_spend) AS ppc_spend,
+        sum(ppc_sales) AS ppc_sales,
+        sum(ppc_purchases) AS ppc_purchases,
+        'EXACT' AS ppc_match_type_sample,
         max(ppc_campaign_count) AS ppc_campaign_count
-    FROM (
-        -- etl.ba_ppc_search_terms_weekly was dropped with the Ads ClickHouse retirement (2026-10-08)
-        -- and no live PPC search-term feed exists. Keep the column contract with an empty relation:
-        -- every ppc_* metric is NULL, so PPC-driven prescriptions are skipped while SQP/SCP
-        -- signals (cart leak, weak leader, defend, ...) keep working.
-        SELECT
-            toUInt64(0) AS company_id, '' AS marketplace_id, '' AS ad_product, '' AS dataset,
-            toDate('1970-01-01') AS week_start, '' AS search_term_norm, '' AS promoted_asin,
-            toUInt64(0) AS ppc_impressions, toUInt64(0) AS ppc_clicks,
-            toFloat64(0) AS ppc_spend, toFloat64(0) AS ppc_sales, toUInt64(0) AS ppc_purchases,
-            CAST([] AS Array(String)) AS ppc_match_types, toUInt32(0) AS ppc_campaign_count
-        WHERE 0
-    ) AS ppc_weekly
-    WHERE company_id = {{company_id}}
-      AND marketplace_id = {{marketplace_id_literal}}
-      AND ad_product = 'SPONSORED_PRODUCTS'
-      AND dataset = 'sp_search_term'
-      AND week_start BETWEEN {{period_start_literal}} AND {{period_end_literal}}
-    GROUP BY kw_norm, child_asin
+    FROM ({{ppc_rows_sql}}) AS ppc_src
+    GROUP BY lower(trimBoth(kw_norm)), child_asin
 ),
 
 ppc AS MATERIALIZED (
@@ -317,6 +305,15 @@ ppc AS MATERIALIZED (
           (SELECT count() FROM keyword_scope) = 0
           OR kw_norm IN (SELECT kw_norm FROM keyword_scope)
       )
+),
+
+-- Share of in-scope EXACT keywords that also appear in SQP for the same ASIN scope
+-- (header.normalization_match_rate). Low values mean PPC and SQP keyword spellings drift.
+ppc_match_stats AS MATERIALIZED (
+    SELECT
+        uniqExact(kw_norm) AS ppc_exact_keywords,
+        uniqExactIf(kw_norm, kw_norm IN (SELECT kw_norm FROM sqp)) AS ppc_exact_keywords_in_sqp
+    FROM ppc
 ),
 
 -- ─── Screenshot uploads (Seller Central Search Query Details) ───────────────
@@ -430,6 +427,10 @@ fused AS (
         sqp.sqp_click_share AS sqp_click_share,
         sqp.sqp_cart_add_rate AS sqp_cart_add_rate,
         sqp.sqp_brand_purchase_share AS sqp_brand_purchase_share,
+        sqp.sqp_market_purchase_rate AS sqp_market_purchase_rate,
+        -- FALSE when Amazon reported no SQP row for this keyword × ASIN (PPC-only
+        -- keyword): organic share is then unknown, not zero.
+        CAST(isNotNull(sqp.kw_norm) AS Bool) AS sqp_data_available,
         sqp.sqp_ctr_advantage AS sqp_ctr_advantage,
         sqp.sqp_search_query_score AS sqp_search_query_score,
         -- SCP metrics
@@ -450,6 +451,9 @@ fused AS (
         ppc.ppc_purchases AS ppc_purchases,
         ppc.ppc_match_type_sample AS ppc_match_type_sample,
         ppc.ppc_campaign_count AS ppc_campaign_count,
+        -- TRUE only when an SP EXACT target exists for this keyword × ASIN. Under
+        -- join_use_nulls a missed LEFT JOIN leaves ppc.kw_norm NULL.
+        CAST(isNotNull(ppc.kw_norm) AS Bool) AS ppc_evaluated,
         if(ifNull(ppc.ppc_clicks, 0) = 0, NULL, toFloat64(ppc.ppc_purchases) / ppc.ppc_clicks) AS ppc_cvr,
         if(ifNull(ppc.ppc_spend, 0) = 0, NULL, ppc.ppc_sales / ppc.ppc_spend) AS ppc_roas,
         if(ifNull(ppc.ppc_sales, 0) = 0, NULL, ppc.ppc_spend / ppc.ppc_sales) AS ppc_acos,
@@ -482,30 +486,54 @@ fused AS (
 -- cascade onto DEFEND_ORGANIC. The comparisons below therefore divide by 100,
 -- while the projected columns stay on Amazon's reported scale so this tool keeps
 -- agreeing with analyze_search_query_performance.
+--
+-- PPC-driven signals are NULL (not false) when the row has no EXACT target
+-- (ppc_evaluated = false): "not tested" must not read as "tested and negative".
+-- Likewise every signal that reads organic share (proven_winner, cannibalization,
+-- defend) is NULL when that share is unknown -- no SQP row, or Amazon left it blank.
+-- Treating unknown share as 0 made every PPC-only keyword look "invisible
+-- organically" and fired INJECT_INTO_SEO on no evidence.
+-- multiIf and WHERE treat a NULL condition as false, so the cascade is unchanged.
 scored AS (
     SELECT
         f.*,
-        CAST(
-            f.cart_to_purchase_rate IS NOT NULL
-            AND f.cart_to_purchase_rate < ifNull(t.gm_leak_c2p_r, 0.30)
-            AND ifNull(f.ppc_spend, 0) >= ifNull(t.gm_leak_spend_min, 100)
-            AS Bool
+        if(
+            f.ppc_evaluated,
+            CAST(
+                f.cart_to_purchase_rate IS NOT NULL
+                AND f.cart_to_purchase_rate < ifNull(t.gm_leak_c2p_r, 0.30)
+                AND ifNull(f.ppc_spend, 0) >= ifNull(t.gm_leak_spend_min, 100)
+                AS Bool
+            ),
+            NULL
         ) AS sig_cart_leak,
-        CAST(
-            ifNull(f.ppc_clicks, 0) >= ifNull(t.gm_bleed_clicks_min, 10)
-            AND ifNull(f.ppc_sales, 0) <= ifNull(t.gm_bleed_sales_max, 0)
-            AS Bool
+        if(
+            f.ppc_evaluated,
+            CAST(
+                ifNull(f.ppc_clicks, 0) >= ifNull(t.gm_bleed_clicks_min, 10)
+                AND ifNull(f.ppc_sales, 0) <= ifNull(t.gm_bleed_sales_max, 0)
+                AS Bool
+            ),
+            NULL
         ) AS sig_bleeder,
-        CAST(
-            f.ppc_cvr IS NOT NULL
-            AND f.ppc_cvr >= ifNull(t.gm_proven_ppc_cvr_g, 0.10)
-            AND ifNull(f.sqp_brand_purchase_share, 0) / 100 < ifNull(t.gm_proven_brand_share_r, 0.05)
-            AS Bool
+        if(
+            f.ppc_evaluated AND isNotNull(f.sqp_brand_purchase_share),
+            CAST(
+                f.ppc_cvr IS NOT NULL
+                AND f.ppc_cvr >= ifNull(t.gm_proven_ppc_cvr_g, 0.10)
+                AND f.sqp_brand_purchase_share / 100 < ifNull(t.gm_proven_brand_share_r, 0.05)
+                AS Bool
+            ),
+            NULL
         ) AS sig_proven_winner,
-        CAST(
-            ifNull(f.sqp_brand_purchase_share, 0) / 100 >= ifNull(t.gm_cannib_brand_share_g, 0.15)
-            AND ifNull(f.ppc_spend, 0) >= ifNull(t.gm_cannib_spend_min, 50)
-            AS Bool
+        if(
+            f.ppc_evaluated AND isNotNull(f.sqp_brand_purchase_share),
+            CAST(
+                f.sqp_brand_purchase_share / 100 >= ifNull(t.gm_cannib_brand_share_g, 0.15)
+                AND ifNull(f.ppc_spend, 0) >= ifNull(t.gm_cannib_spend_min, 50)
+                AS Bool
+            ),
+            NULL
         ) AS sig_cannibalization,
         CAST(
             f.screenshot_data_available
@@ -513,9 +541,13 @@ scored AS (
             AND f.screenshot_leader_click_rate < ifNull(t.gm_weak_leader_r, 0.30)
             AS Bool
         ) AS sig_weak_leader,
-        CAST(
-            ifNull(f.sqp_brand_purchase_share, 0) / 100 >= ifNull(t.gm_defend_share_g, 0.15)
-            AS Bool
+        if(
+            isNotNull(f.sqp_brand_purchase_share),
+            CAST(
+                f.sqp_brand_purchase_share / 100 >= ifNull(t.gm_defend_share_g, 0.15)
+                AS Bool
+            ),
+            NULL
         ) AS sig_defend
     FROM fused AS f
     CROSS JOIN thresholds AS t
@@ -582,6 +614,8 @@ SELECT
     sqp_click_share,
     sqp_cart_add_rate,
     sqp_brand_purchase_share,
+    sqp_market_purchase_rate,
+    sqp_data_available,
     sqp_ctr_advantage,
     sqp_search_query_score,
     -- SCP
@@ -606,6 +640,7 @@ SELECT
     ppc_acos,
     ppc_campaign_count,
     ppc_match_type_sample,
+    ppc_evaluated,
     -- Screenshot
     screenshot_data_available,
     screenshot_uploaded_at,
@@ -617,7 +652,11 @@ SELECT
     -- Registry
     competitor_registry_asins,
     -- Deep link
-    seller_central_query_detail_url
+    seller_central_query_detail_url,
+    -- Run-level PPC match stats, repeated on every row; register.ts lifts them into the
+    -- header and strips them from items.
+    (SELECT ppc_exact_keywords FROM ppc_match_stats) AS _ppc_exact_keywords,
+    (SELECT ppc_exact_keywords_in_sqp FROM ppc_match_stats) AS _ppc_exact_keywords_in_sqp
 FROM focus_filtered
 ORDER BY
     multiIf(

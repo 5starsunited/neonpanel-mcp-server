@@ -6,6 +6,12 @@ import { logger } from '../logging/logger';
 export type ClickHouseQueryOptions = {
   query: string;
   timeoutMs?: number;
+  /**
+   * Per-request ClickHouse settings, sent as URL parameters. Use this for settings the parser
+   * needs BEFORE it reads the query (e.g. max_query_size); an in-query SETTINGS clause is
+   * applied too late for those.
+   */
+  settings?: Record<string, string | number>;
 };
 
 export type ClickHouseQueryResult = {
@@ -67,6 +73,9 @@ export async function runClickHouseQuery(
   endpoint.searchParams.set('default_format', 'JSON');
   // Emit UInt64/Int64 as JSON numbers (COUNT(*) etc); our values stay well below 2^53.
   endpoint.searchParams.set('output_format_json_quote_64bit_integers', '0');
+  for (const [name, value] of Object.entries(options.settings ?? {})) {
+    endpoint.searchParams.set(name, String(value));
+  }
 
   const timeoutMs = options.timeoutMs ?? 60_000;
   const t0 = Date.now();

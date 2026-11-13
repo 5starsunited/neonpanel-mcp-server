@@ -100,8 +100,11 @@ export async function resolveMarketplaceIds(
   return resolved;
 }
 
-export async function executeBrandAnalyticsQuery(query: string): Promise<ClickHouseQueryResult> {
-  const result = await runClickHouseQuery({ query });
+export async function executeBrandAnalyticsQuery(
+  query: string,
+  settings?: Record<string, string | number>,
+): Promise<ClickHouseQueryResult> {
+  const result = await runClickHouseQuery({ query, settings });
   logger.info(
     {
       brandAnalytics: {
