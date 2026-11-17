@@ -9,6 +9,8 @@ import { registerSupplyChainAnalyzeSalesVelocityTool } from './tools/supply_chai
 import { registerSupplyChainListProductLogisticsParametersTool } from './tools/supply_chain/list_product_logistics_parameters/register';
 import { registerSupplyChainListFbaReplenishmentCandidatesTool } from './tools/supply_chain/list_fba_replenishment_candidates/register';
 import { registerSupplyChainListPoPlacementCandidatesTool } from './tools/supply_chain/list_po_placement_candidates/register';
+import { registerSupplyChainListFulfillmentWarehousesTool } from './tools/supply_chain/list_fulfillment_warehouses/register';
+import { registerSupplyChainListWarehouseRestockCandidatesTool } from './tools/supply_chain/list_warehouse_restock_candidates/register';
 import { registerSupplyChainListStockReplenishmentRiskItemsTool } from './tools/supply_chain/list_stock_replenishment_risk_items/register';
 import { registerShipmentArrivalOracle } from './tools/supply_chain/shipment_arrival_oracle/register';
 import { registerSupplyChainWriteInventoryPlanningParametersTool } from './tools/supply_chain/write_inventory_planning_parameters/register';
@@ -91,6 +93,8 @@ export function registerAthenaTools(registry: ToolRegistry) {
   registerAccountLookupAsinCatalogTool(registry);
   registerSupplyChainListFbaReplenishmentCandidatesTool(registry);
   registerSupplyChainListPoPlacementCandidatesTool(registry);
+  registerSupplyChainListFulfillmentWarehousesTool(registry);
+  registerSupplyChainListWarehouseRestockCandidatesTool(registry);
   registerSupplyChainListStockReplenishmentRiskItemsTool(registry);
   registerSupplyChainAnalyzeSalesVelocityTool(registry);
   registerShipmentArrivalOracle(registry);

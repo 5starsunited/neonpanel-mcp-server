@@ -1,0 +1,184 @@
+{
+  "name": "supply_chain_list_warehouse_restock_candidates",
+  "description": "List items that need restocking (a shipment in, or an assembly run) at the company's own NON-FBA fulfillment warehouses — 3PLs, own warehouses and locations that ship Shopify, wholesale, other-channel and FBM Amazon orders. One row per warehouse x top-level inventory item, ordered by priority (critical, high, normal, ok, no_demand) then ship_due_in_days ascending.\n\nIMPORTANT — flat input: pass all parameters at top level. Required: company_id (integer).\n\nSCOPE: only fulfillment warehouses — warehouses referenced by invoices (Invoice V1/V2 stock outflows) with sales in the last 90 days, excluding FBA/AWD/transit/Lost & Found. Use supply_chain_list_fulfillment_warehouses to discover warehouse_ids and their sales channels. FBA replenishment is covered by supply_chain_list_fba_replenishment_candidates; supplier PO timing by supply_chain_list_po_placement_candidates.\n\nVELOCITY (sales_velocity, default 'current'):\n  • 'current': realized invoice outflows at this warehouse, blended (w30*avg_30d + w7*avg_7d + w3*avg_3d) / (w30+w7+w3), default weights 0.5/0.3/0.2 (override with velocity_weighting). When the warehouse has no invoices for the item in the last 30 days but has some in 90 days (monthly or B2B invoicing), the 90-day average is used instead (velocity_basis = 'avg_90d'). ALWAYS tell the user which weights were used (meta.velocity_weighting_used).\n  • 'planned': the channel sales forecast for the arrival month (today + lead time) x this warehouse's 90-day share of that channel's units (item-level share, else company-level), divided by the days in that month.\n  • 'target': the item's daily_unit_sales_target.\nDependent (component) demand from assemblies built at the warehouse is always added: daily_sales_rate = mode rate + dependent_daily_units.\nSales channel per sale is inferred from the invoice's sales channel; velocity_by_channel shows 30-day units per channel and sales_channels filters rows to items sold through any of the given channels (case-insensitive).\n\nPLANNING PARAMETERS:\n  • lead_time_days: median replenishment lead time into the warehouse from shipment history (created/shipped -> arrived) and purchase orders (PO date -> received) over 365 days — item level when >= 3 events (source 'history_item'), else warehouse level ('history_warehouse'), else default 30 days ('default'). lead_time_days_override replaces it (source 'override').\n  • safety_stock_days: default 10 days, flat in v1 (safety_stock_days_eff = safety_stock_days; ss_multiplier is returned for information only because the ABCD class is Amazon-revenue based). safety_stock_days_override replaces it (source 'override').\n  • days_between_shipments: replenishment cadence, default 14.\n\nMATH: available = on hand + in transit to the warehouse + open POs delivering to it; effective_available adds buildable units for assemblies built at the warehouse. days_of_supply = effective_available / rate (99999 when rate <= 0). ship_due_in_days = floor(days_of_supply - safety_stock_days_eff - lead_time_days). need = max(0, rate x (lead_time + safety_stock_eff + cadence) - effective_available). recommended_ship_qty = need rounded up to box_quantity (0 for items assembled at the warehouse, which get recommended_assembly_units = ceil(need) instead). priority: no_demand if rate <= 0, critical if due <= 0, high if due <= stockout_threshold_days (default 7), normal if due <= cadence, else ok.\n\nplanning_base (default 'needs_replenishment'): 'needs_replenishment' = recommended_ship_qty > 0 or recommended_assembly_units > 0; 'actively_sold_only' = units sold at the warehouse in 30 days or component demand; 'all' = every planned row. include_components=false drops rows whose planning_source is 'COMPONENT'. Each row includes the typical origin warehouse (most frequent shipment source) and its on-hand units to show where stock can come from.",
+  "isConsequential": false,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "REQUIRED. Numeric company identifier."
+      },
+      "warehouse_ids": {
+        "type": "array",
+        "items": { "type": "integer", "minimum": 1 },
+        "description": "Restrict to these fulfillment warehouse ids (from supply_chain_list_fulfillment_warehouses)."
+      },
+      "sales_channels": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Keep items whose 30-day sales at the warehouse include any of these sales channel names (case-insensitive exact name match, e.g. 'Shopify')."
+      },
+      "sales_velocity": {
+        "type": "string",
+        "enum": ["current", "planned", "target"],
+        "default": "current"
+      },
+      "velocity_weighting": {
+        "type": "object",
+        "description": "Blend weights for 'current' sales_velocity, normalized by their sum. Defaults 0.5/0.3/0.2 (30d/7d/3d). Pass {\"weight_30d\":1,\"weight_7d\":0,\"weight_3d\":0} for the plain 30-day average.",
+        "properties": {
+          "weight_30d": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 },
+          "weight_7d": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3 },
+          "weight_3d": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 }
+        },
+        "additionalProperties": false
+      },
+      "lead_time_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 730,
+        "description": "Replace the history-based lead time for every row (lead_time_days_source becomes 'override')."
+      },
+      "safety_stock_days_override": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 730,
+        "description": "Replace the safety stock days (default 10)."
+      },
+      "days_between_shipments": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "default": 14,
+        "description": "Replenishment cadence in days added to the coverage target."
+      },
+      "stockout_threshold_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "default": 7,
+        "description": "Rows with 0 < ship_due_in_days <= this value are priority 'high'."
+      },
+      "planning_base": {
+        "type": "string",
+        "enum": ["all", "actively_sold_only", "needs_replenishment"],
+        "default": "needs_replenishment"
+      },
+      "revenue_abcd_class": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["A", "B", "C", "D"] }
+      },
+      "brand": { "type": "array", "items": { "type": "string" } },
+      "product_family": { "type": "array", "items": { "type": "string" } },
+      "target_skus": { "type": "array", "items": { "type": "string" } },
+      "target_inventory_ids": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+      "include_components": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, drop rows whose planning_source is 'COMPONENT' (items needed only as assembly components at the warehouse)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000,
+        "default": 50
+      }
+    },
+    "required": ["company_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_ref": {
+              "type": "object",
+              "properties": {
+                "inventory_id": { "type": "integer" },
+                "sku": { "type": "string" },
+                "asin": { "type": "string" },
+                "warehouse_id": { "type": ["integer", "null"] },
+                "warehouse_name": { "type": ["string", "null"] },
+                "item_name": { "type": "string" },
+                "item_icon_url": { "type": "string" }
+              },
+              "additionalProperties": true
+            },
+            "presentation": { "type": "object", "additionalProperties": true },
+            "warehouse_id": { "type": ["integer", "null"] },
+            "warehouse_name": { "type": ["string", "null"] },
+            "planning_source": { "type": ["string", "null"], "description": "SHIP | ASSEMBLE_AT_WAREHOUSE | COMPONENT" },
+            "on_hand_units": { "type": "number" },
+            "in_transit_units": { "type": "number" },
+            "open_po_units": { "type": "number" },
+            "effective_available_units": { "type": "number" },
+            "sales_velocity": { "type": "string" },
+            "daily_sales_rate": { "type": "number" },
+            "dependent_daily_units": { "type": "number" },
+            "velocity_by_channel": { "type": "object", "additionalProperties": { "type": "number" } },
+            "lead_time_days": { "type": ["number", "null"] },
+            "lead_time_days_source": { "type": ["string", "null"] },
+            "safety_stock_days": { "type": ["number", "null"] },
+            "safety_stock_days_source": { "type": ["string", "null"] },
+            "safety_stock_days_eff": { "type": ["number", "null"] },
+            "days_of_supply": { "type": ["number", "null"] },
+            "ship_due_date": { "type": ["string", "null"] },
+            "ship_due_in_days": { "type": ["integer", "null"] },
+            "days_overdue": { "type": "integer" },
+            "recommended_ship_qty": { "type": "integer" },
+            "recommended_assembly_units": { "type": "integer" },
+            "typical_origin_warehouse_id": { "type": ["integer", "null"] },
+            "typical_origin_warehouse_name": { "type": ["string", "null"] },
+            "origin_on_hand_units": { "type": "number" },
+            "priority": { "type": "string", "enum": ["critical", "high", "normal", "ok", "no_demand"] },
+            "reason": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "warnings": { "type": ["array", "null"], "items": { "type": "string" } },
+          "velocity_weighting_used": { "type": ["object", "null"], "additionalProperties": true },
+          "parameters_used": { "type": ["object", "null"], "additionalProperties": true },
+          "defaults": { "type": ["object", "null"], "additionalProperties": true }
+        },
+        "additionalProperties": true
+      }
+    },
+    "required": ["items"]
+  },
+  "examples": [
+    {
+      "description": "Items to restock at any fulfillment warehouse",
+      "request": { "company_id": 106 }
+    },
+    {
+      "description": "Shopify-sold items at one warehouse, plain 30-day average, 21-day lead time",
+      "request": {
+        "company_id": 106,
+        "warehouse_ids": [42],
+        "sales_channels": ["Shopify"],
+        "velocity_weighting": { "weight_30d": 1, "weight_7d": 0, "weight_3d": 0 },
+        "lead_time_days_override": 21
+      }
+    },
+    {
+      "description": "Forecast-driven plan for A items, finished goods only",
+      "request": {
+        "company_id": 106,
+        "sales_velocity": "planned",
+        "revenue_abcd_class": ["A"],
+        "include_components": false,
+        "planning_base": "all"
+      }
+    }
+  ]
+}
