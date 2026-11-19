@@ -11,6 +11,7 @@ import {
 } from '../src/tools/athena_tools/tools/supply_chain/list_fulfillment_warehouses/register';
 import {
   TOOL_NAME as RESTOCK_TOOL_NAME,
+  buildDemandBreakdown,
   buildWarehouseRestockSqlVariables,
   inputSchema as restockInputSchema,
   mapWarehouseRestockRow,
@@ -82,7 +83,7 @@ test('fulfillment warehouses SQL renders with every placeholder substituted', ()
   assert.doesNotMatch(sql, /\{\{|\}\}/);
   assert.match(sql, /toUInt64\(106\)/);
   assert.match(sql, /\(FALSE OR fw\.is_fulfillment = 1\)/);
-  assert.match(sql, /ORDER BY units_sold_90d DESC/);
+  assert.match(sql, /ORDER BY is_fulfillment DESC, units_out_90d DESC/);
   assert.match(sql, /LIMIT 50\b/);
 
   const all = renderSqlTemplate(
@@ -110,7 +111,63 @@ test('warehouse restock SQL renders defaults with every placeholder substituted'
   assert.match(sql, /TRUE AS include_components/);
   assert.match(sql, /CAST\(\[\], 'Array\(UInt64\)'\) AS warehouse_ids/);
   assert.match(sql, /CAST\(\[\], 'Array\(String\)'\) AS sales_channels/);
+  assert.match(sql, /CAST\(\[\], 'Array\(String\)'\) AS transfer_routes/);
+  assert.match(sql, /TRUE AS include_transfers/);
   assert.match(sql, /LIMIT 50\b/);
+});
+
+test('warehouse restock SQL adds outbound transfers to the turnover rate', () => {
+  const template = fs.readFileSync(path.join(supplyChainRoot, 'list_warehouse_restock_candidates/query.sql'), 'utf8');
+  const sql = renderSqlTemplate(template, buildWarehouseRestockSqlVariables(restockInputSchema.parse({
+    company_id: 163,
+    transfer_routes: ['Amazon FBA US', ' amazon fba us '],
+    include_transfers: false,
+  })));
+  assert.doesNotMatch(sql, /\{\{|\}\}/);
+  assert.match(sql, /FALSE AS include_transfers/);
+  assert.match(sql, /\['amazon fba us'\] AS transfer_routes/);
+  assert.match(sql, /if\(p\.include_transfers, toFloat64\(coalesce\(f\.transfer_daily_rate, 0\)\), 0\.0\) AS transfer_rate/);
+  assert.match(sql, /r\.base_daily_rate \+ r\.dependent_rate \+ r\.transfer_rate AS rate/);
+  assert.match(sql, /JSONExtractKeys\(coalesce\(v\.transfer_route_rates_json, '\{\}'\)\)/);
+  assert.match(sql, /t\.rate AS daily_turnover_rate/);
+});
+
+test('demand breakdown streams sum to the item turnover for every velocity mode', () => {
+  const streams = [
+    { stream_type: 'sale', stream_name: 'Shopify', stream_group: 'Sales channel', stream_units_90d: 270,
+      stream_avg_units_30d: 2, stream_avg_units_7d: 3, stream_avg_units_3d: 1, stream_planned_daily_rate: 4,
+      stream_sales_share: 0.75 },
+    { stream_type: 'sale', stream_name: 'Wholesale', stream_group: 'Sales channel', stream_units_90d: 90,
+      stream_avg_units_30d: 1, stream_avg_units_7d: 0, stream_avg_units_3d: 0, stream_planned_daily_rate: 1,
+      stream_sales_share: 0.25 },
+    { stream_type: 'transfer', stream_name: 'Amazon FBA US', stream_group: 'Amazon FBA', stream_units_90d: 900,
+      stream_transfer_daily_rate: 10 },
+    { stream_type: 'component', stream_name: 'Assembly consumption', stream_group: 'Component',
+      stream_units_90d: 0, stream_dependent_daily_units: 0.5 },
+  ];
+  const weights = { weight_30d: 0.5, weight_7d: 0.3, weight_3d: 0.2 };
+  const sales = {
+    current: (0.5 * 3 + 0.3 * 3 + 0.2 * 1) / 1.0,
+    planned: 5,
+    target: 8,
+  } as const;
+  for (const mode of ['current', 'planned', 'target'] as const) {
+    const total = sales[mode] + 10 + 0.5;
+    const item = { units_30d: 90, target_daily_rate: 8, daily_turnover_rate: total,
+      recommended_ship_qty: 300, recommended_assembly_units: 0 };
+    const out = buildDemandBreakdown(item, streams, { sales_velocity: mode, weights, include_transfers: true });
+    const rate = out.reduce((a, s) => a + s.daily_rate, 0);
+    const qty = out.reduce((a, s) => a + s.recommended_ship_qty, 0);
+    assert.ok(Math.abs(rate - total) < 1e-3, `${mode}: ${rate} vs ${total}`);
+    assert.ok(Math.abs(qty - 300) < 0.05, `${mode}: qty ${qty}`);
+    assert.equal(out[0].stream_name, 'Amazon FBA US');
+  }
+  const salesOnly = buildDemandBreakdown(
+    { units_30d: 0, target_daily_rate: 0, daily_turnover_rate: 4, recommended_ship_qty: 40, recommended_assembly_units: 0 },
+    streams, { sales_velocity: 'current', weights, include_transfers: false });
+  assert.ok(salesOnly.every((s) => s.stream_type !== 'transfer'));
+  // No 30-day sales: every sales stream falls back to its 90-day average (270/90 + 90/90 = 4).
+  assert.equal(salesOnly.find((s) => s.stream_name === 'Shopify')?.daily_rate, 3);
 });
 
 test('warehouse restock SQL renders custom parameters and recomputes outputs', () => {
@@ -195,6 +252,9 @@ test('restock row mapping builds item_ref, presentation, parsed fields and reaso
     channel_units_30d_json: '{"Shopify":30}',
     sales_velocity_mode: 'current',
     daily_sales_rate: 2,
+    transfer_daily_rate: 1.5,
+    daily_turnover_rate: 3.5,
+    transfer_route_rates_json: '{"Amazon FBA US":1.5}',
     dependent_daily_units: 0.5,
     days_of_supply: 20,
     lead_time_days: 21,
@@ -227,7 +287,11 @@ test('restock row mapping builds item_ref, presentation, parsed fields and reaso
   assert.equal(row.assembles_at_wh, false);
   assert.equal(row.is_component_at_wh, true);
   assert.equal(row.binding_component_product_id, null);
-  assert.match(row.reason, /^critical: /);
+  assert.equal(row.daily_turnover_rate, 3.5);
+  assert.deepEqual(row.transfer_rate_by_route, { 'Amazon FBA US': 1.5 });
+  assert.equal(row.demand_breakdown, null);
+  assert.match(row.reason, /^critical: 3\.5 units\/day turnover/);
+  assert.match(row.reason, /1\.5\/day outbound transfers and 0\.5\/day component demand/);
   assert.match(row.reason, /overdue by 13/);
   assert.match(row.reason, /ship 48 unit\(s\) \(typically from Main DC, 500 on hand\)/);
 });
@@ -240,7 +304,15 @@ test('fulfillment warehouse row mapping converts UInt8 flags', () => {
     is_fulfillment: 0,
     sales_channels_90d: ['Shopify'],
     median_lead_time_days: null,
+    warehouse_role: 'fulfillment_and_transit',
+    units_transferred_90d: 900,
+    transfer_routes_90d: ['Amazon FBA US'],
+    last_transfer_date: '2026-11-15',
   });
+  assert.equal(row.warehouse_role, 'fulfillment_and_transit');
+  assert.equal(row.units_transferred_90d, 900);
+  assert.deepEqual(row.transfer_routes_90d, ['Amazon FBA US']);
+  assert.equal(row.units_transferred_30d, 0);
   assert.equal(row.is_planning_eligible_type, true);
   assert.equal(row.is_fulfillment, false);
   assert.deepEqual(row.sales_channels_90d, ['Shopify']);

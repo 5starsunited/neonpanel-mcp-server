@@ -58,6 +58,13 @@ export function mapFulfillmentWarehouseRow(row: Record<string, unknown>) {
     warehouse_type: (row.warehouse_type ?? null) as string | null,
     is_planning_eligible_type: toFlag(row.is_planning_eligible_type),
     is_fulfillment: toFlag(row.is_fulfillment),
+    warehouse_role: (row.warehouse_role ?? null) as string | null,
+    units_transferred_30d: toNumber(row.units_transferred_30d) ?? 0,
+    units_transferred_90d: toNumber(row.units_transferred_90d) ?? 0,
+    items_transferred_90d: toNumber(row.items_transferred_90d) ?? 0,
+    transfer_routes_90d: Array.isArray(row.transfer_routes_90d) ? (row.transfer_routes_90d as string[]) : [],
+    last_transfer_date: (row.last_transfer_date ?? null) as string | null,
+    units_out_90d: toNumber(row.units_out_90d) ?? 0,
     first_sale_date: (row.first_sale_date ?? null) as string | null,
     last_sale_date: (row.last_sale_date ?? null) as string | null,
     units_sold_30d: toNumber(row.units_sold_30d) ?? 0,
@@ -101,7 +108,7 @@ export function registerSupplyChainListFulfillmentWarehousesTool(registry: ToolR
         warnings.push(
           input.include_non_eligible
             ? 'No warehouse is referenced by invoices for this company. Non-FBA warehouse replenishment planning needs invoice-fulfilled sales (Invoice V1/V2) posted against a warehouse.'
-            : 'No fulfillment warehouse with invoice sales in the last 90 days for this company. Retry with include_non_eligible=true to see every warehouse referenced by invoices (including FBA/AWD/transit locations); FBA replenishment is covered by supply_chain_list_fba_replenishment_candidates.',
+            : 'No fulfillment warehouse with invoice sales in the last 90 days for this company. Retry with include_non_eligible=true to see every warehouse with invoices or outbound transfers (including FBA/AWD/transit and transfer-only locations); FBA replenishment is covered by supply_chain_list_fba_replenishment_candidates.',
         );
       }
 
@@ -111,7 +118,7 @@ export function registerSupplyChainListFulfillmentWarehousesTool(registry: ToolR
           warnings,
           source: 'etl.fulfillment_warehouses',
           include_non_eligible: input.include_non_eligible ?? false,
-          sort: 'units_sold_90d desc',
+          sort: 'is_fulfillment desc, units_out_90d desc',
         },
       };
     },

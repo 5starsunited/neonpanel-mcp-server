@@ -1,9 +1,11 @@
 -- Tool: supply_chain_list_warehouse_restock_candidates
--- Source: ClickHouse etl.inventory_planning_warehouse (migration 0088), grain
+-- Source: ClickHouse etl.inventory_planning_warehouse (migrations 0088 + 0089), grain
 -- company x fulfillment warehouse x top-level inventory item.
 -- The view already carries outputs for the default parameters. This query recomputes
 -- rate, days of supply, ship due date, replenishment need, recommended quantities and
 -- priority from the view's raw columns so the caller's parameters take effect.
+-- Rate = turnover = sales rate (velocity mode) + component consumption + outbound
+-- transfer rate (when include_transfers).
 
 WITH params AS (
   SELECT
@@ -19,9 +21,11 @@ WITH params AS (
     toInt64({{stockout_threshold_days}}) AS stockout_threshold_days,
     {{planning_base_sql}} AS planning_base,
     {{include_components_sql}} AS include_components,
+    {{include_transfers_sql}} AS include_transfers,
     toUInt64({{company_id}}) AS company_id,
     {{warehouse_ids_array}} AS warehouse_ids,
     {{sales_channels_array}} AS sales_channels,
+    {{transfer_routes_array}} AS transfer_routes,
     {{revenue_abcd_classes_array}} AS revenue_abcd_classes,
     {{brands_array}} AS brands,
     {{product_families_array}} AS product_families,
@@ -40,13 +44,17 @@ filtered AS (
     AND (empty(p.product_families) OR has(p.product_families, coalesce(v.product_family, '')))
     AND (empty(p.revenue_abcd_classes) OR has(p.revenue_abcd_classes, v.revenue_abcd_class))
     AND (p.include_components OR v.planning_source != 'COMPONENT')
-    -- Channel filter: keep rows whose 30-day channel mix contains any requested channel
-    -- (case-insensitive match on the JSON keys).
+    -- Channel / route filter: keep rows whose 30-day sales channels or 90-day transfer
+    -- routes contain any requested name (case-insensitive match on the JSON keys).
     AND (
-      empty(p.sales_channels)
+      (empty(p.sales_channels) AND empty(p.transfer_routes))
       OR arrayExists(
         channel_name -> has(p.sales_channels, lower(trim(channel_name))),
         JSONExtractKeys(coalesce(v.channel_units_30d_json, '{}'))
+      )
+      OR arrayExists(
+        route_name -> has(p.transfer_routes, lower(trim(route_name))),
+        JSONExtractKeys(coalesce(v.transfer_route_rates_json, '{}'))
       )
     )
 ),
@@ -65,6 +73,7 @@ rated AS (
         / nullIf(p.weight_30d + p.weight_7d + p.weight_3d, 0)
     )), 0.0), 0.0) AS base_daily_rate,
     toFloat64(coalesce(f.dependent_daily_units, 0)) AS dependent_rate,
+    if(p.include_transfers, toFloat64(coalesce(f.transfer_daily_rate, 0)), 0.0) AS transfer_rate,
     if(p.lead_time_override_enabled, p.lead_time_days_override, toFloat64(f.lead_time_days)) AS lt_days,
     if(p.lead_time_override_enabled, 'override', f.lead_time_days_source) AS lt_source,
     if(p.safety_stock_override_enabled, p.safety_stock_days_override, toFloat64(f.safety_stock_days)) AS ss_days,
@@ -77,7 +86,7 @@ rated AS (
 derived AS (
   SELECT
     r.*,
-    r.base_daily_rate + r.dependent_rate AS rate,
+    r.base_daily_rate + r.dependent_rate + r.transfer_rate AS rate,
     -- v1: flat safety stock, ss_multiplier is informational only (Amazon ABCD class).
     r.ss_days AS ss_eff
   FROM rated AS r
@@ -153,7 +162,16 @@ SELECT
   toFloat64(t.target_daily_rate) AS target_daily_rate,
   t.dependent_rate AS dependent_daily_units,
   t.base_daily_rate AS base_daily_rate,
-  t.rate AS daily_sales_rate,
+  t.base_daily_rate + t.dependent_rate AS daily_sales_rate,
+  t.transfer_rate AS transfer_daily_rate,
+  t.rate AS daily_turnover_rate,
+  toFloat64(t.transfer_units_30d) AS transfer_units_30d,
+  toFloat64(t.transfer_units_90d) AS transfer_units_90d,
+  toUInt64(t.transfer_shipments_90d) AS transfer_shipments_90d,
+  t.transfer_route_rates_json AS transfer_route_rates_json,
+  t.top_transfer_route AS top_transfer_route,
+  t.top_sales_channel AS top_sales_channel,
+  t.planned_channel_rates_json AS planned_channel_rates_json,
   t.sales_velocity_mode AS sales_velocity_mode,
   t.lt_days AS lead_time_days,
   t.lt_source AS lead_time_days_source,
@@ -179,7 +197,7 @@ SELECT
 FROM final AS t
 CROSS JOIN params AS p
 WHERE p.planning_base = 'all'
-  OR (p.planning_base = 'actively_sold_only' AND (t.units_30d > 0 OR t.dependent_rate > 0))
+  OR (p.planning_base = 'actively_sold_only' AND (t.units_30d > 0 OR t.dependent_rate > 0 OR t.transfer_rate > 0))
   OR (p.planning_base = 'needs_replenishment' AND (t.rec_ship_qty > 0 OR t.rec_assembly_units > 0))
 ORDER BY
   multiIf(t.priority_level = 'critical', 0, t.priority_level = 'high', 1, t.priority_level = 'normal', 2,

@@ -1,6 +1,7 @@
 -- Tool: supply_chain_list_fulfillment_warehouses
--- Source: ClickHouse etl.fulfillment_warehouses (migration 0088). Warehouses referenced by
--- invoice stock outflows, with 30/90-day volume, sales channels and lead-time history.
+-- Source: ClickHouse etl.fulfillment_warehouses (migrations 0088 + 0089). Warehouses with
+-- invoice stock outflows or outbound transfers, with 30/90-day volume, sales channels,
+-- transfer routes and lead-time history. Planned (is_fulfillment) only with invoice sales.
 
 SELECT
   toUInt64(fw.company_id) AS company_id,
@@ -23,9 +24,16 @@ SELECT
   fw.p80_lead_time_days AS p80_lead_time_days,
   fw.default_lead_time_days AS default_lead_time_days,
   fw.default_safety_stock_days AS default_safety_stock_days,
-  fw.default_replenishment_frequency_days AS default_replenishment_frequency_days
+  fw.default_replenishment_frequency_days AS default_replenishment_frequency_days,
+  fw.warehouse_role AS warehouse_role,
+  toFloat64(fw.units_transferred_30d) AS units_transferred_30d,
+  toFloat64(fw.units_transferred_90d) AS units_transferred_90d,
+  toUInt64(fw.items_transferred_90d) AS items_transferred_90d,
+  fw.transfer_routes_90d AS transfer_routes_90d,
+  if(fw.last_transfer_date IS NULL, NULL, toString(fw.last_transfer_date)) AS last_transfer_date,
+  toFloat64(fw.units_out_90d) AS units_out_90d
 FROM etl.fulfillment_warehouses AS fw
 WHERE toUInt64(fw.company_id) = toUInt64({{company_id}})
   AND ({{include_non_eligible_sql}} OR fw.is_fulfillment = 1)
-ORDER BY units_sold_90d DESC, warehouse_id ASC
+ORDER BY is_fulfillment DESC, units_out_90d DESC, warehouse_id ASC
 LIMIT {{limit_top_n}}

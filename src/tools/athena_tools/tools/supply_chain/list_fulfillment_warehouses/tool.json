@@ -1,6 +1,6 @@
 {
   "name": "supply_chain_list_fulfillment_warehouses",
-  "description": "List the company's own fulfillment warehouses (3PLs, own warehouses, FBM/Shopify/wholesale shipping locations) that are eligible for non-FBA replenishment planning, ordered by 90-day units sold.\n\nIMPORTANT — flat input: pass all parameters at top level. Required: company_id (integer).\n\nWHAT COUNTS AS A FULFILLMENT WAREHOUSE: a warehouse that physically fulfilled invoices — stock outflows posted by Invoice V1/V2 documents in the company FIFO mode. This covers Shopify, wholesale, other channels and FBM Amazon orders. Amazon FBA/AWD, transit/transfer and 'Lost & Found' locations and deleted warehouses are NOT planning-eligible (is_planning_eligible_type = false); FBA replenishment is covered by supply_chain_list_fba_replenishment_candidates. is_fulfillment = eligible type AND units sold in the last 90 days > 0. By default only is_fulfillment warehouses are returned; pass include_non_eligible=true to see every warehouse referenced by invoices.\n\nFIELDS: units_sold_30d / units_sold_90d, items_sold_90d, item_invoice_lines_90d, sales_channels_90d (sales channels inferred from the invoices' sales channel), first/last sale date, and lead-time history: lead_time_events_365d, median_lead_time_days, p80_lead_time_days — measured from arrived shipments (created/shipped -> arrived) and received purchase orders (PO date -> received) into the warehouse over 365 days. Planning defaults: default_lead_time_days 30 (used when < 3 history events), default_safety_stock_days 10 (multiplied by the ABCD class safety-stock multiplier), default_replenishment_frequency_days 14.\n\nUse the returned warehouse_id values as warehouse_ids in supply_chain_list_warehouse_restock_candidates.",
+  "description": "List the company's own fulfillment warehouses (3PLs, own warehouses, FBM/Shopify/wholesale shipping locations) that are eligible for non-FBA replenishment planning, ordered by 90-day outflow (units sold + units transferred out).\n\nIMPORTANT — flat input: pass all parameters at top level. Required: company_id (integer).\n\nWHAT COUNTS AS A FULFILLMENT WAREHOUSE: a warehouse that physically fulfilled invoices — stock outflows posted by Invoice V1/V2 documents in the company FIFO mode. This covers Shopify, wholesale, other channels and FBM Amazon orders. Amazon FBA/AWD, transit/transfer and 'Lost & Found' locations and deleted warehouses are NOT planning-eligible (is_planning_eligible_type = false); FBA replenishment is covered by supply_chain_list_fba_replenishment_candidates. is_fulfillment = eligible type AND units sold in the last 90 days > 0. By default only is_fulfillment warehouses are returned; pass include_non_eligible=true to also see every other warehouse with invoices or outbound transfers.\n\nTRANSIT: a fulfillment warehouse can also forward stock to other warehouses (mostly FBA/AWD inbound shipments). warehouse_role is 'fulfillment', 'fulfillment_and_transit', 'transit' (outbound transfers but no invoice sales — mostly supplier factories and forwarders replenished by purchase orders, so NOT planned here) or 'inactive'. Transfer fields: units_transferred_30d / units_transferred_90d, items_transferred_90d, transfer_routes_90d (destination warehouse names), last_transfer_date, units_out_90d = units sold + units transferred. Restock candidates for fulfillment warehouses cover both sales and transfers.\n\nFIELDS: units_sold_30d / units_sold_90d, items_sold_90d, item_invoice_lines_90d, sales_channels_90d (sales channels inferred from the invoices' sales channel), first/last sale date, and lead-time history: lead_time_events_365d, median_lead_time_days, p80_lead_time_days — measured from arrived shipments (created/shipped -> arrived) and received purchase orders (PO date -> received) into the warehouse over 365 days. Planning defaults: default_lead_time_days 30 (used when < 3 history events), default_safety_stock_days 10 (flat), default_replenishment_frequency_days 14.\n\nUse the returned warehouse_id values as warehouse_ids in supply_chain_list_warehouse_restock_candidates.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",
@@ -13,7 +13,7 @@
       "include_non_eligible": {
         "type": "boolean",
         "default": false,
-        "description": "When true, also return warehouses that are referenced by invoices but not planning-eligible (FBA/AWD/transit/Lost & Found/deleted) or that had no sales in the last 90 days."
+        "description": "When true, also return warehouses that are not planned: not planning-eligible (FBA/AWD/transit/Lost & Found/deleted), no invoice sales in the last 90 days, or transfer-only (warehouse_role 'transit')."
       },
       "limit": {
         "type": "integer",
@@ -35,27 +35,102 @@
         "items": {
           "type": "object",
           "properties": {
-            "company_id": { "type": ["integer", "null"] },
-            "company_name": { "type": ["string", "null"] },
-            "warehouse_id": { "type": ["integer", "null"] },
-            "warehouse_uuid": { "type": ["string", "null"] },
-            "warehouse_name": { "type": ["string", "null"] },
-            "warehouse_type": { "type": ["string", "null"] },
-            "is_planning_eligible_type": { "type": "boolean" },
-            "is_fulfillment": { "type": "boolean" },
-            "first_sale_date": { "type": ["string", "null"] },
-            "last_sale_date": { "type": ["string", "null"] },
-            "units_sold_30d": { "type": "number" },
-            "units_sold_90d": { "type": "number" },
-            "item_invoice_lines_90d": { "type": "number" },
-            "items_sold_90d": { "type": "number" },
-            "sales_channels_90d": { "type": "array", "items": { "type": "string" } },
-            "lead_time_events_365d": { "type": "number" },
-            "median_lead_time_days": { "type": ["number", "null"] },
-            "p80_lead_time_days": { "type": ["number", "null"] },
-            "default_lead_time_days": { "type": "number" },
-            "default_safety_stock_days": { "type": "number" },
-            "default_replenishment_frequency_days": { "type": "number" }
+            "company_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "company_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "warehouse_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "warehouse_uuid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "warehouse_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "warehouse_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "is_planning_eligible_type": {
+              "type": "boolean"
+            },
+            "is_fulfillment": {
+              "type": "boolean"
+            },
+            "first_sale_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "last_sale_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "units_sold_30d": {
+              "type": "number"
+            },
+            "units_sold_90d": {
+              "type": "number"
+            },
+            "item_invoice_lines_90d": {
+              "type": "number"
+            },
+            "items_sold_90d": {
+              "type": "number"
+            },
+            "sales_channels_90d": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "lead_time_events_365d": {
+              "type": "number"
+            },
+            "median_lead_time_days": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "p80_lead_time_days": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "default_lead_time_days": {
+              "type": "number"
+            },
+            "default_safety_stock_days": {
+              "type": "number"
+            },
+            "default_replenishment_frequency_days": {
+              "type": "number"
+            }
           },
           "additionalProperties": true
         }
@@ -63,7 +138,15 @@
       "meta": {
         "type": "object",
         "properties": {
-          "warnings": { "type": ["array", "null"], "items": { "type": "string" } }
+          "warnings": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "additionalProperties": true
       }

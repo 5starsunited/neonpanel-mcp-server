@@ -288,9 +288,15 @@ is_planning_eligible_type = NOT (name starts with 'Amazon FBA' OR name = 'Lost &
 is_fulfillment            = is_planning_eligible_type AND units_sold_90d > 0
 ```
 
-Default output is `is_fulfillment = 1` rows only, ordered by `units_sold_90d`
-desc; `include_non_eligible = true` returns every invoice-referenced
-warehouse. Each row carries `sales_channels_90d` (from the invoice sales
+Default output is `is_fulfillment = 1` rows only, ordered by `units_out_90d`
+desc; `include_non_eligible = true` also returns every other warehouse with
+invoices or outbound transfers. Since migration 0089 each row also carries
+`warehouse_role` (`fulfillment`, `fulfillment_and_transit`, `transit`,
+`inactive`), `units_transferred_30d/90d`, `items_transferred_90d`,
+`transfer_routes_90d` (destination warehouse names), `last_transfer_date` and
+`units_out_90d` = sold + transferred. `transit` warehouses (outbound transfers,
+no invoice sales) are mostly supplier factories and forwarders replenished by
+purchase orders, so they are not planned. Each row carries `sales_channels_90d` (from the invoice sales
 channel), 30/90-day units and lead-time history (`lead_time_events_365d`,
 `median_lead_time_days`, `p80_lead_time_days`) plus the planning defaults
 (lead time 30, safety stock 10, cadence 14).
@@ -314,8 +320,27 @@ planned = planned_units_arrival_month / days_in_arrival_month
             channel forecast (month of today + lead_time) x warehouse share of that channel
             (90-day item-level share, else company-level share)
 target  = daily_unit_sales_target
-rate    = mode rate + dependent_daily_units   (component demand of assemblies built here)
+daily_sales_rate    = mode rate + dependent_daily_units   (component demand of assemblies built here)
+transfer_daily_rate = sum over routes of (transfer_units_30d / 30 + transfer_units_90d / 90) / 2
+rate                = daily_turnover_rate = daily_sales_rate + transfer_daily_rate
+                      (transfer part 0 when include_transfers = false)
 ```
+
+Transfers (migration 0089) are stock the warehouse ships out to other
+warehouses, mostly FBA/AWD inbound shipments: ledger `App\Models\Shipment`
+outflows at the shipment's origin warehouse (cancelled shipments never post).
+They use a 30/90-day mean regardless of `sales_velocity` because shipments are
+large and infrequent. `transfer_rate_by_route` gives the rate per destination;
+`transfer_routes` keeps items moving on any given route (OR-combined with
+`sales_channels`).
+
+`demand_breakdown` (default on, `include_demand_breakdown`) splits the item's
+turnover into streams: `sale` per sales channel (channels with only a planned
+share included), `transfer` per destination, `component`. Each stream's rate
+uses the same mode and weights as the item, so stream rates sum to
+`daily_turnover_rate`; `share` x the item's recommended quantities gives each
+stream's part. Source: `etl.inventory_planning_warehouse_demand`, read in a
+second query for the returned items only.
 
 Realized averages are invoice outflows at that warehouse (calendar days, no
 in-stock adjustment). `velocity_by_channel` is the 30-day unit split per sales
@@ -359,7 +384,7 @@ priority             = no_demand (rate <= 0) | critical (due <= 0)
 
 Rows are sorted by priority severity, then `ship_due_in_days` ascending.
 `planning_base`: `needs_replenishment` (default; ship or assembly qty > 0),
-`actively_sold_only` (units sold in 30 days or component demand), `all`.
+`actively_sold_only` (units sold in 30 days, component demand or outbound transfers), `all`.
 `planning_source` is `SHIP`, `ASSEMBLE_AT_WAREHOUSE` (assembly orders at this
 warehouse in 365 days) or `COMPONENT` (needed only as a component here;
 `include_components = false` drops these). `typical_origin_warehouse_*` and
@@ -384,6 +409,12 @@ When no rows come back and the company has no fulfillment warehouse,
 ---
 
 ## 7. Change log
+
+- **2026-11-19** — Warehouse restock demand is total turnover: invoice sales +
+  outbound transfers + component consumption (ClickHouse migration 0089). New
+  inputs `include_transfers`, `transfer_routes`, `include_demand_breakdown`; new
+  outputs `daily_turnover_rate`, `transfer_daily_rate`, `transfer_rate_by_route`,
+  `demand_breakdown` and transfer fields on `supply_chain_list_fulfillment_warehouses`.
 
 - **2026-11-17** — Added `supply_chain_list_fulfillment_warehouses` and
   `supply_chain_list_warehouse_restock_candidates` (non-FBA warehouse
