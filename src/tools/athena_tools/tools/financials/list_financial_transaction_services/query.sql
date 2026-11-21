@@ -21,6 +21,10 @@ WITH params AS (
 src AS (
     SELECT
         CASE
+            WHEN replaceRegexpOne(lowerUTF8(trimBoth(coalesce(s.name, ''))),
+                     '^(amazon mcf |non-amazon |amazon |shopify )', '')
+                 IN ('principal chargeback refund', 'commission chargeback refund', 'refundcommission chargeback refund')
+                THEN 'ChargebackRefund:' || i.amount_type
             WHEN i.amount_type IN ('Base', 'BaseTax', 'Promo')
                 THEN i.amount_type || ':' || COALESCE(i.description, '')
             WHEN i.amount_type = 'FBADisposalFee' AND toDate(b.date) < toDate('2026-06-19')

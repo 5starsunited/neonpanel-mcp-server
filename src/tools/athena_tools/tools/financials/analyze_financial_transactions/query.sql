@@ -59,6 +59,9 @@ source_rows AS (
 all_lines AS (
     SELECT
         CASE
+            WHEN service_key IN ('principal chargeback refund', 'commission chargeback refund',
+                                 'refundcommission chargeback refund')
+                THEN 'ChargebackRefund:' || breakdown_type
             WHEN breakdown_type IN ('Base', 'BaseTax', 'Promo')
                 THEN breakdown_type || ':' || COALESCE(description, '')
             WHEN breakdown_type = 'FBADisposalFee' AND posted_date_day < toDate('2026-06-19')
@@ -71,6 +74,7 @@ all_lines AS (
         multiIf(startsWith(service_name, 'non-amazon '), 'MFN',
                 startsWith(service_name, 'amazon mcf '), 'MCF', 'AFN') AS fulfillment_network,
         replaceRegexpOne(service_name, '^(amazon mcf |non-amazon |amazon |shopify )', '') AS service_key,
+        replaceRegexpOne(service_key, ' (order|refund|other-transaction|liquidations)$', '') AS service_token,
         currency,
         posted_date_day,
         amount
@@ -82,6 +86,7 @@ priced_lines AS (
         l.match_key,
         l.fulfillment_network,
         l.service_key,
+        l.service_token,
         COALESCE(l.currency, 'UNKNOWN') AS currency,
         l.posted_date_day,
         l.amount,
@@ -120,10 +125,10 @@ resolved AS (
         l.amount              AS amount,
         l.amount_consolidated AS amount_consolidated,
         l.fx_missing          AS fx_missing,
-        COALESCE(ms.summary_class,    mw.summary_class,    sc.summary_class)    AS summary_class,
-        COALESCE(ms.summary_subclass, mw.summary_subclass, sc.summary_subclass) AS summary_subclass,
-        COALESCE(ms.class_order,      mw.class_order,      sc.class_order)      AS class_order,
-        COALESCE(ms.subclass_order,   mw.subclass_order,   sc.subclass_order)   AS subclass_order
+        COALESCE(ms.summary_class,    mw.summary_class,    sc.summary_class,    st.summary_class)    AS summary_class,
+        COALESCE(ms.summary_subclass, mw.summary_subclass, sc.summary_subclass, st.summary_subclass) AS summary_subclass,
+        COALESCE(ms.class_order,      mw.class_order,      sc.class_order,      st.class_order)      AS class_order,
+        COALESCE(ms.subclass_order,   mw.subclass_order,   sc.subclass_order,   st.subclass_order)   AS subclass_order
     FROM priced_lines l
     LEFT JOIN transaction_class_map ms
       ON ms.match_key = l.match_key
@@ -134,6 +139,7 @@ resolved AS (
      AND mw.sign = CASE WHEN l.amount >= 0 THEN 'POS' ELSE 'NEG' END
      AND mw.fulfillment = '*'
     LEFT JOIN service_class_map sc ON sc.service_key = l.service_key
+    LEFT JOIN service_class_map st ON st.service_key = l.service_token
 ),
 combined AS (
     SELECT
