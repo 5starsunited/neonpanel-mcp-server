@@ -182,7 +182,7 @@ export function registerFinancialsAnalyzeFinancialTransactionsTool(registry: Too
   registry.register({
     name: 'financials_analyze_financial_transactions',
     description:
-      'Analyzes Amazon SP-API financial transactions summarized into summary_class / summary_subclass from the same current-generation ClickHouse source used by Profit Analytics. Supports periodicity: none (default), day, week, month, quarter, or year. Date filters use the marketplace-local posted day and are inclusive. Country aliases resolve to the exact Amazon marketplace and do not include Non-Amazon/MCF transactions.',
+      'Analyzes Amazon financial transactions from processed Invoice V2, summarized into summary_class / summary_subclass (coverage limited to companies/periods loaded into Invoice V2). Supports periodicity: none (default), day, week, month, quarter, or year. Date filters use the marketplace-local posted day and are inclusive. Country aliases resolve to the exact Amazon marketplace and do not include Non-Amazon/MCF transactions.',
     isConsequential: false,
     inputSchema,
     outputSchema: specJson?.outputSchema ?? { type: 'object', additionalProperties: true },

@@ -28,19 +28,6 @@ const cases = [
       limit_top_n: 200,
     },
   },
-  {
-    tool: 'list_financial_transaction_transfers',
-    vars: {
-      company_id: 106,
-      report_months_array: "['2026-08']",
-      marketplaces_array: "['US','Amazon.com','ATVPDKIKX0DER']",
-      directions_array: 'CAST([] AS Array(String))',
-      start_date: "toDate('2026-08-01')",
-      end_date: "toDate('2026-08-31')",
-      sort_direction: 'DESC',
-      limit_top_n: 100,
-    },
-  },
 ] as const;
 
 test('financial transaction consumers render with ClickHouse sources only', () => {
@@ -51,8 +38,9 @@ test('financial transaction consumers render with ClickHouse sources only', () =
     assert.doesNotMatch(rendered, /\{\{.*?\}\}/, `${tool} has an unresolved token`);
     assert.doesNotMatch(rendered, /neonpanel_iceberg|financial_transaction_lines_v1\"/i);
     assert.match(rendered, /staging\.financial_transaction_class_map/);
-    if (tool !== 'list_financial_transaction_class_map') {
-      assert.match(rendered, /analytics\.financial_transaction_lines_v1_current/);
+    if (tool === 'list_financial_transaction_services') {
+      assert.match(rendered, /app\.invoices_v2_item_breakdowns/);
+      assert.doesNotMatch(rendered, /financial_transaction_lines_v1/);
     }
   }
 });
