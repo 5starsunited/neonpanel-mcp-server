@@ -14,6 +14,15 @@
 --   kpi_click_share      = asin_click_share      (as reported by Amazon)
 --   kpi_cart_add_rate    = total_cart_add_rate   (MARKET rate, not ASIN-level)
 --   kpi_purchase_rate    = total_purchase_rate   (MARKET rate, not ASIN-level)
+-- Amazon reports every *_share / *_rate column as a PERCENTAGE (2.63 = 2.63%).
+-- They are divided by 100 on read so child rows use the same fractional unit
+-- as the parent rows (computed from counts) and as etl.ba_ryg_thresholds
+-- (e.g. 0.05 = 5% impression share).
+--
+-- parent_asin: the ingest stores the literal string 'undefined' for children
+-- with no known parent. It is treated like an empty value (the child falls back
+-- to its own ASIN); otherwise every orphan child was rolled into one bogus
+-- 'undefined' parent row.
 --   kpi_ctr_advantage    = click_share / impression_share  (a RATIO, not a delta)
 --
 -- Fields absent from the typed staging columns are recovered from raw_payload,
@@ -95,7 +104,7 @@ base_child AS (
         ifNull(companies.name, 'unknown') AS company,
         lower(ifNull(marketplace.marketplace_name, 'unknown')) AS marketplace,
         lower(ifNull(marketplace.country_code, 'unknown')) AS marketplace_country_code,
-        ifNull(nullIf(sqp.parent_asin, ''), sqp.asin) AS parent_asin,
+        if(lower(trim(ifNull(sqp.parent_asin, ''))) IN ('', 'undefined', 'null', 'none'), sqp.asin, sqp.parent_asin) AS parent_asin,
         ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
         ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         ifNull(nullIf(sqp.brand, ''), 'unknown') AS brand,
@@ -105,22 +114,22 @@ base_child AS (
         JSONExtract(sqp.raw_payload, 'rspec_marketplaceids', 'Array(String)') AS rspec_marketplaceids,
         sqp.asin AS asin,
         CAST(sqp.asin_cart_add_count AS Nullable(Int64)) AS cartadddata_asincartaddcount,
-        CAST(sqp.asin_cart_add_share AS Nullable(Float64)) AS cartadddata_asincartaddshare,
+        CAST(sqp.asin_cart_add_share / 100 AS Nullable(Float64)) AS cartadddata_asincartaddshare,
         JSONExtract(sqp.raw_payload, 'cartadddata_asinmediancartaddprice_amount', 'Nullable(Float64)') AS cartadddata_asinmediancartaddprice_amount,
         JSONExtract(sqp.raw_payload, 'cartadddata_asinmediancartaddprice_currencycode', 'Nullable(String)') AS cartadddata_asinmediancartaddprice_currencycode,
         CAST(sqp.total_cart_add_count AS Nullable(Int64)) AS cartadddata_totalcartaddcount,
-        CAST(sqp.total_cart_add_rate AS Nullable(Float64)) AS cartadddata_totalcartaddrate,
+        CAST(sqp.total_cart_add_rate / 100 AS Nullable(Float64)) AS cartadddata_totalcartaddrate,
         JSONExtract(sqp.raw_payload, 'cartadddata_totalmediancartaddprice_amount', 'Nullable(Float64)') AS cartadddata_totalmediancartaddprice_amount,
         JSONExtract(sqp.raw_payload, 'cartadddata_totalmediancartaddprice_currencycode', 'Nullable(String)') AS cartadddata_totalmediancartaddprice_currencycode,
         JSONExtract(sqp.raw_payload, 'cartadddata_totalonedayshippingcartaddcount', 'Nullable(Int64)') AS cartadddata_totalonedayshippingcartaddcount,
         JSONExtract(sqp.raw_payload, 'cartadddata_totalsamedayshippingcartaddcount', 'Nullable(Int64)') AS cartadddata_totalsamedayshippingcartaddcount,
         JSONExtract(sqp.raw_payload, 'cartadddata_totaltwodayshippingcartaddcount', 'Nullable(Int64)') AS cartadddata_totaltwodayshippingcartaddcount,
         CAST(sqp.asin_click_count AS Nullable(Int64)) AS clickdata_asinclickcount,
-        CAST(sqp.asin_click_share AS Nullable(Float64)) AS clickdata_asinclickshare,
+        CAST(sqp.asin_click_share / 100 AS Nullable(Float64)) AS clickdata_asinclickshare,
         JSONExtract(sqp.raw_payload, 'clickdata_asinmedianclickprice_amount', 'Nullable(Float64)') AS clickdata_asinmedianclickprice_amount,
         JSONExtract(sqp.raw_payload, 'clickdata_asinmedianclickprice_currencycode', 'Nullable(String)') AS clickdata_asinmedianclickprice_currencycode,
         CAST(sqp.total_click_count AS Nullable(Int64)) AS clickdata_totalclickcount,
-        CAST(sqp.total_click_rate AS Nullable(Float64)) AS clickdata_totalclickrate,
+        CAST(sqp.total_click_rate / 100 AS Nullable(Float64)) AS clickdata_totalclickrate,
         JSONExtract(sqp.raw_payload, 'clickdata_totalmedianclickprice_amount', 'Nullable(Float64)') AS clickdata_totalmedianclickprice_amount,
         JSONExtract(sqp.raw_payload, 'clickdata_totalmedianclickprice_currencycode', 'Nullable(String)') AS clickdata_totalmedianclickprice_currencycode,
         JSONExtract(sqp.raw_payload, 'clickdata_totalonedayshippingclickcount', 'Nullable(Int64)') AS clickdata_totalonedayshippingclickcount,
@@ -128,17 +137,17 @@ base_child AS (
         JSONExtract(sqp.raw_payload, 'clickdata_totaltwodayshippingclickcount', 'Nullable(Int64)') AS clickdata_totaltwodayshippingclickcount,
         CAST(parseDateTimeBestEffortOrNull(JSONExtractString(sqp.raw_payload, 'enddate')) AS Nullable(DateTime64(3))) AS enddate,
         CAST(sqp.asin_impression_count AS Nullable(Int64)) AS impressiondata_asinimpressioncount,
-        CAST(sqp.asin_impression_share AS Nullable(Float64)) AS impressiondata_asinimpressionshare,
+        CAST(sqp.asin_impression_share / 100 AS Nullable(Float64)) AS impressiondata_asinimpressionshare,
         CAST(sqp.total_query_impression_count AS Nullable(Int64)) AS impressiondata_totalqueryimpressioncount,
         JSONExtract(sqp.raw_payload, 'purchasedata_asinmedianpurchaseprice_amount', 'Nullable(Float64)') AS purchasedata_asinmedianpurchaseprice_amount,
         JSONExtract(sqp.raw_payload, 'purchasedata_asinmedianpurchaseprice_currencycode', 'Nullable(String)') AS purchasedata_asinmedianpurchaseprice_currencycode,
         CAST(sqp.asin_purchase_count AS Nullable(Int64)) AS purchasedata_asinpurchasecount,
-        CAST(sqp.asin_purchase_share AS Nullable(Float64)) AS purchasedata_asinpurchaseshare,
+        CAST(sqp.asin_purchase_share / 100 AS Nullable(Float64)) AS purchasedata_asinpurchaseshare,
         JSONExtract(sqp.raw_payload, 'purchasedata_totalmedianpurchaseprice_amount', 'Nullable(Float64)') AS purchasedata_totalmedianpurchaseprice_amount,
         JSONExtract(sqp.raw_payload, 'purchasedata_totalmedianpurchaseprice_currencycode', 'Nullable(String)') AS purchasedata_totalmedianpurchaseprice_currencycode,
         JSONExtract(sqp.raw_payload, 'purchasedata_totalonedayshippingpurchasecount', 'Nullable(Int64)') AS purchasedata_totalonedayshippingpurchasecount,
         CAST(sqp.total_purchase_count AS Nullable(Int64)) AS purchasedata_totalpurchasecount,
-        CAST(sqp.total_purchase_rate AS Nullable(Float64)) AS purchasedata_totalpurchaserate,
+        CAST(sqp.total_purchase_rate / 100 AS Nullable(Float64)) AS purchasedata_totalpurchaserate,
         JSONExtract(sqp.raw_payload, 'purchasedata_totalsamedayshippingpurchasecount', 'Nullable(Int64)') AS purchasedata_totalsamedayshippingpurchasecount,
         JSONExtract(sqp.raw_payload, 'purchasedata_totaltwodayshippingpurchasecount', 'Nullable(Int64)') AS purchasedata_totaltwodayshippingpurchasecount,
         sqp.search_query AS searchquerydata_searchquery,
@@ -150,10 +159,10 @@ base_child AS (
         sqp.amazon_seller_id AS amazon_seller_id,
         sqp.week_start AS week_start,
         -- KPI base calculations (ported verbatim; see header)
-        CAST(sqp.asin_impression_share AS Nullable(Float64)) AS kpi_impression_share,
-        CAST(sqp.asin_click_share AS Nullable(Float64)) AS kpi_click_share,
-        CAST(sqp.total_cart_add_rate AS Nullable(Float64)) AS kpi_cart_add_rate,
-        CAST(sqp.total_purchase_rate AS Nullable(Float64)) AS kpi_purchase_rate,
+        CAST(sqp.asin_impression_share / 100 AS Nullable(Float64)) AS kpi_impression_share,
+        CAST(sqp.asin_click_share / 100 AS Nullable(Float64)) AS kpi_click_share,
+        CAST(sqp.total_cart_add_rate / 100 AS Nullable(Float64)) AS kpi_cart_add_rate,
+        CAST(sqp.total_purchase_rate / 100 AS Nullable(Float64)) AS kpi_purchase_rate,
         CAST(
             if(ifNull(sqp.asin_impression_share, 0) = 0, NULL, sqp.asin_click_share / sqp.asin_impression_share)
             AS Nullable(Float64)
@@ -204,7 +213,7 @@ base_child AS (
         )
         AND (
             length({{parent_asins_array}}) = 0
-            OR arrayExists(a -> lower(a) = lower(ifNull(nullIf(sqp.parent_asin, ''), sqp.asin)), {{parent_asins_array}})
+            OR arrayExists(a -> lower(a) = lower(if(lower(trim(ifNull(sqp.parent_asin, ''))) IN ('', 'undefined', 'null', 'none'), sqp.asin, sqp.parent_asin)), {{parent_asins_array}})
         )
         AND (length({{asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(sqp.asin), {{asins_array}}))
         AND (

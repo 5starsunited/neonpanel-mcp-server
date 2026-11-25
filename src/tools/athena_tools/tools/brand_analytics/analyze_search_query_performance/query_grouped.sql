@@ -15,7 +15,7 @@ base_child AS (
         ifNull(companies.name, 'unknown') AS company,
         lower(ifNull(marketplace.marketplace_name, 'unknown')) AS marketplace,
         lower(ifNull(marketplace.country_code, 'unknown')) AS marketplace_country_code,
-        ifNull(nullIf(sqp.parent_asin, ''), sqp.asin) AS parent_asin,
+        if(lower(trim(ifNull(sqp.parent_asin, ''))) IN ('', 'undefined', 'null', 'none'), sqp.asin, sqp.parent_asin) AS parent_asin,
         ifNull(cls.revenue_abcd_class, 'D') AS revenue_abcd_class,
         ifNull(cls.pareto_abc_class, 'C') AS pareto_abc_class,
         ifNull(nullIf(sqp.brand, ''), 'unknown') AS brand,
@@ -66,7 +66,7 @@ base_child AS (
         )
         AND (
             length({{parent_asins_array}}) = 0
-            OR arrayExists(a -> lower(a) = lower(ifNull(nullIf(sqp.parent_asin, ''), sqp.asin)), {{parent_asins_array}})
+            OR arrayExists(a -> lower(a) = lower(if(lower(trim(ifNull(sqp.parent_asin, ''))) IN ('', 'undefined', 'null', 'none'), sqp.asin, sqp.parent_asin)), {{parent_asins_array}})
         )
         AND (length({{asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(sqp.asin), {{asins_array}}))
         AND (
