@@ -1,6 +1,6 @@
 {
   "name": "brand_analytics_analyze_search_query_performance",
-  "description": "Analyzes Search Query Performance (SQP) using a precomputed snapshot. Returns KPI metrics, deltas, efficiency ratios (click-through and conversion), diagnostic scenario classification (A: visibility, B: creative, C: conversion, D: protect), term type (branded/generic/long_tail), priority tier (1-4), and RYG signals. Supports filtering by all computed dimensions.",
+  "description": "Analyzes Search Query Performance (SQP) using a precomputed snapshot. Returns KPI metrics, deltas, efficiency ratios (click-through and conversion), diagnostic scenario classification (A: visibility, B: creative, C: conversion, D: protect), term type (branded/generic/long_tail), priority tier (1-4), and RYG signals. Supports filtering by all computed dimensions. All share, rate and kpi_* values (except ratios such as kpi_ctr_advantage and the efficiency fields) are fractions on both child and parent rows: 0.05 means 5%.",
   "isConsequential": false,
   "inputSchema": {
     "type": "object",

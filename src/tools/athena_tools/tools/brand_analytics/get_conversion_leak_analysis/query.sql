@@ -13,7 +13,8 @@ WITH {{asin_class_cte_sql}},
 raw AS (
     SELECT
         sqp.asin AS asin,
-        sqp.parent_asin AS parent_asin,
+        -- The ingest stores 'undefined' for an unknown parent; report it as empty.
+        if(lower(trim(ifNull(sqp.parent_asin, ''))) IN ('undefined', 'null', 'none'), '', ifNull(sqp.parent_asin, '')) AS parent_asin,
         sqp.brand AS brand,
         sqp.title AS title,
         sqp.product_family AS product_family,
@@ -44,7 +45,7 @@ raw AS (
             )
         )
         AND (length({{asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(sqp.asin), {{asins_array}}))
-        AND (length({{parent_asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(ifNull(sqp.parent_asin, '')), {{parent_asins_array}}))
+        AND (length({{parent_asins_array}}) = 0 OR arrayExists(a -> lower(a) = lower(if(lower(trim(ifNull(sqp.parent_asin, ''))) IN ('undefined', 'null', 'none'), '', ifNull(sqp.parent_asin, ''))), {{parent_asins_array}}))
         AND (length({{brands_array}}) = 0 OR arrayExists(b -> lower(b) = lower(ifNull(sqp.brand, '')), {{brands_array}}))
         AND (length({{revenue_abcd_class_array}}) = 0 OR arrayExists(c -> upper(c) = upper(ifNull(cls.revenue_abcd_class, '')), {{revenue_abcd_class_array}}))
         AND (length({{pareto_abc_class_array}}) = 0 OR arrayExists(c -> upper(c) = upper(ifNull(cls.pareto_abc_class, '')), {{pareto_abc_class_array}}))

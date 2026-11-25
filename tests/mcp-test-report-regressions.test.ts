@@ -47,3 +47,29 @@ test('sales performance no longer emits a currency-less UNKNOWN row for known ma
     assert.ok(props[col], `outputSchema missing ${col}`);
   }
 });
+
+test('SQP child rows convert Amazon percentages to fractions', () => {
+  const sql = read('brand_analytics/analyze_search_query_performance/query.sql');
+  for (const col of [
+    'asin_impression_share', 'asin_click_share', 'asin_cart_add_share', 'asin_purchase_share',
+    'total_click_rate', 'total_cart_add_rate', 'total_purchase_rate',
+  ]) {
+    assert.ok(
+      !sql.includes(`CAST(sqp.${col} AS Nullable(Float64))`),
+      `${col} is read without the /100 percentage-to-fraction conversion`,
+    );
+  }
+  assert.match(sql, /CAST\(sqp\.asin_click_share \/ 100 AS Nullable\(Float64\)\) AS kpi_click_share/);
+});
+
+test("a placeholder 'undefined' parent ASIN is treated as missing", () => {
+  for (const [rel, alias] of [
+    ['brand_analytics/analyze_search_query_performance/query.sql', 'sqp'],
+    ['brand_analytics/analyze_search_query_performance/query_grouped.sql', 'sqp'],
+    ['brand_analytics/analyze_search_catalog_performance/query.sql', 'scp'],
+  ] as const) {
+    const sql = read(rel);
+    assert.ok(!sql.includes(`ifNull(nullIf(${alias}.parent_asin, ''), ${alias}.asin)`), `${rel} still only treats '' as missing`);
+    assert.ok(sql.includes("'undefined'"), `${rel} does not handle the 'undefined' placeholder`);
+  }
+});
