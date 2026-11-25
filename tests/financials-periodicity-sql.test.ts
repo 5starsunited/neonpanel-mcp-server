@@ -85,7 +85,8 @@ test('register.ts exposes periodicity and the full ClickHouse bucket set', () =>
 test('canonical tool uses the report-aligned ClickHouse source and marketplace scope', () => {
   assert.equal(toolSpec.name, 'financials_analyze_financial_transactions');
   assert.doesNotMatch(`${register}\n${registry}\n${toolSpec.description}`, /financials_analyze_financial_transactions_ch/);
-  assert.match(sql, /FROM analytics\.financial_transaction_lines_v1_current r/);
+  assert.match(sql, /FROM app\.invoices_v2 h/);
+  assert.doesNotMatch(sql, /financial_transaction_lines_v1/);
   assert.doesNotMatch(register, /MCF_MARKETPLACES|A2ZV50J4W1RKNI/);
   assert.match(toolSpec.description, /do not include Non-Amazon\/MCF/);
   assert.match(sql, /r\.posted_date_day >= p\.start_date/);

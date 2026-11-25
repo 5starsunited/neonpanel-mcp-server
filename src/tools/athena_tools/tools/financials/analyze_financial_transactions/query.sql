@@ -1,5 +1,9 @@
 -- Tool: financials_analyze_financial_transactions
--- Source: the live current-generation ClickHouse view used by Profit Analytics.
+-- Source: Invoice V2 (app.invoices_v2 / _items / _item_breakdowns), the processed invoice layer
+-- that replaced the retired SP-API financial transaction lines. Classification uses the same
+-- staging.financial_transaction_class_map (match_key x sign x fulfillment) with the
+-- staging.service_summary_class_map service fallback, as the Amazon Profitability source does.
+-- Coverage is limited to companies/periods loaded into Invoice V2. Amounts are native currency.
 -- The optional {{period_expr}} adds day/week/month/quarter/year time buckets;
 -- periodicity='none' preserves the class/subclass/currency report shape.
 WITH params AS (
@@ -19,14 +23,31 @@ fx AS (
     FROM {{database}}.currency_rates
     GROUP BY lower(currency), date
 ),
+v2_lines AS (
+    SELECT
+        toInt64(h.company_id)                                        AS company_id,
+        formatDateTime(toDate(b.date), '%Y-%m')                      AS posted_month,
+        toDate(b.date)                                               AS posted_date_day,
+        coalesce(m.amazon_marketplace_id, '')                        AS marketplace_id,
+        coalesce(m.name, '')                                         AS marketplace_name,
+        i.amount_type                                                AS breakdown_type,
+        i.description                                                AS description,
+        lowerUTF8(trimBoth(coalesce(s.name, '')))                    AS service_name,
+        upper(b.currency)                                            AS currency,
+        toFloat64(b.amount)                                          AS amount
+    FROM app.invoices_v2 h
+    INNER JOIN app.invoices_v2_items i ON i.invoice_id = h.id
+    INNER JOIN app.invoices_v2_item_breakdowns b ON b.item_id = i.id AND b.invoice_id = h.id
+    LEFT JOIN app.services s ON toInt64(s.id) = toInt64(i.service_id)
+    LEFT JOIN app.amazon_marketplaces m ON toInt64(m.id) = toInt64(h.marketplace_id)
+    WHERE h.source = 'amazon'
+      AND toInt64(h.company_id) = (SELECT company_id FROM params)
+),
 source_rows AS (
     SELECT r.*
-    -- The serving view keeps the latest generation per company/transaction and excludes
-    -- tombstones. Supporting dimensions remain in the configured ClickHouse database.
-    FROM analytics.financial_transaction_lines_v1_current r
+    FROM v2_lines r
     CROSS JOIN params p
-    WHERE toInt64(r.company_id) = p.company_id
-      AND (length(p.report_months) = 0 OR has(p.report_months, r.posted_month))
+    WHERE (length(p.report_months) = 0 OR has(p.report_months, r.posted_month))
       AND (
           length(p.marketplaces) = 0
           OR arrayExists(m -> lower(m) = lower(r.marketplace_name), p.marketplaces)
@@ -38,27 +59,34 @@ source_rows AS (
 all_lines AS (
     SELECT
         CASE
-            WHEN breakdown_type IN ('Base', 'BaseTax')
-                THEN breakdown_type || ':' || COALESCE(description, '')
-            WHEN breakdown_type = 'Promo' AND transaction_type = 'ServiceFee'
+            WHEN service_key IN ('principal chargeback refund', 'commission chargeback refund',
+                                 'refundcommission chargeback refund')
+                THEN 'ChargebackRefund:' || breakdown_type
+            WHEN breakdown_type IN ('Base', 'BaseTax', 'Promo')
                 THEN breakdown_type || ':' || COALESCE(description, '')
             WHEN breakdown_type = 'FBADisposalFee' AND posted_date_day < toDate('2026-06-19')
                 THEN 'FBADisposalFee:legacy'
-            WHEN breakdown_type = 'Tax' AND transaction_type = 'Adjustment'
+            WHEN breakdown_type = 'Tax'
+                 AND (description = 'Adjustment' OR endsWith(service_name, ' adjustment'))
                 THEN breakdown_type || ':' || COALESCE(description, '')
             ELSE breakdown_type
         END                    AS match_key,
-        fulfillment_network,
+        multiIf(startsWith(service_name, 'non-amazon '), 'MFN',
+                startsWith(service_name, 'amazon mcf '), 'MCF', 'AFN') AS fulfillment_network,
+        replaceRegexpOne(service_name, '^(amazon mcf |non-amazon |amazon |shopify )', '') AS service_key,
+        replaceRegexpOne(service_key, ' (order|refund|other-transaction|liquidations)$', '') AS service_token,
         currency,
         posted_date_day,
-        toFloat64(amount)      AS amount
+        amount
     FROM source_rows
-    WHERE amount IS NOT NULL AND amount <> 0
+    WHERE amount <> 0
 ),
 priced_lines AS (
     SELECT
         l.match_key,
         l.fulfillment_network,
+        l.service_key,
+        l.service_token,
         COALESCE(l.currency, 'UNKNOWN') AS currency,
         l.posted_date_day,
         l.amount,
@@ -83,6 +111,12 @@ transaction_class_map AS (
     SELECT match_key, sign, fulfillment, summary_class, summary_subclass, class_order, subclass_order
     FROM {{database}}.financial_transaction_class_map
 ),
+service_class_map AS (
+    SELECT service_key, summary_class, summary_subclass, class_order, subclass_order
+    FROM {{database}}.service_summary_class_map
+    ORDER BY service_key, summary_class, summary_subclass
+    LIMIT 1 BY service_key
+),
 resolved AS (
     SELECT
         l.match_key           AS match_key,
@@ -91,10 +125,10 @@ resolved AS (
         l.amount              AS amount,
         l.amount_consolidated AS amount_consolidated,
         l.fx_missing          AS fx_missing,
-        COALESCE(ms.summary_class,    mw.summary_class)    AS summary_class,
-        COALESCE(ms.summary_subclass, mw.summary_subclass) AS summary_subclass,
-        COALESCE(ms.class_order,      mw.class_order)      AS class_order,
-        COALESCE(ms.subclass_order,   mw.subclass_order)   AS subclass_order
+        COALESCE(ms.summary_class,    mw.summary_class,    sc.summary_class,    st.summary_class)    AS summary_class,
+        COALESCE(ms.summary_subclass, mw.summary_subclass, sc.summary_subclass, st.summary_subclass) AS summary_subclass,
+        COALESCE(ms.class_order,      mw.class_order,      sc.class_order,      st.class_order)      AS class_order,
+        COALESCE(ms.subclass_order,   mw.subclass_order,   sc.subclass_order,   st.subclass_order)   AS subclass_order
     FROM priced_lines l
     LEFT JOIN transaction_class_map ms
       ON ms.match_key = l.match_key
@@ -104,6 +138,8 @@ resolved AS (
       ON mw.match_key = l.match_key
      AND mw.sign = CASE WHEN l.amount >= 0 THEN 'POS' ELSE 'NEG' END
      AND mw.fulfillment = '*'
+    LEFT JOIN service_class_map sc ON sc.service_key = l.service_key
+    LEFT JOIN service_class_map st ON st.service_key = l.service_token
 ),
 combined AS (
     SELECT

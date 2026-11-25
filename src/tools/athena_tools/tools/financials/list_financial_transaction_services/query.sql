@@ -3,11 +3,10 @@
 --          financial transactions -- what each service is, which transactions it comes from,
 --          and how it classifies into summary classes.
 --
--- Source: analytics.financial_transaction_lines_v1_current (long/leaf-grain; one row per
--- breakdown leaf). A "service" == the classification key (match_key): the verbatim Amazon
--- breakdownType, a composite '<type>:<description>' for ambiguous leaves, or
--- 'TXN:<transactionType>[:<description>]' for breakdown-less transactions. The CASE below MUST
--- stay in sync with financial_transaction_ledger_v1 / financials_analyze_financial_transactions.
+-- Source: Invoice V2 (app.invoices_v2 / _items / _item_breakdowns), one row per breakdown. A
+-- "service" == the classification key (match_key): the Amazon amount_type, or a composite
+-- '<type>:<description>' for ambiguous leaves. The CASE below MUST stay in sync with
+-- financials_analyze_financial_transactions. Coverage is limited to Invoice V2 companies/periods.
 --
 -- No amounts are returned -- this is a metadata catalog (line/transaction counts only).
 
@@ -22,28 +21,38 @@ WITH params AS (
 src AS (
     SELECT
         CASE
-            WHEN r.breakdown_type IN ('Base', 'BaseTax')
-                THEN r.breakdown_type || ':' || COALESCE(r.description, '')
-            WHEN r.breakdown_type = 'Promo' AND r.transaction_type = 'ServiceFee'
-                THEN r.breakdown_type || ':' || COALESCE(r.description, '')
-            WHEN r.breakdown_type = 'FBADisposalFee' AND r.posted_date_day < toDate('2026-06-19')
+            WHEN replaceRegexpOne(lowerUTF8(trimBoth(coalesce(s.name, ''))),
+                     '^(amazon mcf |non-amazon |amazon |shopify )', '')
+                 IN ('principal chargeback refund', 'commission chargeback refund', 'refundcommission chargeback refund')
+                THEN 'ChargebackRefund:' || i.amount_type
+            WHEN i.amount_type IN ('Base', 'BaseTax', 'Promo')
+                THEN i.amount_type || ':' || COALESCE(i.description, '')
+            WHEN i.amount_type = 'FBADisposalFee' AND toDate(b.date) < toDate('2026-06-19')
                 THEN 'FBADisposalFee:legacy'
-            WHEN r.breakdown_type = 'Tax' AND r.transaction_type = 'Adjustment'
-                THEN r.breakdown_type || ':' || COALESCE(r.description, '')
-            ELSE r.breakdown_type
+            WHEN i.amount_type = 'Tax'
+                 AND (i.description = 'Adjustment'
+                      OR endsWith(lowerUTF8(trimBoth(coalesce(s.name, ''))), ' adjustment'))
+                THEN i.amount_type || ':' || COALESCE(i.description, '')
+            ELSE i.amount_type
         END                                        AS service_key,
-        r.line_kind,
-        r.transaction_type,
-        r.description,
-        r.fulfillment_network,
-        r.posted_month,
-        r.transaction_id,
-        r.amount
-    FROM analytics.financial_transaction_lines_v1_current r
+        'breakdown'                                AS line_kind,
+        coalesce(s.name, '')                       AS transaction_type,
+        i.description                              AS description,
+        multiIf(startsWith(lowerUTF8(trimBoth(coalesce(s.name, ''))), 'non-amazon '), 'MFN',
+                startsWith(lowerUTF8(trimBoth(coalesce(s.name, ''))), 'amazon mcf '), 'MCF', 'AFN')
+                                                   AS fulfillment_network,
+        formatDateTime(toDate(b.date), '%Y-%m')    AS posted_month,
+        h.id                                       AS transaction_id,
+        toFloat64(b.amount)                        AS amount
+    FROM app.invoices_v2 h
+    INNER JOIN app.invoices_v2_items i ON i.invoice_id = h.id
+    INNER JOIN app.invoices_v2_item_breakdowns b ON b.item_id = i.id AND b.invoice_id = h.id
+    LEFT JOIN app.services s ON toInt64(s.id) = toInt64(i.service_id)
     CROSS JOIN params p
-        WHERE toInt64(r.company_id) = p.company_id
-            AND (length(p.report_months) = 0 OR has(p.report_months, r.posted_month))
-      AND r.amount IS NOT NULL AND r.amount <> 0
+    WHERE h.source = 'amazon'
+      AND toInt64(h.company_id) = p.company_id
+      AND (length(p.report_months) = 0 OR has(p.report_months, formatDateTime(toDate(b.date), '%Y-%m')))
+      AND b.amount <> 0
 ),
 agg AS (
     SELECT
