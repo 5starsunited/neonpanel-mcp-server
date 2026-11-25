@@ -170,6 +170,23 @@ base_child AS (
         ON toString(companies.id) = toString(sqp.company_id)
     WHERE
         has({{company_ids_array}}, sqp.company_id)
+        -- Bound the scan before the ~30 raw_payload JSON extractions above run.
+        -- Without this, base_child parsed the company's ENTIRE SQP history (and,
+        -- because CTEs are inlined, did so once per reference), which is the most
+        -- likely reason even a limit-3 request failed with HTTP 500. The bound is
+        -- the requested window + the 12-week baseline lookback + 8 weeks of slack,
+        -- anchored on the company's latest week from a week_start-only scan. The
+        -- slack keeps date_bounds' "latest week" right when a filtered marketplace
+        -- or term lags the company's newest data by a few weeks.
+        AND sqp.week_start >= (
+            SELECT addWeeks(
+                ifNull({{start_date_sql}}, addWeeks(max(b.week_start), -1 * ({{periods_back}} - 1))),
+                -20
+            )
+            FROM etl.ba_search_query_performance AS b
+            WHERE has({{company_ids_array}}, b.company_id)
+        )
+        AND (isNull({{end_date_sql}}) OR sqp.week_start <= {{end_date_sql}})
         AND (
             length({{search_terms_array}}) = 0
             OR arrayExists(t -> lower(t) = lower(sqp.search_query), {{search_terms_array}})

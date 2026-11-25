@@ -297,8 +297,21 @@ export function registerBrandAnalyticsGetKeywordFunnelMetricsTool(registry: Tool
 
       const result = await executeBrandAnalyticsQuery(rendered);
 
-      const rows = result.rows ?? [];
-      return applySelectFields(rows, selectFields);
+      // The window columns are constant per result: report them once in meta
+      // so callers can see which week the data is "as of" (SQP lags ~2 weeks).
+      const rawRows = result.rows ?? [];
+      const windowStart = rawRows[0]?._window_start ?? null;
+      const windowEnd = rawRows[0]?._window_end ?? null;
+      const rows = rawRows.map(({ _window_start, _window_end, ...rest }) => rest);
+      return {
+        ...applySelectFields(rows, selectFields),
+        meta: {
+          row_count: rows.length,
+          window_start: windowStart,
+          window_end: windowEnd,
+          data_freshness: windowEnd,
+        },
+      };
     },
   });
 }

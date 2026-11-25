@@ -216,7 +216,12 @@ export function registerAccountLookupAsinCatalogTool(registry: ToolRegistry) {
           pareto_abc_class: (record.pareto_abc_class ?? undefined) as string | undefined,
           revenue_share: toFloat(record.revenue_share),
           sibling_count: toInt(record.sibling_count),
-          is_hero: record.is_hero === true || record.is_hero === 'true',
+          // Without a revenue_share the SQL's hero test is always false, which
+          // read as "not the hero" rather than "unknown". Report unknown.
+          is_hero:
+            toFloat(record.revenue_share) === null
+              ? null
+              : record.is_hero === true || record.is_hero === 'true',
           units_30d: toFloat(record.units_30d),
           revenue_30d: toFloat(record.revenue_30d),
           avg_units_7d: toFloat(record.avg_units_7d),
@@ -235,6 +240,29 @@ export function registerAccountLookupAsinCatalogTool(registry: ToolRegistry) {
         items,
         total_rows: items.length,
       };
+
+      // Say explicitly when the snapshot carries no sales metrics, instead of
+      // leaving callers to guess what a column of nulls means.
+      const missingSales = new Map<string, number>();
+      for (const item of items) {
+        if (
+          item.revenue_30d === null &&
+          item.units_30d === null &&
+          item.avg_units_7d === null &&
+          item.revenue_share === null
+        ) {
+          const key = `company ${item.company_id ?? '?'} / ${item.marketplace || 'unknown marketplace'}`;
+          missingSales.set(key, (missingSales.get(key) ?? 0) + 1);
+        }
+      }
+      if (missingSales.size > 0) {
+        result.warnings = [...missingSales].map(
+          ([key, count]) =>
+            `${key}: revenue_30d, units_30d, avg_units_7d and revenue_share are not populated in the ` +
+            `inventory-planning snapshot for ${count} of the returned row(s), so is_hero is null. ` +
+            'Use customer_orders_list_top_performance_on_amazon or supply_chain_analyze_sales_velocity for sales figures.',
+        );
+      }
 
       if (parsed.debug) {
         result.diagnostics = {

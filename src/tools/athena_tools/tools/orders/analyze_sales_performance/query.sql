@@ -65,8 +65,38 @@ order_sales AS (
   GROUP BY i.order_id, i.company_id
 ),
 
+-- Marketplace's own currency. Orders with no priced item (replacements, free or
+-- not-yet-priced orders) carry no currency at all; they used to surface as a
+-- separate currency = 'UNKNOWN' row with gross_revenue 0 and a NULL main value.
+-- They are now counted in the marketplace's normal currency row (their value is
+-- 0, so the totals are unchanged) and reported via zero_value_orders /
+-- currency_imputed_orders.
 filtered AS (
-  SELECT f.*
+  SELECT
+    f.order_id                                   AS order_id,
+    f.company_id                                 AS company_id,
+    f.marketplace_id                             AS marketplace_id,
+    f.created_local                              AS created_local,
+    f.local_date                                 AS local_date,
+    f.fulfillment_status                         AS fulfillment_status,
+    f.fulfilled_by                               AS fulfilled_by,
+    f.order_total                                AS order_total,
+    nullIf(transform(f.marketplace_id,
+      ['ATVPDKIKX0DER', 'A2EUQ1WTGCTBG2', 'A1AM78C64UM0Y8', 'A2Q3Y263D00KWC',
+       'A1F83G8C2ARO7P', 'A1PA6795UKMFR9', 'A13V1IB3VIYZZH', 'APJ6JRA9NG5V4',
+       'A1RKKUPIHCS9HS', 'A1805IZSGTT6HS', 'AMEN7PMS3EDWL',  'A1C3SOZRARQ6R3',
+       'A2NODRKZP88ZB9', 'A33AVAJ2PDY3EV', 'A1VC38T7YXB528', 'A39IBJ37TRP1C6',
+       'A21TJRUUN4KGV',  'A19VAU5U5O7RUS', 'A2VIGQ35RCS4UG', 'A17E79C6D8DWNP',
+       'ARBP9OOSHTCHU',  'A28R8C7NBKEWEA'],
+      ['USD', 'CAD', 'MXN', 'BRL',
+       'GBP', 'EUR', 'EUR', 'EUR',
+       'EUR', 'EUR', 'EUR', 'PLN',
+       'SEK', 'TRY', 'JPY', 'AUD',
+       'INR', 'SGD', 'AED', 'SAR',
+       'EGP', 'EUR'],
+      ''), '')                                   AS marketplace_currency,
+    coalesce(f.currency, marketplace_currency)   AS currency,
+    isNull(f.currency)                           AS currency_imputed
   FROM order_sales AS f
   CROSS JOIN params AS p
   WHERE (isNull(p.start_date) OR f.local_date >= p.start_date)
@@ -99,6 +129,8 @@ bucketed AS (
     )                                           AS period_start,
     f.marketplace_id                            AS marketplace_id,
     f.currency                                  AS currency,
+    f.marketplace_currency                      AS marketplace_currency,
+    f.currency_imputed                          AS currency_imputed,
     nullIf(cm.main_currency, '')                AS main_currency,
     f.company_id                                AS company_id,
     f.order_id                                  AS order_id,
@@ -130,7 +162,10 @@ agg AS (
     countIf(fulfillment_status = 'PENDING')        AS pending_count,
     countIf(fulfillment_status = 'CANCELED')       AS canceled_count,
     countIf(fulfilled_by = 'AMAZON')               AS fba_count,
-    countIf(fulfilled_by != 'AMAZON')              AS fbm_count
+    countIf(fulfilled_by != 'AMAZON')              AS fbm_count,
+    any(marketplace_currency)                      AS marketplace_currency,
+    uniqExactIf(order_id, order_total = 0)         AS zero_value_orders,
+    uniqExactIf(order_id, currency_imputed)        AS currency_imputed_orders
   FROM bucketed
   GROUP BY period_start, marketplace_id, currency, company_id
 )
@@ -150,7 +185,17 @@ SELECT
   pending_count,
   canceled_count,
   fba_count,
-  fbm_count
+  fbm_count,
+  zero_value_orders,
+  currency_imputed_orders,
+  marketplace_currency,
+  -- A row whose currency differs from the marketplace's own is a genuine
+  -- cross-currency order (e.g. a CAD-priced order placed on amazon.com,
+  -- ATVPDKIKX0DER). It is kept, not merged, because gross_revenue is in native
+  -- currency; flag it so callers do not read it as a separate marketplace.
+  -- NULL when the marketplace's currency is not known to the tool.
+  -- Bool (not the UInt8 a comparison yields) so the JSON carries true/false.
+  CAST(if(isNull(marketplace_currency), NULL, currency = marketplace_currency) AS Nullable(Bool)) AS is_marketplace_currency
 FROM agg
 ORDER BY period_start DESC, marketplace_id, currency
 LIMIT {{limit_top_n}}
