@@ -87,7 +87,7 @@
           "properties": {
             "period_start":    { "type": "string" },
             "marketplace_id":  { "type": "string" },
-            "currency":        { "type": "string", "description": "Native currency of this marketplace row." },
+            "currency":        { "type": "string", "description": "Native currency of this row. Orders with no priced item take the marketplace's currency; 'UNKNOWN' only when that is not known either." },
             "main_currency":   { "type": ["string", "null"], "description": "Company main reporting currency (app_companies.currency)." },
             "company_id":      { "type": "string" },
             "orders":          { "type": ["integer", "null"] },
@@ -99,7 +99,11 @@
             "pending_count":   { "type": ["integer", "null"] },
             "canceled_count":  { "type": ["integer", "null"] },
             "fba_count":       { "type": ["integer", "null"] },
-            "fbm_count":       { "type": ["integer", "null"] }
+            "fbm_count":       { "type": ["integer", "null"] },
+            "zero_value_orders": { "type": ["integer", "null"], "description": "Orders in this row whose principal + shipping is 0 (e.g. replacements, free or not-yet-priced orders). Included in orders." },
+            "currency_imputed_orders": { "type": ["integer", "null"], "description": "Orders that had no currency on any item and were assigned the marketplace's currency." },
+            "marketplace_currency": { "type": ["string", "null"], "description": "The marketplace's own currency (e.g. USD for ATVPDKIKX0DER). NULL if not known to the tool." },
+            "is_marketplace_currency": { "type": ["boolean", "null"], "description": "False for a cross-currency row (e.g. a CAD-priced order placed on amazon.com). Such rows are real orders on this marketplace, kept separate because gross_revenue is in native currency; use gross_revenue_main to total across currencies." }
           }
         }
       }

@@ -149,9 +149,46 @@ const listingDetailsByAsinOutputSchema = {
       items: { type: 'object', additionalProperties: true },
     },
     synced: { type: 'boolean' },
+    notes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Caveats about the returned listings (missing marketplace, multiple marketplaces, missing bullet points).',
+    },
   },
   required: ['listingId', 'listing', 'listings', 'synced'],
 };
+
+/**
+ * Caveats the listings endpoint cannot express itself. The NeonPanel Listing
+ * object has no marketplace field, so when an ASIN is listed in several
+ * marketplaces the rows (and their parent_asin, which is per marketplace) are
+ * indistinguishable, and `listing` is simply the first row, not a chosen one.
+ */
+function listingDataNotes(listings: any[], sync: boolean): string[] {
+  const notes: string[] = [];
+  const hasMarketplace = listings.some(
+    (l) => l && (l.marketplace_id != null || l.country_code != null || l.marketplace != null),
+  );
+  if (listings.length > 1 && !hasMarketplace) {
+    const parents = [...new Set(listings.map((l) => l?.parent_asin).filter(Boolean))];
+    notes.push(
+      `This ASIN has ${listings.length} listings, but the NeonPanel listings API does not return a marketplace for each, ` +
+        "so they cannot be told apart here and 'listing' is just the first one returned. " +
+        (parents.length > 1
+          ? `parent_asin differs between them (${parents.join(', ')}) because parent ASINs are per marketplace. `
+          : '') +
+        'Use account_lookup_asin_catalog with the marketplace filter for the per-marketplace parent ASIN.',
+    );
+  }
+  const withoutBullets = listings.filter((l) => l && l.bullet_points == null).length;
+  if (withoutBullets > 0) {
+    notes.push(
+      `${withoutBullets} of ${listings.length} listing(s) have no bullet points stored in NeonPanel` +
+        (sync ? '.' : ' (cached data only; sync=true refreshes the listing from Amazon and may fill them).'),
+    );
+  }
+  return notes;
+}
 
 const listWarehousesInputSchema = z.object({
   ...companyIdentifierSchema,
@@ -609,7 +646,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
     .register({
       name: 'inventory_get_listing_details_by_asin',
       description:
-        'Find listing by ASIN and return the latest listing details, optionally syncing from Amazon (NeonPanel: GET+POST /api/v1/companies/{uuid}/listings).\n\nReturns: listingId, listing object (id, asin, parent_asin, title, brand, color, image, bullet_points grouped by language), listings array (all matches), synced (boolean).\n\nBullet points are keyed by BCP 47 language tag (e.g., en_US, de_DE) with ordered arrays of strings.\n\nWhen sync=true (default), triggers a live sync from Amazon to get the freshest data. Set sync=false to skip the sync and return cached data only.',
+        'Find listing by ASIN and return the latest listing details, optionally syncing from Amazon (NeonPanel: GET+POST /api/v1/companies/{uuid}/listings).\n\nReturns: listingId, listing object (id, asin, parent_asin, title, brand, color, image, bullet_points grouped by language), listings array (all matches), synced (boolean).\n\nBullet points are keyed by BCP 47 language tag (e.g., en_US, de_DE) with ordered arrays of strings; null means NeonPanel has none stored for that listing.\n\nListings carry no marketplace field. An ASIN listed in several marketplaces returns one row per marketplace with that marketplace\'s parent_asin, and `listing` is just the first row; use account_lookup_asin_catalog (marketplace filter) for the per-marketplace parent. A `notes` array explains these cases when they occur.\n\nWhen sync=true (default), triggers a live sync from Amazon to get the freshest data. Set sync=false to skip the sync and return cached data only.',
       isConsequential: false,
       inputSchema: listingDetailsByAsinInputSchema,
       outputSchema: listingDetailsByAsinOutputSchema,
@@ -658,6 +695,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
           : [];
         const listing = listings[0] ?? null;
         const listingId = listing && typeof listing.id === 'number' ? listing.id : null;
+        const notes = listingDataNotes(listings, Boolean(sync));
 
         if (!listingId) {
           return {
@@ -665,6 +703,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
             listing: null,
             listings,
             synced: false,
+            ...(notes.length > 0 ? { notes } : {}),
           };
         }
 
@@ -683,6 +722,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
               listing: syncedListing ?? listing,
               listings,
               synced: true,
+              ...(notes.length > 0 ? { notes } : {}),
             };
           } catch (syncError) {
             if (syncError instanceof NeonPanelApiError) {
@@ -692,6 +732,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
                 listings,
                 synced: false,
                 sync_error: syncError.details ?? syncError.message,
+                ...(notes.length > 0 ? { notes } : {}),
               } as any;
             }
             throw syncError;
@@ -703,6 +744,7 @@ export function registerNeonPanelTools(registry: ToolRegistry) {
           listing,
           listings,
           synced: false,
+          ...(notes.length > 0 ? { notes } : {}),
         };
       },
     })

@@ -233,7 +233,10 @@ final AS (
     f.*,
     ti.intent_ids AS intent_ids,
     ti.primary_intent_id AS primary_intent_id,
-    ti.primary_intent_label AS primary_intent_label
+    ti.primary_intent_label AS primary_intent_label,
+    -- Lifted into response meta by register.ts (window + "data as of" week).
+    (SELECT start_date FROM date_bounds) AS _window_start,
+    (SELECT end_date FROM date_bounds)   AS _window_end
   FROM with_funnel f
   INNER JOIN latest_period lp
     ON  f.keyword      = lp.lp_keyword
@@ -250,7 +253,12 @@ final AS (
     GROUP BY term_norm
   ) AS ti ON ti.term_norm = lower(f.keyword)
   WHERE
+    -- windowed reads one extra week for the WoW LAG. Without this bound, a
+    -- keyword absent from the newest week kept its lookback-week row as its
+    -- "latest period", so periods_back = 1 returned two different weeks.
+    f.period_start >= (SELECT start_date FROM date_bounds)
     -- Optional min_search_query_score filter
+    AND
     ({{min_search_frequency_rank}} = 0 OR f.search_query_score <= {{min_search_frequency_rank}})
     -- Optional min_impressions
     AND ({{min_impressions}} = 0 OR COALESCE(f.total_impressions, 0) >= {{min_impressions}})

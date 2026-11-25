@@ -99,7 +99,11 @@ export async function runClickHouseQuery(
   }
 
   if (statusCode < 200 || statusCode >= 300) {
-    throw new AppError(`ClickHouse query failed (HTTP ${statusCode}).`, {
+    // Put ClickHouse's own error in the message: tool callers only ever see the
+    // message, so a bare "HTTP 500" left them (and us) unable to tell a memory
+    // limit from a syntax error from a missing table.
+    const reason = summarizeClickHouseError(bodyText);
+    throw new AppError(`ClickHouse query failed (HTTP ${statusCode})${reason ? `: ${reason}` : '.'}`, {
       status: 502,
       code: 'clickhouse_query_failed',
       details: { body: bodyText.slice(0, 1000) },
@@ -200,4 +204,20 @@ export async function insertClickHouseJsonEachRow(
       details: { message: error instanceof Error ? error.message : String(error) },
     });
   }
+}
+
+/**
+ * Reduce a ClickHouse HTTP error body to one readable line, e.g.
+ * "Code: 241. DB::Exception: Memory limit (total) exceeded ... (MEMORY_LIMIT_EXCEEDED)".
+ * The body's trailing "(version x.y)" and stack-trace lines are dropped, and the
+ * result is capped so a long echoed query cannot flood the tool response.
+ */
+export function summarizeClickHouseError(body: string, maxLength = 600): string {
+  const firstLine = body
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (!firstLine) return '';
+  const cleaned = firstLine.replace(/\s*\(version [^)]*\)\s*$/, '').trim();
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength)}…` : cleaned;
 }

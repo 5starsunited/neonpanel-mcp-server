@@ -129,8 +129,11 @@
               "description": "Number of child ASINs under the same parent."
             },
             "is_hero": {
-              "type": "boolean",
-              "description": "True if this child has the highest revenue_share among siblings."
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "True if this child has the highest revenue_share among siblings. Null when revenue_share is not populated for this row, so the hero cannot be determined (see warnings)."
             },
             "units_30d": {
               "type": [
@@ -161,6 +164,13 @@
       },
       "total_rows": {
         "type": "integer"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Data-coverage notes, e.g. which company/marketplace has no sales metrics (revenue_30d, units_30d, avg_units_7d, revenue_share) in the inventory-planning snapshot."
       },
       "diagnostics": {
         "type": "object"
